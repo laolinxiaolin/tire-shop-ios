@@ -104,29 +104,330 @@ struct CustomerDetailNativeView: View {
 }
 
 struct WorkOrderDetailNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+
     let id: String
 
-    var body: some View {
-        AsyncContentView(load: { try await WorkOrdersAPI().get(id: id) }) { order in
-            List {
-                Section {
-                    RowLine(title: order.sale.customer.name, subtitle: order.sale.ref ?? order.sale.id, trailing: order.status)
-                    RowLine(title: "Bay", subtitle: order.bay ?? "-")
-                    RowLine(title: "Notes", subtitle: order.notes ?? "-")
-                }
+    @State private var order: WorkOrder?
+    @State private var loading = false
+    @State private var errorMessage: String?
+    @State private var taskDescription = ""
+    @State private var savingTask = false
+    @State private var busyTaskId: String?
+    @State private var deletingTask: WorkOrderTask?
+    @State private var editing = false
 
-                Section("Tasks") {
-                    ForEach(order.tasks) { task in
-                        Label(task.description, systemImage: task.done ? "checkmark.circle.fill" : "circle")
+    private var canManage: Bool {
+        auth.has("workorders.manage")
+    }
+
+    var body: some View {
+        Group {
+            if loading && order == nil {
+                LoadingView(label: "Loading...")
+            } else if let order {
+                content(order)
+            } else if let errorMessage {
+                RetryView(message: errorMessage) { Task { await load() } }
+            } else {
+                LoadingView(label: "Loading...")
+            }
+        }
+        .navigationTitle("Work Order")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if canManage, order != nil {
+                    Button {
+                        editing = true
+                    } label: {
+                        Label("Edit", systemImage: "slider.horizontal.3")
                     }
                 }
             }
-            .listStyle(.insetGrouped)
         }
-        .navigationTitle("Work Order")
+        .sheet(isPresented: $editing) {
+            if let order {
+                WorkOrderEditorView(order: order) {
+                    editing = false
+                    Task { await load() }
+                }
+            }
+        }
+        .alert("Delete task?", isPresented: Binding(
+            get: { deletingTask != nil },
+            set: { if !$0 { deletingTask = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { deletingTask = nil }
+            Button("Delete", role: .destructive) {
+                Task { await deleteTask() }
+            }
+        } message: {
+            Text("This removes the task from the work order.")
+        }
+        .task {
+            if order == nil { await load() }
+        }
+        .refreshable {
+            await load()
+        }
+    }
+
+    private func content(_ order: WorkOrder) -> some View {
+        List {
+            Section {
+                NavigationLink(value: AppRoute.saleDetail(order.sale.id)) {
+                    RowLine(
+                        title: order.sale.customer.name,
+                        subtitle: order.sale.ref ?? order.sale.id,
+                        trailing: AppFormat.money(order.sale.total)
+                    )
+                }
+                RowLine(title: "Status", subtitle: WorkOrderLabels.title(order.status))
+                RowLine(title: "Bay", subtitle: order.bay ?? "-")
+                RowLine(title: "Notes", subtitle: order.notes ?? "-")
+            }
+
+            if !order.sale.lines.isEmpty {
+                Section("Sale Lines") {
+                    ForEach(order.sale.lines) { line in
+                        RowLine(
+                            title: line.description,
+                            subtitle: "Qty \(line.qty) - \(line.itemType.replacingOccurrences(of: "_", with: " ").capitalized)"
+                        )
+                    }
+                }
+            }
+
+            Section("Tasks") {
+                if order.tasks.isEmpty {
+                    Text("No tasks yet.")
+                        .foregroundStyle(Theme.muted)
+                } else {
+                    ForEach(order.tasks) { task in
+                        WorkOrderTaskRow(
+                            task: task,
+                            canManage: canManage,
+                            busy: busyTaskId == task.id,
+                            onToggle: { Task { await toggleTask(task) } },
+                            onDelete: { deletingTask = task }
+                        )
+                    }
+                }
+
+                if canManage {
+                    HStack(spacing: Theme.Space.sm) {
+                        TextField("New task", text: $taskDescription)
+                            .textInputAutocapitalization(.sentences)
+                            .onSubmit {
+                                Task { await addTask() }
+                            }
+
+                        Button {
+                            Task { await addTask() }
+                        } label: {
+                            if savingTask {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "plus.circle.fill")
+                            }
+                        }
+                        .disabled(savingTask || taskDescription.nilIfBlank == nil)
+                    }
+                }
+            }
+
+            if let errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .foregroundStyle(Theme.danger)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            order = try await WorkOrdersAPI().get(id: id)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load work order."
+        }
+        loading = false
+    }
+
+    @MainActor
+    private func addTask() async {
+        guard let description = taskDescription.nilIfBlank else { return }
+        savingTask = true
+        errorMessage = nil
+        do {
+            _ = try await WorkOrdersAPI().addTask(id: id, description: description)
+            taskDescription = ""
+            await load()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not add task."
+        }
+        savingTask = false
+    }
+
+    @MainActor
+    private func toggleTask(_ task: WorkOrderTask) async {
+        busyTaskId = task.id
+        errorMessage = nil
+        do {
+            _ = try await WorkOrdersAPI().toggleTask(workOrderId: id, taskId: task.id, done: !task.done)
+            await load()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not update task."
+        }
+        busyTaskId = nil
+    }
+
+    @MainActor
+    private func deleteTask() async {
+        guard let task = deletingTask else { return }
+        deletingTask = nil
+        busyTaskId = task.id
+        errorMessage = nil
+        do {
+            _ = try await WorkOrdersAPI().deleteTask(workOrderId: id, taskId: task.id)
+            await load()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete task."
+        }
+        busyTaskId = nil
     }
 }
 
+private struct WorkOrderTaskRow: View {
+    let task: WorkOrderTask
+    let canManage: Bool
+    let busy: Bool
+    let onToggle: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            Button {
+                onToggle()
+            } label: {
+                Image(systemName: task.done ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(task.done ? Theme.success : Theme.muted)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canManage || busy)
+
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(task.description)
+                    .foregroundStyle(task.done ? Theme.muted : Theme.text)
+                    .strikethrough(task.done)
+
+                if let doneAt = task.doneAt {
+                    Text(AppFormat.dateTime(doneAt))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
+            }
+
+            Spacer()
+
+            if busy {
+                ProgressView()
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if canManage {
+                Button("Delete", role: .destructive) {
+                    onDelete()
+                }
+            }
+        }
+    }
+}
+
+private struct WorkOrderEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let order: WorkOrder
+    let onSaved: () -> Void
+
+    @State private var status: WorkOrderStatus
+    @State private var bay: String
+    @State private var notes: String
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    init(order: WorkOrder, onSaved: @escaping () -> Void) {
+        self.order = order
+        self.onSaved = onSaved
+        _status = State(initialValue: order.status)
+        _bay = State(initialValue: order.bay ?? "")
+        _notes = State(initialValue: order.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Work Order") {
+                    Picker("Status", selection: $status) {
+                        ForEach(WorkOrderLabels.statuses, id: \.0) { value, label in
+                            Text(label).tag(value)
+                        }
+                    }
+
+                    TextField("Bay", text: $bay)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+            }
+            .navigationTitle("Edit Work Order")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if saving {
+                            ProgressView()
+                        } else {
+                            Text("Save")
+                        }
+                    }
+                    .disabled(saving)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        saving = true
+        errorMessage = nil
+        do {
+            _ = try await WorkOrdersAPI().update(
+                id: order.id,
+                body: WorkOrderPatchInput(status: status, bay: bay.nilIfBlank, notes: notes.nilIfBlank)
+            )
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save work order."
+        }
+        saving = false
+    }
+}
 struct InventoryCountDetailNativeView: View {
     let id: String
 

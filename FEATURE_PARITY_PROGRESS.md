@@ -46,7 +46,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 
 ## Phase B — Admin edit/action flows (read-only → CRUD)
 (✱ = endpoints already in `Services.swift`, UI only)
-- ⬜ **Work Orders detail** ✱ — task add/toggle/delete + status (`WorkOrdersAPI.addTask/toggleTask/deleteTask/update`)
+- ✅ **Work Orders detail** ✱ — task add/toggle/delete + status (`WorkOrdersAPI.addTask/toggleTask/deleteTask/update`)
 - ⬜ **Users** ✱ — create modal, role Picker, active toggle, reset password, reset MFA
 - ⬜ **Roles** ✱ — tri-state permission editor (off/approval/granted), create/edit/delete non-system
 - ⬜ **API Keys** ✱ — create w/ scope checkboxes, one-time plaintext reveal, revoke
@@ -60,7 +60,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ⬜ **Sales** — `q`, `status`, date-range presets (`from`/`to`), sort, paging, summary footer
 - ⬜ **Returns** — `status` filter + **make rows tappable** → NEW `ReturnDetailNativeView` (`ReturnsAPI.get` ✱); void action (NEW)
 - ⬜ **Purchasing** — `q` + `status` (Containers), `q` (Suppliers)
-- ⬜ **Work Orders** — `status` filter
+- ✅ **Work Orders** — `status` filter
 
 ## Phase D — Payments & invoices
 - ⬜ **Invoice PDF** — QuickLook via `InvoicesAPI.downloadPDF` ✱ (QLPreviewController)
@@ -86,3 +86,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Plan + tracker created; explored iOS app + web UI.
 - 2026-06-30: Phase 0 tooling fixed (xcodeproj generator + verifier paths). Built Phase A simple modules: Notifications, Monthly Sales, Brand Info, Tire Attributes (all in new `TireShop/PlaceholderModules.swift` + models in `Models.swift` + APIs in `Services.swift`, wired in `Destinations.swift`/`RootViews.swift`). Plus **Web Orders** (`OrderScreens.swift`). Verifier green: 20 swift files, 26 built destinations. **Not yet compiled in Xcode** (no toolchain on Linux).
 - 2026-06-30: Added **Commissions** native ledger from `employees/commissions/page.tsx`: status filter, paginated list, sale detail navigation, `GET /employees/commissions` API wrapper, and commission models. Verifier green: 20 swift files, 27 built destinations. Next remaining Phase A: Employees, Vendors, Customer Relations (CRM). Then Phase B admin flows.
+- 2026-06-30: Added **Work Orders detail actions** on `codex/add-work-order-actions`: status/bay/notes editor, task add/toggle/delete, status-filtered list, and service wrapper fixes for the live `/work-orders` response shape.

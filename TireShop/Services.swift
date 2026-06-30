@@ -274,12 +274,13 @@ struct CommissionsAPI {
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> Paged<CommissionEntry> {
-        try await client.request("/employees/commissions\(query([
+        let qs = query([
             "employeeId": employeeId,
             "status": status,
             "page": page,
             "pageSize": pageSize
-        ]))")
+        ])
+        return try await client.request("/employees/commissions\(qs)")
     }
 }
 
@@ -436,15 +437,15 @@ struct ServicesAPI {
 struct WorkOrdersAPI {
     var client = APIClient.shared
 
-    func list(status: WorkOrderStatus? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<WorkOrder> {
-        try await client.request("/work-orders\(query(["status": status, "page": page, "pageSize": pageSize]))")
+    func list(status: WorkOrderStatus? = nil) async throws -> [WorkOrder] {
+        try await client.request("/work-orders\(query(["status": status]))")
     }
 
     func get(id: String) async throws -> WorkOrder {
         try await client.request("/work-orders/\(id)")
     }
 
-    func update(id: String, body: WorkOrderPatchInput) async throws -> WorkOrder {
+    func update(id: String, body: WorkOrderPatchInput) async throws -> EmptyResponse {
         try await client.request("/work-orders/\(id)", method: "PATCH", body: body)
     }
 
