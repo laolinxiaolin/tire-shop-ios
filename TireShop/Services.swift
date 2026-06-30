@@ -265,6 +265,24 @@ struct MonthlySalesAPI {
     }
 }
 
+struct CommissionsAPI {
+    var client = APIClient.shared
+
+    func list(
+        employeeId: String? = nil,
+        status: CommissionStatus? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<CommissionEntry> {
+        try await client.request("/employees/commissions\(query([
+            "employeeId": employeeId,
+            "status": status,
+            "page": page,
+            "pageSize": pageSize
+        ]))")
+    }
+}
+
 struct InventoryAPI {
     var client = APIClient.shared
 

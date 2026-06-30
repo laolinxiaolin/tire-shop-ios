@@ -21,6 +21,12 @@
 - Purchasing/container list and detail
 - Money, accounting, cash accounts, FET, EOD
 - Activity, approvals, users, roles, API keys, shop settings
+- Notifications list and read-state sync
+- Web orders list/detail with confirm and cancel actions
+- Tire attributes management
+- Brand info management
+- Monthly sales report
+- Commissions ledger with status filtering and sale links
 - Service picker and quote cart state
 - Tap to Pay intent loading
 - Tire filter chips and manual payment sheet equivalents
@@ -35,15 +41,9 @@
 
 These destinations exist in the original mobile registry without concrete screen components, so the Swift app keeps them navigable with the same generic placeholder behavior:
 
-- Notifications
-- Web Orders
-- Tire Attributes
-- Brand Info
 - Vendors
 - Customer Relations
-- Monthly Sales
 - Employees
-- Commissions
 
 ## Verification Needed Outside This Environment
 

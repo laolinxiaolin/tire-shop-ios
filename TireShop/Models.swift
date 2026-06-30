@@ -100,6 +100,8 @@ typealias InventoryCountStatus = String
 typealias ContainerStatus = String
 typealias AccountType = String
 typealias ApprovalStatus = String
+typealias CommissionBasis = String
+typealias CommissionStatus = String
 
 struct TireAttribute: Codable, Identifiable, Equatable {
     let id: String
@@ -1232,4 +1234,34 @@ struct MonthlySalesReport: Codable, Equatable {
     let to: String
     let rows: [MonthlySalesRow]
     let summary: MonthlySalesSummary
+}
+
+// MARK: - Employees & commissions
+
+struct CommissionEmployeeRef: Codable, Identifiable, Equatable {
+    let id: String
+    let fullName: String
+}
+
+struct CommissionSaleRef: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+    let total: Double
+}
+
+struct CommissionEntry: Codable, Identifiable, Equatable {
+    let id: String
+    let employeeId: String
+    let saleId: String?
+    let basis: CommissionBasis
+    let basisAmount: Double
+    let rate: Double
+    let amount: Double
+    let status: CommissionStatus
+    let note: String?
+    let payoutId: String?
+    let paidAt: String?
+    let createdAt: String
+    let employee: CommissionEmployeeRef?
+    let sale: CommissionSaleRef?
 }
