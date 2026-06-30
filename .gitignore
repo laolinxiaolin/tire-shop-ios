@@ -28,3 +28,7 @@ xcuserdata/
 
 # Local env files
 .env*.local
+
+# Node / Expo (leftover from the React Native app)
+node_modules/
+.expo/
