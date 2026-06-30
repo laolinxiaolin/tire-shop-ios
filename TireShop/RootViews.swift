@@ -213,6 +213,8 @@ struct DestinationView: View {
             EodNativeView()
         case "monthlySales":
             MonthlySalesNativeView()
+        case "commissions":
+            CommissionsNativeView()
         case "approvals":
             ApprovalsNativeView()
         case "activity":

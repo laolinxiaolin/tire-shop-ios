@@ -180,6 +180,205 @@ private struct MonthlySalesRowView: View {
     }
 }
 
+// MARK: - Commissions
+
+struct CommissionsNativeView: View {
+    private let pageSize = 25
+    private let statuses: [(String, String)] = [
+        ("", "All"),
+        ("ACCRUED", "Accrued"),
+        ("PAID", "Paid"),
+        ("VOID", "Void")
+    ]
+
+    @State private var status = ""
+    @State private var page = 1
+    @State private var data: Paged<CommissionEntry>?
+    @State private var loading = false
+    @State private var errorMessage: String?
+
+    private var totalPages: Int {
+        guard let data, data.pageSize > 0 else { return 1 }
+        return max(1, (data.total + data.pageSize - 1) / data.pageSize)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            statusFilter
+
+            Group {
+                if loading && data == nil {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, data == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let data, data.items.isEmpty {
+                    EmptyStateView(text: "No commissions found.")
+                } else if let data {
+                    List(data.items) { entry in
+                        CommissionRow(entry: entry)
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
+                } else {
+                    LoadingView(label: "Loading...")
+                }
+            }
+
+            if let data, data.total > 0 {
+                pagination(data)
+            }
+        }
+        .background(Theme.background)
+        .task {
+            if data == nil { await load() }
+        }
+    }
+
+    private var statusFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.sm) {
+                ForEach(statuses, id: \.0) { option in
+                    Button {
+                        guard status != option.0 else { return }
+                        status = option.0
+                        page = 1
+                        Task { await load() }
+                    } label: {
+                        Text(option.1)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, Theme.Space.md)
+                            .padding(.vertical, 7)
+                            .background(status == option.0 ? Theme.primary : Theme.card)
+                            .foregroundStyle(status == option.0 ? Theme.primaryText : Theme.text)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                                    .stroke(status == option.0 ? Theme.primary : Theme.border)
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+        }
+        .background(Theme.background)
+    }
+
+    private func pagination(_ data: Paged<CommissionEntry>) -> some View {
+        HStack(spacing: Theme.Space.md) {
+            Button {
+                page = max(1, page - 1)
+                Task { await load() }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(page <= 1 || loading)
+
+            VStack(spacing: 2) {
+                Text("Page \(data.page) of \(totalPages)")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                Text("\(data.total) entries")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity)
+
+            Button {
+                page = min(totalPages, page + 1)
+                Task { await load() }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(page >= totalPages || loading)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Theme.card)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            data = try await CommissionsAPI().list(
+                status: status.nilIfBlank,
+                page: page,
+                pageSize: pageSize
+            )
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load commissions."
+        }
+        loading = false
+    }
+}
+
+private struct CommissionRow: View {
+    let entry: CommissionEntry
+
+    var body: some View {
+        Group {
+            if let sale = entry.sale {
+                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                    content(saleLabel: sale.ref ?? "Sale")
+                }
+            } else {
+                content(saleLabel: entry.note?.isEmpty == false ? "Rollover" : "-")
+            }
+        }
+        .padding(.vertical, Theme.Space.xs)
+    }
+
+    private func content(saleLabel: String) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(entry.employee?.fullName ?? "Unknown employee")
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+                Spacer()
+                Text(AppFormat.money(entry.amount))
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(entry.amount < 0 ? .red : Theme.text)
+            }
+
+            HStack {
+                Text("\(AppFormat.shortDate(entry.createdAt)) · \(saleLabel)")
+                Spacer()
+                Text(statusLabel(entry.status))
+            }
+            .font(.subheadline)
+            .foregroundStyle(Theme.muted)
+
+            HStack {
+                Text(basisLabel(entry.basis))
+                Spacer()
+                Text("\(AppFormat.money(entry.basisAmount)) x \(String(format: "%.2f", entry.rate * 100))%")
+            }
+            .font(.caption)
+            .foregroundStyle(Theme.muted)
+        }
+    }
+
+    private func basisLabel(_ basis: String) -> String {
+        switch basis {
+        case "GROSS_PROFIT": return "Gross profit"
+        case "REVENUE": return "Revenue"
+        default: return basis.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func statusLabel(_ status: String) -> String {
+        status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
 // MARK: - Brand Info
 
 private struct BrandEditTarget: Identifiable {
