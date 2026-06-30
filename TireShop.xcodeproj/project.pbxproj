@@ -27,6 +27,7 @@
 		A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435F48F77A26D5E9323945F6 /* Theme.swift */; };
 		AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E48A97CA0BFC00EA327436 /* TireShopApp.swift */; };
 		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
+		E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4464773F8E49D240BCB0CF91 /* VendorScreens.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +51,7 @@
 		435F48F77A26D5E9323945F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
 		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TireShopApp.swift"; sourceTree = "<group>"; };
 		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TransactionScreens.swift"; sourceTree = "<group>"; };
+		4464773F8E49D240BCB0CF91 /* VendorScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VendorScreens.swift"; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -95,6 +97,7 @@
 				435F48F77A26D5E9323945F6 /* Theme.swift */,
 				72E48A97CA0BFC00EA327436 /* TireShopApp.swift */,
 				A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */,
+				4464773F8E49D240BCB0CF91 /* VendorScreens.swift */,
 			);
 			path = TireShop;
 			sourceTree = "<group>";
@@ -195,6 +198,7 @@
 				A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */,
 				AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */,
 				E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */,
+				E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

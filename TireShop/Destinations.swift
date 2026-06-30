@@ -46,7 +46,7 @@ enum DestinationRegistry {
         Destination(key: "brandInfo", title: "Brand Info", systemImage: "book", group: .operations, permission: "brands.manage", isBuilt: true, blurb: nil),
         Destination(key: "inventoryCounts", title: "Inventory Counts", systemImage: "checkmark.circle", group: .operations, permission: "inventory.count.view", isBuilt: true, blurb: nil),
         Destination(key: "purchasing", title: "Purchasing", systemImage: "shippingbox", group: .operations, permission: "purchasing.view", isBuilt: true, blurb: nil),
-        Destination(key: "vendors", title: "Vendors", systemImage: "truck.box", group: .operations, permission: "vendors.view", isBuilt: false, blurb: nil),
+        Destination(key: "vendors", title: "Vendors", systemImage: "truck.box", group: .operations, permission: "vendors.view", isBuilt: true, blurb: nil),
         Destination(key: "customers", title: "Customers", systemImage: "person", group: .operations, permission: "customers.view", isBuilt: true, blurb: nil),
         Destination(key: "customerRelations", title: "Customer Relations", systemImage: "heart", group: .operations, permission: "crm.view", isBuilt: false, blurb: nil),
         Destination(key: "workOrders", title: "Work Orders", systemImage: "wrench.adjustable", group: .operations, permission: "workorders.view", isBuilt: true, blurb: nil),
