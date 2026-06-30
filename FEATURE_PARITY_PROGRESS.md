@@ -40,7 +40,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ✅ **Commissions** — `CommissionsNativeView` (status filter, ledger, sale links, pagination). Models `CommissionEntry`/refs + `CommissionsAPI`.
 - ⬜ **Employees** — `employees/page.tsx` + `[id]` + `EmployeeModal.tsx` · NEW API `/employees` CRUD + `…/commissions`, `…/payouts`, `…/payout` · `EmployeesListNativeView` + `EmployeeDetailNativeView` + edit form
 - ⬜ **Vendors** — `vendors/page.tsx` + `[id]` · NEW API `/vendors` list/get/create/patch + `…/refund`, `vendors/refunds/:id/reverse` · `VendorsListNativeView` + `VendorDetailNativeView`
-- ⬜ **Customer Relations (CRM)** — `customer-relations/page.tsx` + `EmailComposeModal.tsx` · NEW API `/crm/follow-ups`, `/crm/at-risk`, `/crm/templates`, `…/interactions`, `…/email` · `CustomerRelationsNativeView` (3 tabs + email compose)
+- ✅ **Customer Relations (CRM)** — `customer-relations/page.tsx` + `EmailComposeModal.tsx` · NEW API `/crm/follow-ups`, `/crm/at-risk`, `/crm/templates`, `…/interactions`, `…/email` · `CustomerRelationsNativeView` (3 tabs + email compose)
 
 > Naming flag: web `tiers/` = **Price Tiers**, NOT Tire Attributes → surface in Customer Account tab (Phase B), not a top-level module.
 
@@ -85,4 +85,5 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 ## Session log
 - 2026-06-30: Plan + tracker created; explored iOS app + web UI.
 - 2026-06-30: Phase 0 tooling fixed (xcodeproj generator + verifier paths). Built Phase A simple modules: Notifications, Monthly Sales, Brand Info, Tire Attributes (all in new `TireShop/PlaceholderModules.swift` + models in `Models.swift` + APIs in `Services.swift`, wired in `Destinations.swift`/`RootViews.swift`). Plus **Web Orders** (`OrderScreens.swift`). Verifier green: 20 swift files, 26 built destinations. **Not yet compiled in Xcode** (no toolchain on Linux).
-- 2026-06-30: Added **Commissions** native ledger from `employees/commissions/page.tsx`: status filter, paginated list, sale detail navigation, `GET /employees/commissions` API wrapper, and commission models. Verifier green: 20 swift files, 27 built destinations. Next remaining Phase A: Employees, Vendors, Customer Relations (CRM). Then Phase B admin flows.
+- 2026-06-30: Added **Commissions** native ledger from `employees/commissions/page.tsx`: status filter, paginated list, sale detail navigation, `GET /employees/commissions` API wrapper, and commission models. Verifier green: 20 swift files, 27 built destinations.
+- 2026-06-30: Added **Customer Relations (CRM)** native module on `codex/add-native-crm-module`: follow-up filters/actions, at-risk customer outreach, call logging, email compose with templates, template CRUD, CRM models, and `/crm` API wrappers. Employees and Vendors are handled in separate PRs (#2 and #3) and are intentionally not included on this branch.

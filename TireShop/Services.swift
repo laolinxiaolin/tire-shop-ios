@@ -108,6 +108,34 @@ struct InvoiceIdInput: Codable {
     let invoiceId: String
 }
 
+struct CustomerInteractionInput: Codable {
+    let type: InteractionType?
+    let summary: String
+    let body: String?
+    let occurredAt: String?
+}
+
+struct FollowUpPatchInput: Codable {
+    let title: String?
+    let note: String?
+    let dueAt: String?
+    let assignedToId: String?
+    let status: FollowUpStatus?
+}
+
+struct CrmEmailInput: Codable {
+    let subject: String?
+    let body: String?
+    let templateId: String?
+}
+
+struct OutreachTemplateInput: Codable {
+    let name: String
+    let subject: String
+    let body: String
+    let active: Bool
+}
+
 struct UserCreateInput: Codable {
     let email: String
     let password: String
@@ -274,12 +302,68 @@ struct CommissionsAPI {
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> Paged<CommissionEntry> {
-        try await client.request("/employees/commissions\(query([
+        let qs = query([
             "employeeId": employeeId,
             "status": status,
             "page": page,
             "pageSize": pageSize
-        ]))")
+        ])
+        return try await client.request("/employees/commissions\(qs)")
+    }
+}
+
+struct CrmAPI {
+    var client = APIClient.shared
+
+    func followUps(
+        status: FollowUpStatus? = nil,
+        assignedToId: String? = nil,
+        overdue: Bool? = nil,
+        customerId: String? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<CustomerFollowUp> {
+        let qs = query([
+            "status": status,
+            "assignedToId": assignedToId,
+            "overdue": overdue,
+            "customerId": customerId,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/crm/follow-ups\(qs)")
+    }
+
+    func updateFollowUp(id: String, body: FollowUpPatchInput) async throws -> CustomerFollowUp {
+        try await client.request("/crm/follow-ups/\(id)", method: "PATCH", body: body)
+    }
+
+    func addInteraction(customerId: String, body: CustomerInteractionInput) async throws -> CustomerInteraction {
+        try await client.request("/crm/customers/\(customerId)/interactions", method: "POST", body: body)
+    }
+
+    func atRisk(page: Int? = nil, pageSize: Int? = nil) async throws -> AtRiskCustomersPage {
+        try await client.request("/crm/at-risk\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func sendEmail(customerId: String, body: CrmEmailInput) async throws -> CustomerInteraction {
+        try await client.request("/crm/customers/\(customerId)/email", method: "POST", body: body)
+    }
+
+    func templates() async throws -> [OutreachTemplate] {
+        try await client.request("/crm/templates")
+    }
+
+    func createTemplate(_ body: OutreachTemplateInput) async throws -> OutreachTemplate {
+        try await client.request("/crm/templates", method: "POST", body: body)
+    }
+
+    func updateTemplate(id: String, body: OutreachTemplateInput) async throws -> OutreachTemplate {
+        try await client.request("/crm/templates/\(id)", method: "PATCH", body: body)
+    }
+
+    func deleteTemplate(id: String) async throws -> OkResponse {
+        try await client.request("/crm/templates/\(id)", method: "DELETE")
     }
 }
 

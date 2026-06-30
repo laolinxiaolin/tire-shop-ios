@@ -27,6 +27,7 @@
 - Brand info management
 - Monthly sales report
 - Commissions ledger with status filtering and sale links
+- Customer relations follow-ups, at-risk outreach, email compose, call logging, and template management
 - Service picker and quote cart state
 - Tap to Pay intent loading
 - Tire filter chips and manual payment sheet equivalents
@@ -42,9 +43,8 @@
 These destinations exist in the original mobile registry without concrete screen components, so the Swift app keeps them navigable with the same generic placeholder behavior:
 
 - Vendors
-- Customer Relations
 - Employees
 
 ## Verification Needed Outside This Environment
 
-This workspace does not have the Swift toolchain or Xcode command line tools installed. `SwiftApp/TireShop.xcodeproj` is generated and ready to open in Xcode, where the app should be compiled as the next verification gate.
+This workspace uses `TireShop.xcodeproj` as the generated native project. Build it in Xcode as the final verification gate for each conversion branch.

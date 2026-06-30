@@ -197,6 +197,8 @@ struct DestinationView: View {
             PurchasingNativeView()
         case "customers":
             CustomersListNativeView()
+        case "customerRelations":
+            CustomerRelationsNativeView()
         case "workOrders":
             WorkOrdersListNativeView()
         case "returns":
