@@ -38,7 +38,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ✅ **Tire Attributes** — `TireAttributesNativeView` (3 sections, add/rename/toggle/delete). Extended `TireAttributesAPI` (create/update/remove) + inputs.
 - ✅ **Web Orders** — `OrdersListNativeView` (status segmented filter) + `OrderDetailNativeView` (confirm→Sale / cancel, links to created sale). Models `Order`/`OrderLine`/refs + `OrdersAPI`. New `OrderScreens.swift`; `AppRoute.orderDetail` added.
 - ✅ **Commissions** — `CommissionsNativeView` (status filter, ledger, sale links, pagination). Models `CommissionEntry`/refs + `CommissionsAPI`.
-- ⬜ **Employees** — `employees/page.tsx` + `[id]` + `EmployeeModal.tsx` · NEW API `/employees` CRUD + `…/commissions`, `…/payouts`, `…/payout` · `EmployeesListNativeView` + `EmployeeDetailNativeView` + edit form
+- ✅ **Employees** — `EmployeesListNativeView` + `EmployeeDetailNativeView` + `EmployeeEditorView` (search/status filter, create/edit, linked user picker for admins, commission summary, recent commission links, payout history, pay-out action). Models `Employee`/`CommissionPayout` + `EmployeesAPI`.
 - ⬜ **Vendors** — `vendors/page.tsx` + `[id]` · NEW API `/vendors` list/get/create/patch + `…/refund`, `vendors/refunds/:id/reverse` · `VendorsListNativeView` + `VendorDetailNativeView`
 - ⬜ **Customer Relations (CRM)** — `customer-relations/page.tsx` + `EmailComposeModal.tsx` · NEW API `/crm/follow-ups`, `/crm/at-risk`, `/crm/templates`, `…/interactions`, `…/email` · `CustomerRelationsNativeView` (3 tabs + email compose)
 
@@ -75,10 +75,10 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 ## Verification each phase
 1. `node scripts/verify-swift-conversion.mjs` + `node scripts/generate-xcodeproj.mjs` (after Phase 0 path fixes).
 2. Diff each screen's endpoints/fields against `apps/web/lib/api.ts` + the web page.
-3. User builds in Xcode (iOS 17 sim), smoke-tests vs live backend.
+3. Build in Xcode (iOS 17+ sim), smoke-test vs live backend.
 4. Permission gating matches web (`auth.has(...)` / `canActOrRequest`).
 
-> No Swift/Xcode toolchain in this Linux env — compile checks happen on the user's Mac.
+> Current Mac verification used iPhone 17 simulator because iPhone 16 is not installed.
 
 ---
 
@@ -86,3 +86,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Plan + tracker created; explored iOS app + web UI.
 - 2026-06-30: Phase 0 tooling fixed (xcodeproj generator + verifier paths). Built Phase A simple modules: Notifications, Monthly Sales, Brand Info, Tire Attributes (all in new `TireShop/PlaceholderModules.swift` + models in `Models.swift` + APIs in `Services.swift`, wired in `Destinations.swift`/`RootViews.swift`). Plus **Web Orders** (`OrderScreens.swift`). Verifier green: 20 swift files, 26 built destinations. **Not yet compiled in Xcode** (no toolchain on Linux).
 - 2026-06-30: Added **Commissions** native ledger from `employees/commissions/page.tsx`: status filter, paginated list, sale detail navigation, `GET /employees/commissions` API wrapper, and commission models. Verifier green: 20 swift files, 27 built destinations. Next remaining Phase A: Employees, Vendors, Customer Relations (CRM). Then Phase B admin flows.
+- 2026-06-30: Added **Employees** native module from `employees/page.tsx`, `[id]/page.tsx`, and `EmployeeModal.tsx`: list search/status filtering, create/edit sheet, detail profile/compensation, linked user picker, commission summary, recent commissions, payout history, and payout action. Verifier green: 21 swift files, 28 built destinations. `xcodebuild` succeeded on iPhone 17 simulator. Next remaining Phase A: Vendors, Customer Relations (CRM).

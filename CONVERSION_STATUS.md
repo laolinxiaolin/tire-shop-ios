@@ -26,6 +26,7 @@
 - Tire attributes management
 - Brand info management
 - Monthly sales report
+- Employees list/detail with create/edit, commission summaries, payout history, and pay-out action
 - Commissions ledger with status filtering and sale links
 - Service picker and quote cart state
 - Tap to Pay intent loading
@@ -43,8 +44,7 @@ These destinations exist in the original mobile registry without concrete screen
 
 - Vendors
 - Customer Relations
-- Employees
 
-## Verification Needed Outside This Environment
+## Verification
 
-This workspace does not have the Swift toolchain or Xcode command line tools installed. `SwiftApp/TireShop.xcodeproj` is generated and ready to open in Xcode, where the app should be compiled as the next verification gate.
+`TireShop.xcodeproj` is generated and ready to open in Xcode. The latest local verification passed `scripts/verify-swift-conversion.mjs` and an Xcode command-line build on the available iPhone 17 simulator. Live-backend smoke testing is still the next manual gate.
