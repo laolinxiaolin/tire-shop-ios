@@ -164,11 +164,104 @@ struct DashboardAPI {
     }
 }
 
+struct TireAttributeCreateInput: Codable {
+    let kind: TireAttributeKind
+    let value: String
+    let label: String
+}
+
+struct TireAttributePatchInput: Codable {
+    var label: String?
+    var active: Bool?
+}
+
 struct TireAttributesAPI {
     var client = APIClient.shared
 
     func list(kind: TireAttributeKind? = nil) async throws -> [TireAttribute] {
         try await client.request("/tire-attributes\(query(["kind": kind]))")
+    }
+
+    func create(_ body: TireAttributeCreateInput) async throws -> TireAttribute {
+        try await client.request("/tire-attributes", method: "POST", body: body)
+    }
+
+    func update(id: String, body: TireAttributePatchInput) async throws -> TireAttribute {
+        try await client.request("/tire-attributes/\(id)", method: "PATCH", body: body)
+    }
+
+    func remove(id: String) async throws -> EmptyResponse {
+        try await client.request("/tire-attributes/\(id)", method: "DELETE")
+    }
+}
+
+struct OrdersAPI {
+    var client = APIClient.shared
+
+    func list(status: OrderStatus? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<Order> {
+        try await client.request("/orders\(query(["status": status, "page": page, "pageSize": pageSize]))")
+    }
+
+    func get(id: String) async throws -> Order {
+        try await client.request("/orders/\(id)")
+    }
+
+    func confirm(id: String) async throws -> Order {
+        try await client.request("/orders/\(id)/confirm", method: "POST")
+    }
+
+    func cancel(id: String) async throws -> Order {
+        try await client.request("/orders/\(id)/cancel", method: "POST")
+    }
+}
+
+struct NotificationsAPI {
+    var client = APIClient.shared
+
+    func list(page: Int? = nil, pageSize: Int? = nil) async throws -> NotificationsPage {
+        try await client.request("/notifications\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func markAllRead() async throws -> EmptyResponse {
+        try await client.request("/notifications/read-all", method: "POST")
+    }
+}
+
+struct BrandCreateInput: Codable {
+    var name: String
+    var introEn: String
+    var introZh: String
+    var country: String?
+    var foundedYear: Int?
+    var website: String?
+    var active: Bool
+}
+
+struct BrandsAPI {
+    var client = APIClient.shared
+
+    func list() async throws -> [BrandInfo] {
+        try await client.request("/brands")
+    }
+
+    func create(_ body: BrandCreateInput) async throws -> BrandInfo {
+        try await client.request("/brands", method: "POST", body: body)
+    }
+
+    func update(id: String, body: BrandCreateInput) async throws -> BrandInfo {
+        try await client.request("/brands/\(id)", method: "PATCH", body: body)
+    }
+
+    func remove(id: String) async throws -> EmptyResponse {
+        try await client.request("/brands/\(id)", method: "DELETE")
+    }
+}
+
+struct MonthlySalesAPI {
+    var client = APIClient.shared
+
+    func report(from: String, to: String) async throws -> MonthlySalesReport {
+        try await client.request("/accounting/reports/monthly-sales\(query(["from": from, "to": to]))")
     }
 }
 

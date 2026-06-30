@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const repoRoot = path.resolve(import.meta.dirname, '../..');
-const appRoot = path.join(repoRoot, 'SwiftApp');
+const repoRoot = path.resolve(import.meta.dirname, '..');
+const appRoot = repoRoot;
 const sourceDir = path.join(appRoot, 'TireShop');
 const projectDir = path.join(appRoot, 'TireShop.xcodeproj');
 const pbxprojPath = path.join(projectDir, 'project.pbxproj');

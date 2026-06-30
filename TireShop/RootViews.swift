@@ -8,6 +8,7 @@ enum AppRoute: Hashable {
     case skuForm(String?)
     case adjustStock(String)
     case saleDetail(String)
+    case orderDetail(String)
     case editSale(String)
     case startReturn(saleId: String, saleRef: String?)
     case workOrderDetail(String)
@@ -147,6 +148,8 @@ struct NavigationShell<Content: View>: View {
             AdjustStockLookupNativeView(idOrSku: id)
         case .saleDetail(let id):
             SaleDetailNativeView(id: id)
+        case .orderDetail(let id):
+            OrderDetailNativeView(id: id)
         case .editSale(let id):
             EditSaleNativeView(id: id)
         case .startReturn(let saleId, let saleRef):
@@ -172,14 +175,22 @@ struct DestinationView: View {
         switch destination.key {
         case "dashboard":
             DashboardNativeView()
+        case "notifications":
+            NotificationsNativeView()
         case "newQuote":
             NewQuoteNativeView()
         case "sales":
             SalesListNativeView()
+        case "orders":
+            OrdersListNativeView()
         case "inventory":
             InventoryListNativeView()
         case "skuManagement":
             SkuManagementNativeView()
+        case "tireAttributes":
+            TireAttributesNativeView()
+        case "brandInfo":
+            BrandInfoNativeView()
         case "inventoryCounts":
             InventoryCountsListNativeView()
         case "purchasing":
@@ -200,6 +211,8 @@ struct DestinationView: View {
             FetNativeView()
         case "eod":
             EodNativeView()
+        case "monthlySales":
+            MonthlySalesNativeView()
         case "approvals":
             ApprovalsNativeView()
         case "activity":

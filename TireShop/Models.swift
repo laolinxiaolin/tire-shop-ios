@@ -1107,3 +1107,129 @@ struct InvoiceEmailResult: Codable, Equatable {
     let to: String
     let messageId: String?
 }
+
+// MARK: - Notifications
+
+struct AppNotification: Codable, Identifiable, Equatable {
+    let id: String
+    let type: String
+    let title: String
+    let body: String?
+    let entityType: String?
+    let entityId: String?
+    let readAt: String?
+    let createdAt: String
+}
+
+struct NotificationsPage: Codable, Equatable {
+    let items: [AppNotification]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let unread: Int
+}
+
+// MARK: - Web Orders
+
+typealias OrderStatus = String
+typealias OrderFulfillment = String
+
+struct OrderCustomerRef: Codable, Equatable {
+    let id: String
+    let name: String
+    let company: String?
+}
+
+struct OrderUserRef: Codable, Equatable {
+    let id: String
+    let email: String
+}
+
+struct OrderLine: Codable, Identifiable, Equatable {
+    let id: String
+    let skuId: String
+    let description: String
+    let qty: Int
+    let unitPrice: String
+    let lineTotal: String
+}
+
+struct OrderSaleRef: Codable, Equatable {
+    let id: String
+    let ref: String?
+}
+
+struct Order: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+    let customerId: String
+    let customer: OrderCustomerRef
+    let customerUser: OrderUserRef?
+    let status: OrderStatus
+    let fulfillment: OrderFulfillment
+    let deliveryAddress: String?
+    let notes: String?
+    let subtotal: String
+    let total: String
+    let saleId: String?
+    let sale: OrderSaleRef?
+    let createdAt: String
+    let lines: [OrderLine]
+}
+
+// MARK: - Brand Info
+
+struct BrandInfo: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let key: String
+    let introEn: String
+    let introZh: String
+    let country: String?
+    let foundedYear: Int?
+    let website: String?
+    let active: Bool
+    let usageCount: Int
+}
+
+// MARK: - Monthly Sales report
+
+struct MonthlySalesRow: Codable, Identifiable, Equatable {
+    let date: String
+    let itemCode: String
+    let productCode: String
+    let invoiceNo: String
+    let brand: String
+    let pattern: String
+    let size: String
+    let pr: String
+    let loadIndex: String
+    let salesPrice: Double
+    let qty: Double
+    let amount: Double
+    let taxRate: Double
+    let salesTax: Double
+    let unitCost: Double
+    let totalCost: Double
+    let paymentMethod: String
+    let unitFet: Double
+    let totalFet: Double
+
+    var id: String { "\(invoiceNo)-\(itemCode)-\(date)" }
+}
+
+struct MonthlySalesSummary: Codable, Equatable {
+    let lineCount: Int
+    let qty: Double
+    let amount: Double
+    let salesTax: Double
+    let totalCost: Double
+    let totalFet: Double
+}
+
+struct MonthlySalesReport: Codable, Equatable {
+    let from: String
+    let to: String
+    let rows: [MonthlySalesRow]
+    let summary: MonthlySalesSummary
+}
