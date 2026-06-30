@@ -265,6 +265,105 @@ struct MonthlySalesAPI {
     }
 }
 
+struct EmployeeSaveInput: Encodable {
+    var fullName: String
+    var employeeNo: String?
+    var userId: String?
+    var includeUserId = false
+    var phone: String?
+    var email: String?
+    var address: String?
+    var position: String?
+    var department: String?
+    var status: EmployeeStatus
+    var hireDate: String?
+    var endDate: String?
+    var payType: PayType
+    var payRate: Double
+    var commissionRate: Double
+    var commissionBasis: CommissionBasis
+    var notes: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case fullName
+        case employeeNo
+        case userId
+        case phone
+        case email
+        case address
+        case position
+        case department
+        case status
+        case hireDate
+        case endDate
+        case payType
+        case payRate
+        case commissionRate
+        case commissionBasis
+        case notes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(fullName, forKey: .fullName)
+        try container.encodeIfPresent(employeeNo, forKey: .employeeNo)
+        if includeUserId {
+            if let userId {
+                try container.encode(userId, forKey: .userId)
+            } else {
+                try container.encodeNil(forKey: .userId)
+            }
+        }
+        try container.encodeIfPresent(phone, forKey: .phone)
+        try container.encodeIfPresent(email, forKey: .email)
+        try container.encodeIfPresent(address, forKey: .address)
+        try container.encodeIfPresent(position, forKey: .position)
+        try container.encodeIfPresent(department, forKey: .department)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(hireDate, forKey: .hireDate)
+        try container.encodeIfPresent(endDate, forKey: .endDate)
+        try container.encode(payType, forKey: .payType)
+        try container.encode(payRate, forKey: .payRate)
+        try container.encode(commissionRate, forKey: .commissionRate)
+        try container.encode(commissionBasis, forKey: .commissionBasis)
+        try container.encodeIfPresent(notes, forKey: .notes)
+    }
+}
+
+struct EmployeesAPI {
+    var client = APIClient.shared
+
+    func list(q: String? = nil, status: EmployeeStatus? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<Employee> {
+        let qs = query([
+            "q": q,
+            "status": status,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/employees\(qs)")
+    }
+
+    func get(id: String) async throws -> Employee {
+        try await client.request("/employees/\(id)")
+    }
+
+    func create(_ body: EmployeeSaveInput) async throws -> Employee {
+        try await client.request("/employees", method: "POST", body: body)
+    }
+
+    func update(id: String, body: EmployeeSaveInput) async throws -> Employee {
+        try await client.request("/employees/\(id)", method: "PATCH", body: body)
+    }
+
+    func payouts(id: String) async throws -> [CommissionPayout] {
+        try await client.request("/employees/\(id)/payouts")
+    }
+
+    func payout(id: String) async throws -> CommissionPayout {
+        try await client.request("/employees/\(id)/payout", method: "POST")
+    }
+}
+
 struct CommissionsAPI {
     var client = APIClient.shared
 
@@ -274,12 +373,13 @@ struct CommissionsAPI {
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> Paged<CommissionEntry> {
-        try await client.request("/employees/commissions\(query([
+        let qs = query([
             "employeeId": employeeId,
             "status": status,
             "page": page,
             "pageSize": pageSize
-        ]))")
+        ])
+        return try await client.request("/employees/commissions\(qs)")
     }
 }
 
