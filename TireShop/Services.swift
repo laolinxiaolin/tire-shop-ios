@@ -108,6 +108,62 @@ struct InvoiceIdInput: Codable {
     let invoiceId: String
 }
 
+struct VendorSaveInput: Encodable {
+    var name: String
+    var category: VendorCategory?
+    var contactName: String?
+    var phone: String?
+    var email: String?
+    var address: String?
+    var notes: String?
+    var active: Bool?
+    var encodeNulls = false
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case category
+        case contactName
+        case phone
+        case email
+        case address
+        case notes
+        case active
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try encode(category, forKey: .category, into: &container)
+        try encode(contactName, forKey: .contactName, into: &container)
+        try encode(phone, forKey: .phone, into: &container)
+        try encode(email, forKey: .email, into: &container)
+        try encode(address, forKey: .address, into: &container)
+        try encode(notes, forKey: .notes, into: &container)
+        try container.encodeIfPresent(active, forKey: .active)
+    }
+
+    private func encode<T: Encodable>(
+        _ value: T?,
+        forKey key: CodingKeys,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else if encodeNulls {
+            try container.encodeNil(forKey: key)
+        }
+    }
+}
+
+struct VendorRefundInput: Codable {
+    let amount: Double
+    let depositToCode: String
+    let creditCode: String
+    let date: String?
+    let reference: String?
+    let note: String?
+}
+
 struct UserCreateInput: Codable {
     let email: String
     let password: String
@@ -593,6 +649,51 @@ struct SuppliersAPI {
     }
 }
 
+struct VendorsAPI {
+    var client = APIClient.shared
+
+    func list(
+        q: String? = nil,
+        category: VendorCategory? = nil,
+        active: Bool? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<Vendor> {
+        let qs = query([
+            "q": q,
+            "category": category,
+            "active": active,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/vendors\(qs)")
+    }
+
+    func get(id: String) async throws -> VendorDetail {
+        try await client.request("/vendors/\(id)")
+    }
+
+    func create(_ body: VendorSaveInput) async throws -> Vendor {
+        try await client.request("/vendors", method: "POST", body: body)
+    }
+
+    func update(id: String, body: VendorSaveInput) async throws -> Vendor {
+        try await client.request("/vendors/\(id)", method: "PATCH", body: body)
+    }
+
+    func remove(id: String) async throws -> OkResponse {
+        try await client.request("/vendors/\(id)", method: "DELETE")
+    }
+
+    func recordRefund(id: String, body: VendorRefundInput) async throws -> VendorRefundResult {
+        try await client.request("/vendors/\(id)/refund", method: "POST", body: body)
+    }
+
+    func reverseRefund(id: String, reason: String? = nil) async throws -> OkResponse {
+        try await client.request("/vendors/refunds/\(id)/reverse", method: "POST", body: ReasonInput(reason: reason))
+    }
+}
+
 struct MoneyAPI {
     var client = APIClient.shared
 
@@ -654,6 +755,10 @@ struct AccountingAPI {
 
     func accounts() async throws -> [Account] {
         try await client.request("/accounting/accounts")
+    }
+
+    func expenseAccounts() async throws -> [ExpenseAccount] {
+        try await client.request("/accounting/expense-accounts")
     }
 
     func journal(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<JournalEntry> {
