@@ -26,7 +26,10 @@
 - Tire attributes management
 - Brand info management
 - Monthly sales report
+- Employees list/detail with create/edit, commission summaries, payout history, and pay-out action
 - Commissions ledger with status filtering and sale links
+- Customer relations follow-ups, at-risk outreach, email compose, call logging, and template management
+- Vendors list/detail with create/edit/deactivate, refund history, and refund record/reverse
 - Service picker and quote cart state
 - Tap to Pay intent loading
 - Tire filter chips and manual payment sheet equivalents
@@ -37,14 +40,10 @@
 - Xcode project generator script for environments without XcodeGen
 - Local conversion verifier for brace balance, route/API/destination coverage, translation parity, generated project/scheme coverage, package scripts, fallback placeholder count, and basic source hygiene
 
-## Still Generic Placeholder By Design
+## Generic Placeholders
 
-These destinations exist in the original mobile registry without concrete screen components, so the Swift app keeps them navigable with the same generic placeholder behavior:
+All original mobile placeholders have native replacements on the current conversion branches.
 
-- Vendors
-- Customer Relations
-- Employees
+## Verification
 
-## Verification Needed Outside This Environment
-
-This workspace does not have the Swift toolchain or Xcode command line tools installed. `SwiftApp/TireShop.xcodeproj` is generated and ready to open in Xcode, where the app should be compiled as the next verification gate.
+`TireShop.xcodeproj` is generated and ready to open in Xcode. The latest local verification passed `scripts/verify-swift-conversion.mjs` and an Xcode command-line build on the available iPhone 17 simulator. Live-backend smoke testing is still the next manual gate.

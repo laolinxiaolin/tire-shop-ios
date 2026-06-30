@@ -100,6 +100,11 @@ typealias InventoryCountStatus = String
 typealias ContainerStatus = String
 typealias AccountType = String
 typealias ApprovalStatus = String
+typealias InteractionType = String
+typealias FollowUpStatus = String
+typealias VendorCategory = String
+typealias EmployeeStatus = String
+typealias PayType = String
 typealias CommissionBasis = String
 typealias CommissionStatus = String
 
@@ -303,6 +308,88 @@ struct CustomerProfilePatch: Codable {
     var email: String
     var address: String
     var notes: String
+}
+
+// MARK: - Customer relations
+
+struct CustomerInteraction: Codable, Identifiable, Equatable {
+    let id: String
+    let customerId: String
+    let type: InteractionType
+    let summary: String
+    let body: String?
+    let occurredAt: String
+    let createdById: String?
+    let createdByName: String?
+    let createdAt: String
+}
+
+struct CrmCustomerRef: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let company: String?
+}
+
+struct CustomerFollowUp: Codable, Identifiable, Equatable {
+    let id: String
+    let customerId: String
+    let title: String
+    let note: String?
+    let dueAt: String
+    let status: FollowUpStatus
+    let assignedToId: String?
+    let assignedToName: String?
+    let createdById: String?
+    let createdByName: String?
+    let completedAt: String?
+    let completedById: String?
+    let completedByName: String?
+    let createdAt: String
+    let updatedAt: String
+    let customer: CrmCustomerRef?
+}
+
+struct OutreachTemplate: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let subject: String
+    let body: String
+    let active: Bool
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct RelationshipSummary: Codable, Equatable {
+    let lastPurchaseAt: String?
+    let lifetimeSpend: Double
+    let saleCount: Int
+    let openFollowUpCount: Int
+    let lapsedDays: Int
+    let atRisk: Bool
+}
+
+struct AtRiskCustomer: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+    let name: String
+    let company: String?
+    let email: String?
+    let lastPurchaseAt: String?
+    let lifetimeSpend: Double
+    let saleCount: Int
+}
+
+struct AtRiskCustomersPage: Codable, Equatable {
+    let items: [AtRiskCustomer]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let lapsedDays: Int
+}
+
+struct AssignableUser: Codable, Identifiable, Equatable {
+    let id: String
+    let fullName: String
 }
 
 struct ServiceItem: Codable, Identifiable, Equatable {
@@ -567,6 +654,100 @@ struct PayableVendor: Codable, Equatable {
     let ageDays: Int
 }
 
+struct VendorCounts: Codable, Equatable {
+    let costs: Int
+    let expenses: Int
+    let refunds: Int
+}
+
+struct Vendor: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let category: VendorCategory?
+    let contactName: String?
+    let phone: String?
+    let email: String?
+    let address: String?
+    let notes: String?
+    let active: Bool
+    let counts: VendorCounts?
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct VendorSpendSummary: Codable, Equatable {
+    let openAP: Double
+    let paidOut: Double
+    let refunds: Double
+    let netSpend: Double
+}
+
+struct VendorContainerRef: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+}
+
+struct VendorRecentCost: Codable, Identifiable, Equatable {
+    let id: String
+    let category: String
+    let status: String
+    let amount: Double
+    let amountPaid: Double
+    let description: String?
+    let container: VendorContainerRef?
+    let createdAt: String
+}
+
+struct VendorRecentExpense: Codable, Identifiable, Equatable {
+    let id: String
+    let amount: Double
+    let expenseCode: String
+    let paidFromCode: String
+    let reference: String?
+    let reversedAt: String?
+    let date: String
+}
+
+struct VendorRefundRecord: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let amount: Double
+    let depositToCode: String
+    let creditCode: String
+    let reference: String?
+    let reversedAt: String?
+    let date: String
+}
+
+struct VendorDetail: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let category: VendorCategory?
+    let contactName: String?
+    let phone: String?
+    let email: String?
+    let address: String?
+    let notes: String?
+    let active: Bool
+    let counts: VendorCounts?
+    let createdAt: String
+    let updatedAt: String
+    let summary: VendorSpendSummary
+    let recentCosts: [VendorRecentCost]
+    let recentExpenses: [VendorRecentExpense]
+    let recentRefunds: [VendorRefundRecord]
+}
+
+struct VendorRefundResult: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let vendorId: String?
+    let amount: Double
+    let depositToCode: String
+    let creditCode: String
+    let date: String
+}
+
 struct CountLines: Codable, Equatable {
     let lines: Int
 }
@@ -789,6 +970,12 @@ struct CashAccount: Codable, Identifiable, Equatable {
     let name: String
     let type: String
     let balance: Double
+}
+
+struct ExpenseAccount: Codable, Identifiable, Equatable {
+    let id: String
+    let code: String
+    let name: String
 }
 
 struct CashTransfer: Codable, Identifiable, Equatable {
@@ -1238,6 +1425,42 @@ struct MonthlySalesReport: Codable, Equatable {
 
 // MARK: - Employees & commissions
 
+struct EmployeeUserRef: Codable, Identifiable, Equatable {
+    let id: String
+    let email: String
+    let active: Bool?
+}
+
+struct EmployeeCommissionSummary: Codable, Equatable {
+    let accrued: Double
+    let paid: Double
+    let total: Double
+}
+
+struct Employee: Codable, Identifiable, Equatable {
+    let id: String
+    let employeeNo: String?
+    let userId: String?
+    let user: EmployeeUserRef?
+    let fullName: String
+    let phone: String?
+    let email: String?
+    let address: String?
+    let position: String?
+    let department: String?
+    let status: EmployeeStatus
+    let hireDate: String?
+    let endDate: String?
+    let payType: PayType
+    let payRate: Double
+    let commissionRate: Double
+    let commissionBasis: CommissionBasis
+    let notes: String?
+    let commissions: EmployeeCommissionSummary?
+    let createdAt: String
+    let updatedAt: String
+}
+
 struct CommissionEmployeeRef: Codable, Identifiable, Equatable {
     let id: String
     let fullName: String
@@ -1264,4 +1487,11 @@ struct CommissionEntry: Codable, Identifiable, Equatable {
     let createdAt: String
     let employee: CommissionEmployeeRef?
     let sale: CommissionSaleRef?
+}
+
+struct CommissionPayout: Codable, Identifiable, Equatable {
+    let id: String
+    let amount: Double
+    let entryCount: Int
+    let createdAt: String
 }
