@@ -132,20 +132,75 @@ struct CustomersListNativeView: View {
     }
 }
 
+enum WorkOrderLabels {
+    static let statuses: [(WorkOrderStatus, String)] = [
+        ("OPEN", "Open"),
+        ("IN_PROGRESS", "In Progress"),
+        ("DONE", "Done"),
+        ("CANCELLED", "Cancelled")
+    ]
+
+    static let filterOptions: [TireFilterOption] = [
+        TireFilterOption(value: "", labelKey: "status.ALL"),
+        TireFilterOption(value: "OPEN", labelKey: "workOrder.status.OPEN"),
+        TireFilterOption(value: "IN_PROGRESS", labelKey: "workOrder.status.IN_PROGRESS"),
+        TireFilterOption(value: "DONE", labelKey: "workOrder.status.DONE"),
+        TireFilterOption(value: "CANCELLED", labelKey: "workOrder.status.CANCELLED")
+    ]
+
+    static func title(_ status: WorkOrderStatus) -> String {
+        statuses.first { $0.0 == status }?.1 ?? status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
 struct WorkOrdersListNativeView: View {
+    @State private var status = ""
+    @State private var items: [WorkOrder] = []
+    @State private var loading = false
+    @State private var errorMessage: String?
+
     var body: some View {
-        AsyncContentView(load: { try await WorkOrdersAPI().list(pageSize: 50) }) { page in
-            List(page.items) { order in
-                NavigationLink(value: AppRoute.workOrderDetail(order.id)) {
-                    RowLine(
-                        title: "\(order.sale.customer.name) - \(order.sale.ref ?? "Sale")",
-                        subtitle: "\(order.status) - \(order.tasks.filter(\.done).count)/\(order.tasks.count) tasks",
-                        trailing: order.bay
-                    )
+        VStack(spacing: 0) {
+            FilterChips(value: $status, options: WorkOrderLabels.filterOptions)
+
+            Group {
+                if loading && items.isEmpty {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, items.isEmpty {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if items.isEmpty {
+                    EmptyStateView(text: "No work orders found.")
+                } else {
+                    List(items) { order in
+                        NavigationLink(value: AppRoute.workOrderDetail(order.id)) {
+                            RowLine(
+                                title: "\(order.sale.customer.name) - \(order.sale.ref ?? "Sale")",
+                                subtitle: "\(WorkOrderLabels.title(order.status)) - \(order.tasks.filter(\.done).count)/\(order.tasks.count) tasks",
+                                trailing: order.bay
+                            )
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
                 }
             }
-            .listStyle(.plain)
         }
+        .task(id: status) {
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            items = try await WorkOrdersAPI().list(status: status.nilIfBlank)
+        } catch {
+            items = []
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load work orders."
+        }
+        loading = false
     }
 }
 

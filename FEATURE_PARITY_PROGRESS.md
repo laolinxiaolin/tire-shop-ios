@@ -46,7 +46,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 
 ## Phase B — Admin edit/action flows (read-only → CRUD)
 (✱ = endpoints already in `Services.swift`, UI only)
-- ⬜ **Work Orders detail** ✱ — task add/toggle/delete + status (`WorkOrdersAPI.addTask/toggleTask/deleteTask/update`)
+- ✅ **Work Orders detail** ✱ — task add/toggle/delete + status (`WorkOrdersAPI.addTask/toggleTask/deleteTask/update`)
 - ⬜ **Users** ✱ — create modal, role Picker, active toggle, reset password, reset MFA
 - ⬜ **Roles** ✱ — tri-state permission editor (off/approval/granted), create/edit/delete non-system
 - ⬜ **API Keys** ✱ — create w/ scope checkboxes, one-time plaintext reveal, revoke
@@ -60,7 +60,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ⬜ **Sales** — `q`, `status`, date-range presets (`from`/`to`), sort, paging, summary footer
 - ⬜ **Returns** — `status` filter + **make rows tappable** → NEW `ReturnDetailNativeView` (`ReturnsAPI.get` ✱); void action (NEW)
 - ⬜ **Purchasing** — `q` + `status` (Containers), `q` (Suppliers)
-- ⬜ **Work Orders** — `status` filter
+- ✅ **Work Orders** — `status` filter
 
 ## Phase D — Payments & invoices
 - ⬜ **Invoice PDF** — QuickLook via `InvoicesAPI.downloadPDF` ✱ (QLPreviewController)
@@ -89,3 +89,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Added **Employees** native module from `employees/page.tsx`, `[id]/page.tsx`, and `EmployeeModal.tsx`: list search/status filtering, create/edit sheet, detail profile/compensation, linked user picker, commission summary, recent commissions, payout history, and payout action. `xcodebuild` succeeded on iPhone 17 simulator.
 - 2026-06-30: Added **Vendors** native module from `vendors/page.tsx` and `[id]/page.tsx`: list filters, create/edit/deactivate, spend summary, recent costs/expenses, refund history, refund record, and refund reverse. `xcodebuild` succeeded on iPhone 17 simulator.
 - 2026-06-30: Added **Customer Relations (CRM)** native module: follow-up filters/actions, at-risk customer outreach, call logging, email compose with templates, template CRUD, CRM models, and `/crm` API wrappers.
+- 2026-06-30: Added **Work Orders detail actions**: status/bay/notes editor, task add/toggle/delete, status-filtered list, and service wrapper fixes for the live `/work-orders` response shape.
