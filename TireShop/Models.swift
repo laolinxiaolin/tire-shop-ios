@@ -101,6 +101,8 @@ typealias ContainerStatus = String
 typealias AccountType = String
 typealias ApprovalStatus = String
 typealias VendorCategory = String
+typealias EmployeeStatus = String
+typealias PayType = String
 typealias CommissionBasis = String
 typealias CommissionStatus = String
 
@@ -1339,6 +1341,42 @@ struct MonthlySalesReport: Codable, Equatable {
 
 // MARK: - Employees & commissions
 
+struct EmployeeUserRef: Codable, Identifiable, Equatable {
+    let id: String
+    let email: String
+    let active: Bool?
+}
+
+struct EmployeeCommissionSummary: Codable, Equatable {
+    let accrued: Double
+    let paid: Double
+    let total: Double
+}
+
+struct Employee: Codable, Identifiable, Equatable {
+    let id: String
+    let employeeNo: String?
+    let userId: String?
+    let user: EmployeeUserRef?
+    let fullName: String
+    let phone: String?
+    let email: String?
+    let address: String?
+    let position: String?
+    let department: String?
+    let status: EmployeeStatus
+    let hireDate: String?
+    let endDate: String?
+    let payType: PayType
+    let payRate: Double
+    let commissionRate: Double
+    let commissionBasis: CommissionBasis
+    let notes: String?
+    let commissions: EmployeeCommissionSummary?
+    let createdAt: String
+    let updatedAt: String
+}
+
 struct CommissionEmployeeRef: Codable, Identifiable, Equatable {
     let id: String
     let fullName: String
@@ -1365,4 +1403,11 @@ struct CommissionEntry: Codable, Identifiable, Equatable {
     let createdAt: String
     let employee: CommissionEmployeeRef?
     let sale: CommissionSaleRef?
+}
+
+struct CommissionPayout: Codable, Identifiable, Equatable {
+    let id: String
+    let amount: Double
+    let entryCount: Int
+    let createdAt: String
 }

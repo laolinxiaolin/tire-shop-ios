@@ -18,6 +18,7 @@ enum AppRoute: Hashable {
     case vendorDetail(String)
     case tapToPay(invoiceId: String, amount: Double)
     case customerDetail(id: String, name: String)
+    case employeeDetail(String)
     case skuPicker
     case customerPicker
     case newCustomer
@@ -167,6 +168,8 @@ struct NavigationShell<Content: View>: View {
             TapToPayNativeView(invoiceId: invoiceId, amount: amount)
         case .customerDetail(let id, let name):
             CustomerDetailNativeView(id: id, fallbackName: name)
+        case .employeeDetail(let id):
+            EmployeeDetailNativeView(id: id)
         }
     }
 }
@@ -218,6 +221,8 @@ struct DestinationView: View {
             EodNativeView()
         case "monthlySales":
             MonthlySalesNativeView()
+        case "employees":
+            EmployeesListNativeView()
         case "commissions":
             CommissionsNativeView()
         case "approvals":

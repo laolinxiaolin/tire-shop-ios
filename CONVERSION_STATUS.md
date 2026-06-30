@@ -26,6 +26,7 @@
 - Tire attributes management
 - Brand info management
 - Monthly sales report
+- Employees list/detail with create/edit, commission summaries, payout history, and pay-out action
 - Commissions ledger with status filtering and sale links
 - Vendors list/detail with create/edit/deactivate, refund history, and refund record/reverse
 - Service picker and quote cart state
@@ -43,7 +44,6 @@
 These destinations exist in the original mobile registry without concrete screen components, so the Swift app keeps them navigable with the same generic placeholder behavior:
 
 - Customer Relations
-- Employees
 
 ## Verification
 
