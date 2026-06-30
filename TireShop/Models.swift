@@ -100,6 +100,8 @@ typealias InventoryCountStatus = String
 typealias ContainerStatus = String
 typealias AccountType = String
 typealias ApprovalStatus = String
+typealias InteractionType = String
+typealias FollowUpStatus = String
 typealias VendorCategory = String
 typealias EmployeeStatus = String
 typealias PayType = String
@@ -306,6 +308,88 @@ struct CustomerProfilePatch: Codable {
     var email: String
     var address: String
     var notes: String
+}
+
+// MARK: - Customer relations
+
+struct CustomerInteraction: Codable, Identifiable, Equatable {
+    let id: String
+    let customerId: String
+    let type: InteractionType
+    let summary: String
+    let body: String?
+    let occurredAt: String
+    let createdById: String?
+    let createdByName: String?
+    let createdAt: String
+}
+
+struct CrmCustomerRef: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let company: String?
+}
+
+struct CustomerFollowUp: Codable, Identifiable, Equatable {
+    let id: String
+    let customerId: String
+    let title: String
+    let note: String?
+    let dueAt: String
+    let status: FollowUpStatus
+    let assignedToId: String?
+    let assignedToName: String?
+    let createdById: String?
+    let createdByName: String?
+    let completedAt: String?
+    let completedById: String?
+    let completedByName: String?
+    let createdAt: String
+    let updatedAt: String
+    let customer: CrmCustomerRef?
+}
+
+struct OutreachTemplate: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let subject: String
+    let body: String
+    let active: Bool
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct RelationshipSummary: Codable, Equatable {
+    let lastPurchaseAt: String?
+    let lifetimeSpend: Double
+    let saleCount: Int
+    let openFollowUpCount: Int
+    let lapsedDays: Int
+    let atRisk: Bool
+}
+
+struct AtRiskCustomer: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+    let name: String
+    let company: String?
+    let email: String?
+    let lastPurchaseAt: String?
+    let lifetimeSpend: Double
+    let saleCount: Int
+}
+
+struct AtRiskCustomersPage: Codable, Equatable {
+    let items: [AtRiskCustomer]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let lapsedDays: Int
+}
+
+struct AssignableUser: Codable, Identifiable, Equatable {
+    let id: String
+    let fullName: String
 }
 
 struct ServiceItem: Codable, Identifiable, Equatable {

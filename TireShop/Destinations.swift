@@ -48,7 +48,7 @@ enum DestinationRegistry {
         Destination(key: "purchasing", title: "Purchasing", systemImage: "shippingbox", group: .operations, permission: "purchasing.view", isBuilt: true, blurb: nil),
         Destination(key: "vendors", title: "Vendors", systemImage: "truck.box", group: .operations, permission: "vendors.view", isBuilt: true, blurb: nil),
         Destination(key: "customers", title: "Customers", systemImage: "person", group: .operations, permission: "customers.view", isBuilt: true, blurb: nil),
-        Destination(key: "customerRelations", title: "Customer Relations", systemImage: "heart", group: .operations, permission: "crm.view", isBuilt: false, blurb: nil),
+        Destination(key: "customerRelations", title: "Customer Relations", systemImage: "heart", group: .operations, permission: "crm.view", isBuilt: true, blurb: nil),
         Destination(key: "workOrders", title: "Work Orders", systemImage: "wrench.adjustable", group: .operations, permission: "workorders.view", isBuilt: true, blurb: nil),
         Destination(key: "returns", title: "Returns", systemImage: "arrow.uturn.left", group: .operations, permission: "returns.view", isBuilt: true, blurb: nil),
         Destination(key: "money", title: "Money", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", isBuilt: true, blurb: nil),

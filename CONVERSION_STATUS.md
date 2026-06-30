@@ -28,6 +28,7 @@
 - Monthly sales report
 - Employees list/detail with create/edit, commission summaries, payout history, and pay-out action
 - Commissions ledger with status filtering and sale links
+- Customer relations follow-ups, at-risk outreach, email compose, call logging, and template management
 - Vendors list/detail with create/edit/deactivate, refund history, and refund record/reverse
 - Service picker and quote cart state
 - Tap to Pay intent loading
@@ -39,11 +40,9 @@
 - Xcode project generator script for environments without XcodeGen
 - Local conversion verifier for brace balance, route/API/destination coverage, translation parity, generated project/scheme coverage, package scripts, fallback placeholder count, and basic source hygiene
 
-## Still Generic Placeholder By Design
+## Generic Placeholders
 
-These destinations exist in the original mobile registry without concrete screen components, so the Swift app keeps them navigable with the same generic placeholder behavior:
-
-- Customer Relations
+All original mobile placeholders have native replacements on the current conversion branches.
 
 ## Verification
 
