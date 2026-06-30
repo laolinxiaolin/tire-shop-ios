@@ -38,9 +38,9 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ✅ **Tire Attributes** — `TireAttributesNativeView` (3 sections, add/rename/toggle/delete). Extended `TireAttributesAPI` (create/update/remove) + inputs.
 - ✅ **Web Orders** — `OrdersListNativeView` (status segmented filter) + `OrderDetailNativeView` (confirm→Sale / cancel, links to created sale). Models `Order`/`OrderLine`/refs + `OrdersAPI`. New `OrderScreens.swift`; `AppRoute.orderDetail` added.
 - ✅ **Commissions** — `CommissionsNativeView` (status filter, ledger, sale links, pagination). Models `CommissionEntry`/refs + `CommissionsAPI`.
-- ⬜ **Employees** — `employees/page.tsx` + `[id]` + `EmployeeModal.tsx` · NEW API `/employees` CRUD + `…/commissions`, `…/payouts`, `…/payout` · `EmployeesListNativeView` + `EmployeeDetailNativeView` + edit form
-- ⬜ **Vendors** — `vendors/page.tsx` + `[id]` · NEW API `/vendors` list/get/create/patch + `…/refund`, `vendors/refunds/:id/reverse` · `VendorsListNativeView` + `VendorDetailNativeView`
 - ✅ **Customer Relations (CRM)** — `customer-relations/page.tsx` + `EmailComposeModal.tsx` · NEW API `/crm/follow-ups`, `/crm/at-risk`, `/crm/templates`, `…/interactions`, `…/email` · `CustomerRelationsNativeView` (3 tabs + email compose)
+- ✅ **Employees** — `EmployeesListNativeView` + `EmployeeDetailNativeView` + `EmployeeEditorView` (search/status filter, create/edit, linked user picker for admins, commission summary, recent commission links, payout history, pay-out action). Models `Employee`/`CommissionPayout` + `EmployeesAPI`.
+- ✅ **Vendors** — `VendorsListNativeView` + `VendorDetailNativeView` + `VendorEditorView` + `VendorRefundEditorView` (search/category/status filters, create/edit/deactivate, detail summary, recent costs/expenses/refunds, refund record/reverse). Models `Vendor`/`VendorDetail`/refund rows + `VendorsAPI`.
 
 > Naming flag: web `tiers/` = **Price Tiers**, NOT Tire Attributes → surface in Customer Account tab (Phase B), not a top-level module.
 
@@ -75,10 +75,10 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 ## Verification each phase
 1. `node scripts/verify-swift-conversion.mjs` + `node scripts/generate-xcodeproj.mjs` (after Phase 0 path fixes).
 2. Diff each screen's endpoints/fields against `apps/web/lib/api.ts` + the web page.
-3. User builds in Xcode (iOS 17 sim), smoke-tests vs live backend.
+3. Build in Xcode (iOS 17+ sim), smoke-test vs live backend.
 4. Permission gating matches web (`auth.has(...)` / `canActOrRequest`).
 
-> No Swift/Xcode toolchain in this Linux env — compile checks happen on the user's Mac.
+> Current Mac verification used iPhone 17 simulator because iPhone 16 is not installed.
 
 ---
 
@@ -86,4 +86,6 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Plan + tracker created; explored iOS app + web UI.
 - 2026-06-30: Phase 0 tooling fixed (xcodeproj generator + verifier paths). Built Phase A simple modules: Notifications, Monthly Sales, Brand Info, Tire Attributes (all in new `TireShop/PlaceholderModules.swift` + models in `Models.swift` + APIs in `Services.swift`, wired in `Destinations.swift`/`RootViews.swift`). Plus **Web Orders** (`OrderScreens.swift`). Verifier green: 20 swift files, 26 built destinations. **Not yet compiled in Xcode** (no toolchain on Linux).
 - 2026-06-30: Added **Commissions** native ledger from `employees/commissions/page.tsx`: status filter, paginated list, sale detail navigation, `GET /employees/commissions` API wrapper, and commission models. Verifier green: 20 swift files, 27 built destinations.
-- 2026-06-30: Added **Customer Relations (CRM)** native module on `codex/add-native-crm-module`: follow-up filters/actions, at-risk customer outreach, call logging, email compose with templates, template CRUD, CRM models, and `/crm` API wrappers. Employees and Vendors are handled in separate PRs (#2 and #3) and are intentionally not included on this branch.
+- 2026-06-30: Added **Employees** native module from `employees/page.tsx`, `[id]/page.tsx`, and `EmployeeModal.tsx`: list search/status filtering, create/edit sheet, detail profile/compensation, linked user picker, commission summary, recent commissions, payout history, and payout action. `xcodebuild` succeeded on iPhone 17 simulator.
+- 2026-06-30: Added **Vendors** native module from `vendors/page.tsx` and `[id]/page.tsx`: list filters, create/edit/deactivate, spend summary, recent costs/expenses, refund history, refund record, and refund reverse. `xcodebuild` succeeded on iPhone 17 simulator.
+- 2026-06-30: Added **Customer Relations (CRM)** native module: follow-up filters/actions, at-risk customer outreach, call logging, email compose with templates, template CRUD, CRM models, and `/crm` API wrappers.

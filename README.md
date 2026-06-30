@@ -23,7 +23,7 @@ This folder is the SwiftUI starting point for converting the Expo/React Native a
 - generated native Xcode project -> `TireShop.xcodeproj`
 - shared Xcode scheme -> `TireShop`
 
-The main tab and More-menu modules now have native SwiftUI data-loading screens for dashboard, inventory, sales, customers, customer relations, work orders, returns, inventory counts, purchasing, money, accounting, cash accounts, FET, EOD, activity, approvals, users, roles, API keys, and shop settings. The larger transaction areas now have native first-pass flows for quote creation/confirmation, sale editing, SKU detail/create/edit, stock adjustment, Tap to Pay intent loading, return draft creation, customer creation, inventory count creation, and SKU/customer pickers.
+The main tab and More-menu modules now have native SwiftUI data-loading screens for dashboard, inventory, sales, customers, customer relations, work orders, returns, inventory counts, purchasing, vendors, money, accounting, cash accounts, FET, EOD, employees, commissions, activity, approvals, users, roles, API keys, and shop settings. The larger transaction areas now have native first-pass flows for quote creation/confirmation, sale editing, SKU detail/create/edit, stock adjustment, Tap to Pay intent loading, return draft creation, customer creation, inventory count creation, employee create/edit, commission payout, vendor create/edit/refunds, CRM outreach, and SKU/customer pickers.
 
 ## Using it in Xcode
 
@@ -32,7 +32,7 @@ Open `TireShop.xcodeproj` in Xcode. The app entry point is `TireShopApp.swift`.
 The checked-in project can be regenerated from the Swift sources:
 
 ```sh
-/Users/shenglonglin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/generate-xcodeproj.mjs
+node scripts/generate-xcodeproj.mjs
 ```
 
 If you prefer XcodeGen, `project.yml` is also included.
@@ -40,11 +40,11 @@ If you prefer XcodeGen, `project.yml` is also included.
 To refresh translations after editing `src/lib/i18n.tsx`, run:
 
 ```sh
-/Users/shenglonglin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/generate-i18n-swift.mjs
+node scripts/generate-i18n-swift.mjs
 ```
 
 To run the local conversion checks available without Xcode, run:
 
 ```sh
-/Users/shenglonglin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/verify-swift-conversion.mjs
+node scripts/verify-swift-conversion.mjs
 ```

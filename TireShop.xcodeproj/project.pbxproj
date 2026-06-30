@@ -12,6 +12,7 @@
 		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
 		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
 		1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF94A64588D8A0810E39E6C /* DetailScreens.swift */; };
+		AE3E761B68DB2AD874E2CA90 /* EmployeeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */; };
 		65BB0D41B9531C1AA25DC34D /* FeatureScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */; };
 		6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F2FDAF3073867A0D51FCB72 /* Formatters.swift */; };
 		11A112861298144664360E27 /* I18nMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */; };
@@ -28,6 +29,7 @@
 		A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435F48F77A26D5E9323945F6 /* Theme.swift */; };
 		AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E48A97CA0BFC00EA327436 /* TireShopApp.swift */; };
 		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
+		E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4464773F8E49D240BCB0CF91 /* VendorScreens.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +38,7 @@
 		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerRelationsScreens.swift"; sourceTree = "<group>"; };
 		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Destinations.swift"; sourceTree = "<group>"; };
 		EBF94A64588D8A0810E39E6C /* DetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetailScreens.swift"; sourceTree = "<group>"; };
+		3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EmployeeScreens.swift"; sourceTree = "<group>"; };
 		34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeatureScreens.swift"; sourceTree = "<group>"; };
 		0F2FDAF3073867A0D51FCB72 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Formatters.swift"; sourceTree = "<group>"; };
 		F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nMessages.swift"; sourceTree = "<group>"; };
@@ -52,6 +55,7 @@
 		435F48F77A26D5E9323945F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
 		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TireShopApp.swift"; sourceTree = "<group>"; };
 		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TransactionScreens.swift"; sourceTree = "<group>"; };
+		4464773F8E49D240BCB0CF91 /* VendorScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VendorScreens.swift"; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -82,6 +86,7 @@
 				C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */,
 				6EAC7CD9D797892BEB3CA375 /* Destinations.swift */,
 				EBF94A64588D8A0810E39E6C /* DetailScreens.swift */,
+				3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */,
 				34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */,
 				0F2FDAF3073867A0D51FCB72 /* Formatters.swift */,
 				F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */,
@@ -98,6 +103,7 @@
 				435F48F77A26D5E9323945F6 /* Theme.swift */,
 				72E48A97CA0BFC00EA327436 /* TireShopApp.swift */,
 				A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */,
+				4464773F8E49D240BCB0CF91 /* VendorScreens.swift */,
 			);
 			path = TireShop;
 			sourceTree = "<group>";
@@ -183,6 +189,7 @@
 				47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */,
 				3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */,
 				1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */,
+				AE3E761B68DB2AD874E2CA90 /* EmployeeScreens.swift in Sources */,
 				65BB0D41B9531C1AA25DC34D /* FeatureScreens.swift in Sources */,
 				6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */,
 				11A112861298144664360E27 /* I18nMessages.swift in Sources */,
@@ -199,6 +206,7 @@
 				A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */,
 				AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */,
 				E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */,
+				E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -136,6 +136,62 @@ struct OutreachTemplateInput: Codable {
     let active: Bool
 }
 
+struct VendorSaveInput: Encodable {
+    var name: String
+    var category: VendorCategory?
+    var contactName: String?
+    var phone: String?
+    var email: String?
+    var address: String?
+    var notes: String?
+    var active: Bool?
+    var encodeNulls = false
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case category
+        case contactName
+        case phone
+        case email
+        case address
+        case notes
+        case active
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try encode(category, forKey: .category, into: &container)
+        try encode(contactName, forKey: .contactName, into: &container)
+        try encode(phone, forKey: .phone, into: &container)
+        try encode(email, forKey: .email, into: &container)
+        try encode(address, forKey: .address, into: &container)
+        try encode(notes, forKey: .notes, into: &container)
+        try container.encodeIfPresent(active, forKey: .active)
+    }
+
+    private func encode<T: Encodable>(
+        _ value: T?,
+        forKey key: CodingKeys,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else if encodeNulls {
+            try container.encodeNil(forKey: key)
+        }
+    }
+}
+
+struct VendorRefundInput: Codable {
+    let amount: Double
+    let depositToCode: String
+    let creditCode: String
+    let date: String?
+    let reference: String?
+    let note: String?
+}
+
 struct UserCreateInput: Codable {
     let email: String
     let password: String
@@ -290,6 +346,105 @@ struct MonthlySalesAPI {
 
     func report(from: String, to: String) async throws -> MonthlySalesReport {
         try await client.request("/accounting/reports/monthly-sales\(query(["from": from, "to": to]))")
+    }
+}
+
+struct EmployeeSaveInput: Encodable {
+    var fullName: String
+    var employeeNo: String?
+    var userId: String?
+    var includeUserId = false
+    var phone: String?
+    var email: String?
+    var address: String?
+    var position: String?
+    var department: String?
+    var status: EmployeeStatus
+    var hireDate: String?
+    var endDate: String?
+    var payType: PayType
+    var payRate: Double
+    var commissionRate: Double
+    var commissionBasis: CommissionBasis
+    var notes: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case fullName
+        case employeeNo
+        case userId
+        case phone
+        case email
+        case address
+        case position
+        case department
+        case status
+        case hireDate
+        case endDate
+        case payType
+        case payRate
+        case commissionRate
+        case commissionBasis
+        case notes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(fullName, forKey: .fullName)
+        try container.encodeIfPresent(employeeNo, forKey: .employeeNo)
+        if includeUserId {
+            if let userId {
+                try container.encode(userId, forKey: .userId)
+            } else {
+                try container.encodeNil(forKey: .userId)
+            }
+        }
+        try container.encodeIfPresent(phone, forKey: .phone)
+        try container.encodeIfPresent(email, forKey: .email)
+        try container.encodeIfPresent(address, forKey: .address)
+        try container.encodeIfPresent(position, forKey: .position)
+        try container.encodeIfPresent(department, forKey: .department)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(hireDate, forKey: .hireDate)
+        try container.encodeIfPresent(endDate, forKey: .endDate)
+        try container.encode(payType, forKey: .payType)
+        try container.encode(payRate, forKey: .payRate)
+        try container.encode(commissionRate, forKey: .commissionRate)
+        try container.encode(commissionBasis, forKey: .commissionBasis)
+        try container.encodeIfPresent(notes, forKey: .notes)
+    }
+}
+
+struct EmployeesAPI {
+    var client = APIClient.shared
+
+    func list(q: String? = nil, status: EmployeeStatus? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<Employee> {
+        let qs = query([
+            "q": q,
+            "status": status,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/employees\(qs)")
+    }
+
+    func get(id: String) async throws -> Employee {
+        try await client.request("/employees/\(id)")
+    }
+
+    func create(_ body: EmployeeSaveInput) async throws -> Employee {
+        try await client.request("/employees", method: "POST", body: body)
+    }
+
+    func update(id: String, body: EmployeeSaveInput) async throws -> Employee {
+        try await client.request("/employees/\(id)", method: "PATCH", body: body)
+    }
+
+    func payouts(id: String) async throws -> [CommissionPayout] {
+        try await client.request("/employees/\(id)/payouts")
+    }
+
+    func payout(id: String) async throws -> CommissionPayout {
+        try await client.request("/employees/\(id)/payout", method: "POST")
     }
 }
 
@@ -577,6 +732,51 @@ struct SuppliersAPI {
     }
 }
 
+struct VendorsAPI {
+    var client = APIClient.shared
+
+    func list(
+        q: String? = nil,
+        category: VendorCategory? = nil,
+        active: Bool? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<Vendor> {
+        let qs = query([
+            "q": q,
+            "category": category,
+            "active": active,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/vendors\(qs)")
+    }
+
+    func get(id: String) async throws -> VendorDetail {
+        try await client.request("/vendors/\(id)")
+    }
+
+    func create(_ body: VendorSaveInput) async throws -> Vendor {
+        try await client.request("/vendors", method: "POST", body: body)
+    }
+
+    func update(id: String, body: VendorSaveInput) async throws -> Vendor {
+        try await client.request("/vendors/\(id)", method: "PATCH", body: body)
+    }
+
+    func remove(id: String) async throws -> OkResponse {
+        try await client.request("/vendors/\(id)", method: "DELETE")
+    }
+
+    func recordRefund(id: String, body: VendorRefundInput) async throws -> VendorRefundResult {
+        try await client.request("/vendors/\(id)/refund", method: "POST", body: body)
+    }
+
+    func reverseRefund(id: String, reason: String? = nil) async throws -> OkResponse {
+        try await client.request("/vendors/refunds/\(id)/reverse", method: "POST", body: ReasonInput(reason: reason))
+    }
+}
+
 struct MoneyAPI {
     var client = APIClient.shared
 
@@ -638,6 +838,10 @@ struct AccountingAPI {
 
     func accounts() async throws -> [Account] {
         try await client.request("/accounting/accounts")
+    }
+
+    func expenseAccounts() async throws -> [ExpenseAccount] {
+        try await client.request("/accounting/expense-accounts")
     }
 
     func journal(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<JournalEntry> {
