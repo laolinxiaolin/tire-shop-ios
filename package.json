@@ -13,7 +13,10 @@
     "ios": "expo run:ios",
     "prebuild:ios": "expo prebuild --platform ios",
     "build:ipa": "./scripts/build-ipa.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "swift:i18n": "node SwiftApp/scripts/generate-i18n-swift.mjs",
+    "swift:xcodeproj": "node SwiftApp/scripts/generate-xcodeproj.mjs",
+    "swift:verify": "node SwiftApp/scripts/verify-swift-conversion.mjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
