@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Tire Force US",
+    "slug": "tire-shop-mobile",
+    "version": "0.1.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "tireshop",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "local.tireshop.mobile"
+    },
+    "android": {
+      "package": "local.tireshop.mobile",
+      "versionCode": 10,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": { "minSdkVersion": 26 }
+        }
+      ],
+      [
+        "@stripe/stripe-terminal-react-native",
+        {
+          "appDelegate": true,
+          "tapToPayCheck": true,
+          "locationWhenInUsePermission": "Location is used to accept card payments on this device."
+        }
+      ]
+    ]
+  }
+}

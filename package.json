@@ -1,0 +1,44 @@
+{
+  "name": "tire-shop-ios",
+  "version": "0.1.1",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "dev-client": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "prebuild:ios": "expo prebuild --platform ios",
+    "build:ipa": "./scripts/build-ipa.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/bottom-tabs": "^7.18.2",
+    "@react-navigation/native": "^7.3.3",
+    "@react-navigation/native-stack": "^7.17.5",
+    "@stripe/stripe-terminal-react-native": "0.0.1-beta.31",
+    "@tanstack/react-query": "^5.101.0",
+    "expo": "~56.0.12",
+    "expo-build-properties": "^56.0.19",
+    "expo-clipboard": "~56.0.4",
+    "expo-dev-client": "~56.0.20",
+    "expo-document-picker": "~56.0.4",
+    "expo-file-system": "~56.0.8",
+    "expo-secure-store": "~56.0.4",
+    "expo-sharing": "~56.0.18",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-screens": "~4.25.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.17",
+    "babel-preset-expo": "~56.0.15",
+    "typescript": "~6.0.3"
+  }
+}
