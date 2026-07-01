@@ -268,6 +268,15 @@ struct InvoiceIdInput: Codable {
     let invoiceId: String
 }
 
+struct PaymentIntentIdInput: Codable {
+    let paymentIntentId: String
+}
+
+struct ManualSettleResult: Codable, Equatable {
+    let booked: Bool
+    let status: String
+}
+
 struct CustomerInteractionInput: Codable {
     let type: InteractionType?
     let summary: String
@@ -1463,6 +1472,12 @@ struct PaymentsAPI {
 
     func cardIntent(invoiceId: String) async throws -> CardPaymentIntent {
         try await client.request("/payments/stripe/card/intent", method: "POST", body: InvoiceIdInput(invoiceId: invoiceId))
+    }
+
+    /// Book a confirmed keyed-card intent immediately; idempotent with the
+    /// `payment_intent.succeeded` webhook, so failures here are safe to ignore.
+    func settleManual(paymentIntentId: String) async throws -> ManualSettleResult {
+        try await client.request("/payments/stripe/manual/settle", method: "POST", body: PaymentIntentIdInput(paymentIntentId: paymentIntentId))
     }
 
     func invoicePayments(invoiceId: String) async throws -> [InvoicePayment] {

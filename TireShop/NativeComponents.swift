@@ -254,6 +254,9 @@ struct PaymentSheetNativeView: View {
 
             switch result {
             case .completed:
+                if let paymentIntentId = intent.paymentIntentId?.nilIfBlank {
+                    _ = try? await PaymentsAPI().settleManual(paymentIntentId: paymentIntentId)
+                }
                 onPaid()
                 dismiss()
             case .canceled:
