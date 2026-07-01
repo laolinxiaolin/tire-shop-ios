@@ -11,6 +11,7 @@ enum AppRoute: Hashable {
     case orderDetail(String)
     case editSale(String)
     case startReturn(saleId: String, saleRef: String?)
+    case returnDetail(String)
     case workOrderDetail(String)
     case inventoryCountDetail(String)
     case newInventoryCount
@@ -103,6 +104,7 @@ struct NavigationShell<Content: View>: View {
         NavigationStack(path: $path) {
             content
                 .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         AvatarButton(name: auth.user?.fullName) {
@@ -156,6 +158,8 @@ struct NavigationShell<Content: View>: View {
             EditSaleNativeView(id: id)
         case .startReturn(let saleId, let saleRef):
             StartReturnNativeView(saleId: saleId, saleRef: saleRef)
+        case .returnDetail(let id):
+            ReturnDetailNativeView(id: id)
         case .workOrderDetail(let id):
             WorkOrderDetailNativeView(id: id)
         case .inventoryCountDetail(let id):

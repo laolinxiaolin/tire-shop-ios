@@ -251,6 +251,22 @@ struct SaleListItem: Codable, Identifiable, Equatable {
     let grossProfit: String
 }
 
+struct SalesSummary: Codable, Equatable {
+    let count: Int
+    let tireQty: Int
+    let taxAmount: String
+    let grossProfit: String
+    let total: String
+}
+
+struct SalesListResponse: Codable, Equatable {
+    let items: [SaleListItem]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let summary: SalesSummary
+}
+
 struct CustomerSaleSummary: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
@@ -693,12 +709,22 @@ struct Returnable: Codable, Equatable {
 }
 
 struct ReturnLine: Codable, Identifiable, Equatable {
+    struct Sku: Codable, Identifiable, Equatable {
+        let id: String
+        let sku: String
+        let brand: String
+        let model: String
+        let size: String
+    }
+
     let id: String
     let saleLineId: String
     let skuId: String
     let qty: Int
     let unitRefund: String
     let inventoryDisposition: InventoryDisposition
+    let saleLine: SaleLine?
+    let sku: Sku?
 }
 
 struct ReturnRecord: Codable, Identifiable, Equatable {

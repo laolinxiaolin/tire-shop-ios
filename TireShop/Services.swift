@@ -649,8 +649,28 @@ struct InventoryAPI {
 struct SalesAPI {
     var client = APIClient.shared
 
-    func list(q: String? = nil, status: SaleStatus? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<SaleListItem> {
-        try await client.request("/sales\(query(["q": q, "status": status, "page": page, "pageSize": pageSize]))")
+    func list(
+        q: String? = nil,
+        status: SaleStatus? = nil,
+        from: String? = nil,
+        to: String? = nil,
+        sortBy: String? = nil,
+        sortOrder: String? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> SalesListResponse {
+        let qs = query([
+            "q": q,
+            "status": status,
+            "from": from,
+            "to": to,
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        let response: SalesListResponse = try await client.request("/sales\(qs)")
+        return response
     }
 
     func get(id: String) async throws -> Sale {
@@ -861,6 +881,10 @@ struct ReturnsAPI {
 
     func post(id: String, body: PostReturnInput? = nil) async throws -> ReturnRecord {
         try await client.request("/returns/\(id)/post", method: "POST", body: body ?? PostReturnInput(netPayment: nil, netRefund: nil))
+    }
+
+    func void(id: String, reason: String? = nil) async throws -> ReturnRecord {
+        try await client.request("/returns/\(id)/void", method: "POST", body: ReasonInput(reason: reason))
     }
 }
 

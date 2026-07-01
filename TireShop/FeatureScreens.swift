@@ -4,7 +4,7 @@ struct DashboardNativeView: View {
     var body: some View {
         AsyncContentView(load: DashboardAPI().summary) { summary in
             ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                VStack(alignment: .leading, spacing: Theme.Space.md) {
                     StatGrid(stats: [
                         ("Today's sales", AppFormat.money(summary.today.revenue)),
                         ("Month to date", AppFormat.money(summary.month.revenue)),
@@ -12,32 +12,88 @@ struct DashboardNativeView: View {
                         ("Low stock", "\(summary.lowStockCount)")
                     ])
 
-                    SectionHeader("Low stock")
-                    VStack(spacing: 0) {
-                        ForEach(summary.lowStock) { item in
-                            RowLine(
-                                title: "\(item.brand) \(item.model)",
-                                subtitle: "\(item.size) - \(item.sku)",
-                                trailing: "\(item.onHand) on hand"
-                            )
-                        }
-                    }
-
-                    SectionHeader("Top sellers this month")
-                    VStack(spacing: 0) {
-                        ForEach(summary.topSkus) { item in
-                            RowLine(
-                                title: "\(item.brand) \(item.model)",
-                                subtitle: "\(item.size) - \(item.sku)",
-                                trailing: "\(item.qty) sold"
-                            )
-                        }
-                    }
+                    lowStockSection(summary.lowStock)
+                    topSellerSection(summary.topSkus)
                 }
-                .padding(Theme.Space.lg)
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.top, Theme.Space.sm)
+                .padding(.bottom, Theme.Space.xl)
             }
             .background(Theme.background)
         }
+    }
+
+    private func lowStockSection(_ items: [DashboardSummary.LowStockSku]) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            SectionHeader("Low stock")
+
+            if items.isEmpty {
+                DashboardEmptyRow(text: "Everything is stocked.")
+            } else {
+                dashboardCard {
+                    ForEach(items) { item in
+                        RowLine(
+                            title: "\(item.brand) \(item.model)",
+                            subtitle: "\(item.size) - \(item.sku)",
+                            trailing: "\(item.onHand) on hand"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func topSellerSection(_ items: [DashboardSummary.TopSku]) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            SectionHeader("Top sellers this month")
+
+            if items.isEmpty {
+                DashboardEmptyRow(text: "No sales yet this month.")
+            } else {
+                dashboardCard {
+                    ForEach(items) { item in
+                        RowLine(
+                            title: "\(item.brand) \(item.model)",
+                            subtitle: "\(item.size) - \(item.sku)",
+                            trailing: "\(item.qty) sold"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func dashboardCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, Theme.Space.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
+        )
+    }
+}
+
+private struct DashboardEmptyRow: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(Theme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.md)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                    .stroke(Theme.border)
+            )
     }
 }
 
@@ -608,14 +664,135 @@ struct SkuManagementNativeView: View {
     }
 }
 
+private struct SalesSortOption: Identifiable {
+    let id: String
+    let label: String
+}
+
+private enum SalesDateRange: String, CaseIterable, Identifiable {
+    case all
+    case today
+    case yesterday
+    case threeDays = "3days"
+    case week
+    case month
+    case year
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .all: return "All dates"
+        case .today: return "Today"
+        case .yesterday: return "Yesterday"
+        case .threeDays: return "Last 3 days"
+        case .week: return "This week"
+        case .month: return "This month"
+        case .year: return "This year"
+        }
+    }
+
+    func params() -> (from: String?, to: String?) {
+        guard self != .all else { return (nil, nil) }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let startToday = calendar.startOfDay(for: now)
+        let startTomorrow = calendar.date(byAdding: .day, value: 1, to: startToday) ?? startToday
+
+        func iso(_ date: Date) -> String {
+            ISO8601DateFormatter().string(from: date)
+        }
+
+        switch self {
+        case .all:
+            return (nil, nil)
+        case .today:
+            return (iso(startToday), iso(startTomorrow))
+        case .yesterday:
+            let startYesterday = calendar.date(byAdding: .day, value: -1, to: startToday) ?? startToday
+            return (iso(startYesterday), iso(startToday))
+        case .threeDays:
+            let start = calendar.date(byAdding: .day, value: -2, to: startToday) ?? startToday
+            return (iso(start), iso(startTomorrow))
+        case .week:
+            let weekday = calendar.component(.weekday, from: now)
+            let start = calendar.date(byAdding: .day, value: -(weekday - 1), to: startToday) ?? startToday
+            return (iso(start), iso(startTomorrow))
+        case .month:
+            let components = calendar.dateComponents([.year, .month], from: now)
+            let start = calendar.date(from: components) ?? startToday
+            return (iso(start), iso(startTomorrow))
+        case .year:
+            let components = calendar.dateComponents([.year], from: now)
+            let start = calendar.date(from: components) ?? startToday
+            return (iso(start), iso(startTomorrow))
+        }
+    }
+}
+
+private enum SalesLabels {
+    static let statusOptions: [(String, String)] = [
+        ("", "All statuses"),
+        ("DRAFT", "Draft"),
+        ("QUOTE", "Quote"),
+        ("CONFIRMED", "Confirmed"),
+        ("INVOICED", "Invoiced"),
+        ("PAID", "Paid"),
+        ("CANCELLED", "Cancelled")
+    ]
+
+    static let sortOptions: [SalesSortOption] = [
+        SalesSortOption(id: "", label: "Newest first"),
+        SalesSortOption(id: "ref", label: "Sale #"),
+        SalesSortOption(id: "status", label: "Status"),
+        SalesSortOption(id: "subtotal", label: "Subtotal"),
+        SalesSortOption(id: "taxAmount", label: "Tax"),
+        SalesSortOption(id: "total", label: "Total"),
+        SalesSortOption(id: "createdAt", label: "Date")
+    ]
+
+    static func status(_ value: SaleStatus) -> String {
+        statusOptions.first { $0.0 == value }?.1 ?? value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func sort(_ value: String) -> String {
+        sortOptions.first { $0.id == value }?.label ?? "Newest first"
+    }
+}
+
 struct SalesListNativeView: View {
     private let pageSize = 50
 
     @State private var q = ""
-    @State private var data: Paged<SaleListItem>?
+    @State private var status = ""
+    @State private var range: SalesDateRange = .all
+    @State private var sortBy = ""
+    @State private var sortOrder = "asc"
+    @State private var data: SalesListResponse?
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
+
+    private var hasActiveFilters: Bool {
+        !status.isEmpty || range != .all || !sortBy.isEmpty
+    }
+
+    private var activeFilterCount: Int {
+        [
+            status.isEmpty ? nil : status,
+            range == .all ? nil : range.rawValue,
+            sortBy.isEmpty ? nil : sortBy
+        ].compactMap { $0 }.count
+    }
+
+    private var activeSummary: String? {
+        var parts: [String] = []
+        if !status.isEmpty { parts.append(SalesLabels.status(status)) }
+        if range != .all { parts.append(range.label) }
+        if !sortBy.isEmpty { parts.append("\(SalesLabels.sort(sortBy)) \(sortOrder.uppercased())") }
+        return parts.isEmpty ? nil : parts.joined(separator: " - ")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -627,19 +804,9 @@ struct SalesListNativeView: View {
                 } else if let errorMessage, data == nil {
                     RetryView(message: errorMessage) { Task { await load() } }
                 } else if let data, data.items.isEmpty {
-                    EmptyStateView(text: "No sales found.")
+                    EmptyStateView(text: emptyMessage)
                 } else if let data {
-                    List(data.items) { sale in
-                        NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                            RowLine(
-                                title: "\(sale.ref ?? "Sale") - \(sale.customer.name)",
-                                subtitle: "\(sale.status) - \(AppFormat.dateTime(sale.createdAt))",
-                                trailing: AppFormat.money(sale.total)
-                            )
-                        }
-                    }
-                    .listStyle(.plain)
-                    .refreshable { await load() }
+                    salesContent(data)
                 } else {
                     LoadingView(label: "Loading...")
                 }
@@ -654,14 +821,52 @@ struct SalesListNativeView: View {
         }
     }
 
-    private var salesHeader: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("Sales")
-                .font(.title3)
-                .fontWeight(.bold)
-                .foregroundStyle(Theme.text)
+    private func salesContent(_ data: SalesListResponse) -> some View {
+        VStack(spacing: 0) {
+            List(data.items) { sale in
+                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                    RowLine(
+                        title: "\(sale.ref ?? "Sale") - \(sale.customer.company ?? sale.customer.name)",
+                        subtitle: saleSubtitle(sale),
+                        trailing: AppFormat.money(sale.total)
+                    )
+                }
+            }
+            .listStyle(.plain)
+            .refreshable { await load() }
 
-            searchBar
+            if !data.items.isEmpty {
+                summaryFooter(data.summary)
+            }
+        }
+    }
+
+    private var salesHeader: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(spacing: Theme.Space.sm) {
+                searchBar
+                filterMenu
+            }
+
+            if let activeSummary {
+                HStack(spacing: Theme.Space.sm) {
+                    Text(activeSummary)
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Spacer(minLength: Theme.Space.sm)
+
+                    Button("Reset") {
+                        resetFilters(includeSearch: false)
+                    }
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.primary)
+                }
+                .frame(height: 22)
+            }
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.vertical, Theme.Space.sm)
@@ -707,6 +912,198 @@ struct SalesListNativeView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.sm)
                 .stroke(Theme.border)
         )
+        .frame(maxWidth: .infinity)
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Section("Status") {
+                ForEach(SalesLabels.statusOptions, id: \.0) { option in
+                    Button {
+                        updateStatus(option.0)
+                    } label: {
+                        menuLabel(option.1, selected: status == option.0)
+                    }
+                }
+            }
+
+            Section("Date range") {
+                ForEach(SalesDateRange.allCases) { option in
+                    Button {
+                        updateRange(option)
+                    } label: {
+                        menuLabel(option.label, selected: range == option)
+                    }
+                }
+            }
+
+            Section("Sort") {
+                ForEach(SalesLabels.sortOptions) { option in
+                    Button {
+                        updateSort(option.id)
+                    } label: {
+                        menuLabel(option.label, selected: sortBy == option.id)
+                    }
+                }
+            }
+
+            Section("Direction") {
+                Button {
+                    updateSortOrder("asc")
+                } label: {
+                    menuLabel("Ascending", selected: sortOrder == "asc")
+                }
+                .disabled(sortBy.isEmpty)
+
+                Button {
+                    updateSortOrder("desc")
+                } label: {
+                    menuLabel("Descending", selected: sortOrder == "desc")
+                }
+                .disabled(sortBy.isEmpty)
+            }
+
+            Button("Reset filters") {
+                resetFilters(includeSearch: false)
+            }
+            .disabled(!hasActiveFilters)
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Label("Filters", systemImage: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .labelStyle(.titleAndIcon)
+                    .frame(width: 94, height: 42)
+                    .background(activeFilterCount > 0 ? Theme.primary : Theme.card)
+                    .foregroundStyle(activeFilterCount > 0 ? Theme.primaryText : Theme.text)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                            .stroke(activeFilterCount > 0 ? Theme.primary : Theme.border)
+                    )
+
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 16, height: 16)
+                        .background(Theme.primary)
+                        .foregroundStyle(Theme.primaryText)
+                        .clipShape(Circle())
+                        .offset(x: 4, y: -4)
+                }
+            }
+        }
+        .accessibilityLabel("Sales filters")
+    }
+
+    private func menuLabel(_ title: String, selected: Bool) -> some View {
+        Group {
+            if selected {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    private func summaryFooter(_ summary: SalesSummary) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.sm) {
+                summaryPill(title: "Sales", value: "\(summary.count)")
+                summaryPill(title: "Tires", value: "\(summary.tireQty)")
+                summaryPill(title: "Tax", value: AppFormat.money(summary.taxAmount))
+                summaryPill(
+                    title: "Gross profit",
+                    value: AppFormat.money(summary.grossProfit),
+                    valueColor: (Double(summary.grossProfit) ?? 0) < 0 ? Theme.danger : Theme.success
+                )
+                summaryPill(title: "Total", value: AppFormat.money(summary.total))
+            }
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+        }
+        .background(Theme.card)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
+    }
+
+    private func summaryPill(title: String, value: String, valueColor: Color = Theme.text) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(Theme.muted)
+                .lineLimit(1)
+
+            Text(value)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(valueColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(minWidth: 86, alignment: .leading)
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, Theme.Space.xs)
+        .background(Theme.background)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+    }
+
+    private var emptyMessage: String {
+        if q.nilIfBlank != nil || hasActiveFilters {
+            return "No sales match the current filters."
+        }
+        return "No sales found."
+    }
+
+    private func saleSubtitle(_ sale: SaleListItem) -> String {
+        var parts = [
+            SalesLabels.status(sale.status),
+            AppFormat.dateTime(sale.createdAt)
+        ]
+
+        if sale.tireQty > 0 {
+            let more = sale.extraLineCount > 0 ? " +\(sale.extraLineCount) more" : ""
+            parts.append("\(sale.tireQty) tires - \(sale.sampleDescription ?? "SKU lines")\(more)")
+        }
+
+        return parts.joined(separator: " - ")
+    }
+
+    private func updateStatus(_ value: String) {
+        guard status != value else { return }
+        status = value
+        Task { await load() }
+    }
+
+    private func updateRange(_ value: SalesDateRange) {
+        guard range != value else { return }
+        range = value
+        Task { await load() }
+    }
+
+    private func updateSort(_ value: String) {
+        guard sortBy != value else { return }
+        sortBy = value
+        if value.isEmpty {
+            sortOrder = "asc"
+        }
+        Task { await load() }
+    }
+
+    private func updateSortOrder(_ value: String) {
+        guard sortOrder != value else { return }
+        sortOrder = value
+        Task { await load() }
+    }
+
+    private func resetFilters(includeSearch: Bool) {
+        if includeSearch {
+            q = ""
+        }
+        status = ""
+        range = .all
+        sortBy = ""
+        sortOrder = "asc"
+        Task { await load() }
     }
 
     private func scheduleSearch() {
@@ -723,7 +1120,16 @@ struct SalesListNativeView: View {
         loading = true
         errorMessage = nil
         do {
-            data = try await SalesAPI().list(q: q.nilIfBlank, pageSize: pageSize)
+            let dateParams = range.params()
+            data = try await SalesAPI().list(
+                q: q.nilIfBlank,
+                status: status.nilIfBlank,
+                from: dateParams.from,
+                to: dateParams.to,
+                sortBy: sortBy.nilIfBlank,
+                sortOrder: sortBy.isEmpty ? nil : sortOrder,
+                pageSize: pageSize
+            )
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load sales."
         }
@@ -825,18 +1231,312 @@ struct WorkOrdersListNativeView: View {
     }
 }
 
-struct ReturnsListNativeView: View {
-    var body: some View {
-        AsyncContentView(load: { try await ReturnsAPI().list(pageSize: 50) }) { page in
-            List(page.items) { record in
-                RowLine(
-                    title: "\(record.ref ?? "Return") - \(record.type)",
-                    subtitle: "\(record.status) - \(record.sale?.customer?.name ?? "Unknown customer")",
-                    trailing: AppFormat.money(record.refundTotal)
-                )
-            }
-            .listStyle(.plain)
+private enum ReturnLabels {
+    static let statuses: [(String, String)] = [
+        ("", "All"),
+        ("DRAFT", "Draft"),
+        ("POSTED", "Posted"),
+        ("VOIDED", "Voided")
+    ]
+
+    static func status(_ value: ReturnStatus) -> String {
+        statuses.first { $0.0 == value }?.1 ?? title(value)
+    }
+
+    static func type(_ value: ReturnType) -> String {
+        switch value {
+        case "RETURN": return "Return"
+        case "EXCHANGE": return "Exchange"
+        case "WARRANTY": return "Warranty"
+        default: return title(value)
         }
+    }
+
+    static func refundMethod(_ value: RefundMethod, paymentMethod: InvoicePayment.Method?) -> String {
+        switch value {
+        case "ORIGINAL": return paymentMethod?.name ?? "Original tender"
+        case "STORE_CREDIT": return "Store credit"
+        default: return paymentMethod?.name ?? title(value)
+        }
+    }
+
+    static func disposition(_ value: InventoryDisposition) -> String {
+        switch value {
+        case "RESTOCK": return "Restock"
+        case "SCRAP": return "Scrap"
+        default: return title(value)
+        }
+    }
+
+    private static func title(_ value: String) -> String {
+        value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+struct ReturnsListNativeView: View {
+    private let pageSize = 50
+
+    @State private var status = ""
+    @State private var page: Paged<ReturnRecord>?
+    @State private var loading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            statusFilter
+
+            Group {
+                if loading && page == nil {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, page == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let page, page.items.isEmpty {
+                    EmptyStateView(text: status.isEmpty ? "No returns found." : "No returns match this status.")
+                } else if let page {
+                    List(page.items) { record in
+                        NavigationLink(value: AppRoute.returnDetail(record.id)) {
+                            RowLine(
+                                title: "\(record.ref ?? "Return") - \(ReturnLabels.type(record.type))",
+                                subtitle: returnSubtitle(record),
+                                trailing: AppFormat.money(record.refundTotal)
+                            )
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
+                } else {
+                    LoadingView(label: "Loading...")
+                }
+            }
+        }
+        .background(Theme.background)
+        .task(id: status) {
+            await load()
+        }
+    }
+
+    private var statusFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.sm) {
+                ForEach(ReturnLabels.statuses, id: \.0) { option in
+                    Button {
+                        status = option.0
+                    } label: {
+                        Text(option.1)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, Theme.Space.md)
+                            .padding(.vertical, 6)
+                            .background(status == option.0 ? Theme.primary : Theme.card)
+                            .foregroundStyle(status == option.0 ? Theme.primaryText : Theme.text)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                                    .stroke(status == option.0 ? Theme.primary : Theme.border)
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.xs)
+        }
+        .background(Theme.background)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private func returnSubtitle(_ record: ReturnRecord) -> String {
+        let customer = record.sale?.customer?.company ?? record.sale?.customer?.name ?? "Unknown customer"
+        return [
+            ReturnLabels.status(record.status),
+            customer,
+            AppFormat.dateTime(record.createdAt)
+        ].joined(separator: " - ")
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            page = try await ReturnsAPI().list(status: status.nilIfBlank, pageSize: pageSize)
+        } catch {
+            page = nil
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load returns."
+        }
+        loading = false
+    }
+}
+
+struct ReturnDetailNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+
+    let id: String
+
+    @State private var record: ReturnRecord?
+    @State private var loading = false
+    @State private var errorMessage: String?
+    @State private var showVoidPrompt = false
+    @State private var voidReason = ""
+    @State private var voiding = false
+
+    private var canVoid: Bool {
+        auth.has("returns.void") && record?.status == "POSTED"
+    }
+
+    var body: some View {
+        Group {
+            if loading && record == nil {
+                LoadingView(label: "Loading...")
+            } else if let record {
+                content(record)
+            } else if let errorMessage {
+                RetryView(message: errorMessage) { Task { await load() } }
+            } else {
+                LoadingView(label: "Loading...")
+            }
+        }
+        .navigationTitle("Return")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if canVoid {
+                    Button(role: .destructive) {
+                        showVoidPrompt = true
+                    } label: {
+                        if voiding {
+                            ProgressView()
+                        } else {
+                            Label("Void", systemImage: "xmark.circle")
+                        }
+                    }
+                    .disabled(voiding)
+                }
+            }
+        }
+        .alert("Void return?", isPresented: $showVoidPrompt) {
+            TextField("Reason", text: $voidReason)
+            Button("Cancel", role: .cancel) {
+                voidReason = ""
+            }
+            Button("Void", role: .destructive) {
+                Task { await voidReturn() }
+            }
+        } message: {
+            Text("This reverses a posted return and its accounting entries.")
+        }
+        .task {
+            if record == nil { await load() }
+        }
+    }
+
+    private func content(_ record: ReturnRecord) -> some View {
+        List {
+            Section {
+                RowLine(title: record.ref ?? "Return", subtitle: ReturnLabels.type(record.type), trailing: ReturnLabels.status(record.status))
+
+                if let sale = record.sale {
+                    NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                        RowLine(
+                            title: sale.ref ?? "Sale",
+                            subtitle: sale.customer?.company ?? sale.customer?.name ?? "Unknown customer"
+                        )
+                    }
+                }
+
+                if let replacement = record.replacementSale {
+                    NavigationLink(value: AppRoute.saleDetail(replacement.id)) {
+                        RowLine(
+                            title: replacement.ref ?? "Replacement sale",
+                            subtitle: replacement.status,
+                            trailing: AppFormat.money(replacement.total)
+                        )
+                    }
+                }
+
+                RowLine(title: "Created", subtitle: AppFormat.dateTime(record.createdAt))
+                if let postedAt = record.postedAt {
+                    RowLine(title: "Posted", subtitle: AppFormat.dateTime(postedAt))
+                }
+                if let voidedAt = record.voidedAt {
+                    RowLine(title: "Voided", subtitle: AppFormat.dateTime(voidedAt))
+                }
+                if let reason = record.reason?.nilIfBlank {
+                    RowLine(title: "Reason", subtitle: reason)
+                }
+                if let notes = record.notes?.nilIfBlank {
+                    RowLine(title: "Notes", subtitle: notes)
+                }
+            }
+
+            Section("Refund") {
+                RowLine(title: "Subtotal", trailing: AppFormat.money(record.refundSubtotal))
+                RowLine(title: "Tax", trailing: AppFormat.money(record.refundTax))
+                RowLine(title: "Restocking fee", trailing: AppFormat.money(record.restockingFee))
+                RowLine(title: "Total", trailing: AppFormat.money(record.refundTotal))
+                RowLine(title: "Method", subtitle: ReturnLabels.refundMethod(record.refundMethod, paymentMethod: record.paymentMethod))
+            }
+
+            Section("Lines") {
+                if record.lines.isEmpty {
+                    Text("No return lines.")
+                        .foregroundStyle(Theme.muted)
+                } else {
+                    ForEach(record.lines) { line in
+                        RowLine(
+                            title: lineTitle(line),
+                            subtitle: "Qty \(line.qty) - \(ReturnLabels.disposition(line.inventoryDisposition))",
+                            trailing: AppFormat.money(line.unitRefund)
+                        )
+                    }
+                }
+            }
+
+            if let errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .foregroundStyle(Theme.danger)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await load()
+        }
+    }
+
+    private func lineTitle(_ line: ReturnLine) -> String {
+        if let saleLine = line.saleLine {
+            return saleLine.description
+        }
+        if let sku = line.sku {
+            return "\(sku.brand) \(sku.model) \(sku.size)"
+        }
+        return line.skuId
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            record = try await ReturnsAPI().get(id: id)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load return."
+        }
+        loading = false
+    }
+
+    @MainActor
+    private func voidReturn() async {
+        guard record?.status == "POSTED" else { return }
+        voiding = true
+        errorMessage = nil
+        do {
+            record = try await ReturnsAPI().void(id: id, reason: voidReason.nilIfBlank)
+            voidReason = ""
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not void return."
+        }
+        voiding = false
     }
 }
 

@@ -57,8 +57,8 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 ## Phase C — List search / filter / sort / mobile loading
 (reuse `FilterChips`/`TireFilterOptions`; add shared search/loading patterns; avoid visible pagination on mobile)
 - ✅ **Inventory** — `q`, `category`, `position`, `sortBy/sortOrder`, compact filter menu, hide-zero-stock toggle, pull-to-refresh, infinite scroll
-- 🟨 **Sales** — `q` search with pinned title/search header and pull-to-refresh; remaining web parity: `status`, date-range presets (`from`/`to`), sort, summary footer
-- ⬜ **Returns** — `status` filter + **make rows tappable** → NEW `ReturnDetailNativeView` (`ReturnsAPI.get` ✱); void action (NEW)
+- ✅ **Sales** — `q`, `status`, date-range presets (`from`/`to`), backend sort, pull-to-refresh, pinned search/filter header, and summary footer
+- ✅ **Returns** — `status` filter, tappable rows, `ReturnDetailNativeView` via `ReturnsAPI.get`, and posted-return void action
 - ⬜ **Purchasing** — `q` + `status` (Containers), `q` (Suppliers)
 - ✅ **Work Orders** — `status` filter
 
@@ -95,3 +95,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Added **Customer detail actions**: profile edit, tags, tax status, document upload/preview/delete, storefront logins, account/credit controls, price tier, salesperson, payment links for open invoices, and CRM relationship/interactions/follow-ups.
 - 2026-07-01: Added **Inventory list search/filter/sort controls**: native `q`, category, position, backend sort field/order, pull-to-refresh, and quote-selection compatibility. Verifier green: 26 swift files, 30 built destinations.
 - 2026-07-01: Refined **Inventory/Sales mobile lists**: compact inventory search/filter toolbar, hide-zero-stock toggle, infinite scroll instead of visible pagination, pinned Sales title/search header, and Sales `q` search. Verifier and iPhone 17 simulator build passed; fresh build launched in Simulator.
+- 2026-07-01: Completed **Sales/Returns Phase C parity**: Sales gained status/date/sort filters and summary totals from `/sales`; Returns gained status chips, tappable detail navigation, richer return detail rendering, and `POST /returns/:id/void`. Verifier and iPhone 17 simulator build passed.
