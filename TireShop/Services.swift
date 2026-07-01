@@ -1461,6 +1461,10 @@ struct PaymentsAPI {
         try await client.request("/payments/stripe/terminal/intent", method: "POST", body: InvoiceIdInput(invoiceId: invoiceId))
     }
 
+    func cardIntent(invoiceId: String) async throws -> CardPaymentIntent {
+        try await client.request("/payments/stripe/card/intent", method: "POST", body: InvoiceIdInput(invoiceId: invoiceId))
+    }
+
     func invoicePayments(invoiceId: String) async throws -> [InvoicePayment] {
         try await client.request("/invoices/\(invoiceId)/payments")
     }

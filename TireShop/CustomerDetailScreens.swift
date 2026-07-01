@@ -539,7 +539,7 @@ struct CustomerDetailNativeView: View {
                                 Text(AppFormat.money(invoice.balance))
                                     .fontWeight(.semibold)
                                 if canCollectPayments && invoice.balance > 0 {
-                                    Button("Record payment") {
+                                    Button("Take payment") {
                                         paymentContext = CustomerPaymentContext(invoice: invoice, customerId: customer.id)
                                     }
                                     .font(.caption)
@@ -1480,4 +1480,3 @@ private struct CustomerPasswordResetView: View {
         saving = false
     }
 }
-

@@ -639,6 +639,56 @@ struct TerminalIntent: Codable, Equatable {
     let readerStatus: String?
 }
 
+struct CardPaymentIntent: Codable, Equatable {
+    let paymentIntentId: String?
+    let clientSecret: String?
+    let balance: Double?
+    let surcharge: Double?
+    let amount: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case paymentIntentId
+        case clientSecret
+        case paymentIntent
+        case balance
+        case surcharge
+        case amount
+    }
+
+    init(
+        paymentIntentId: String?,
+        clientSecret: String?,
+        balance: Double?,
+        surcharge: Double?,
+        amount: Double?
+    ) {
+        self.paymentIntentId = paymentIntentId
+        self.clientSecret = clientSecret
+        self.balance = balance
+        self.surcharge = surcharge
+        self.amount = amount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        paymentIntentId = try container.decodeIfPresent(String.self, forKey: .paymentIntentId)
+        clientSecret = try container.decodeIfPresent(String.self, forKey: .clientSecret)
+            ?? container.decodeIfPresent(String.self, forKey: .paymentIntent)
+        balance = try container.decodeIfPresent(Double.self, forKey: .balance)
+        surcharge = try container.decodeIfPresent(Double.self, forKey: .surcharge)
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(paymentIntentId, forKey: .paymentIntentId)
+        try container.encodeIfPresent(clientSecret, forKey: .clientSecret)
+        try container.encodeIfPresent(balance, forKey: .balance)
+        try container.encodeIfPresent(surcharge, forKey: .surcharge)
+        try container.encodeIfPresent(amount, forKey: .amount)
+    }
+}
+
 struct InvoicePayment: Codable, Identifiable, Equatable {
     struct Method: Codable, Equatable {
         let name: String

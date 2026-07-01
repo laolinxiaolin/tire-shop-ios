@@ -41,9 +41,13 @@ const ids = {
   targetRelease: id('targetRelease'),
   assetsFile: id('file:Assets.xcassets'),
   assetsBuild: id('build:Assets.xcassets'),
+  entitlementsFile: id('file:TireShop.entitlements'),
   stripePackage: id('stripePackage'),
   stripeProduct: id('stripeProduct'),
-  stripeBuild: id('stripeBuild')
+  stripeBuild: id('stripeBuild'),
+  stripePaymentSheetPackage: id('stripePaymentSheetPackage'),
+  stripePaymentSheetProduct: id('stripePaymentSheetProduct'),
+  stripePaymentSheetBuild: id('stripePaymentSheetBuild')
 };
 
 const fileIds = new Map(swiftFiles.map((file) => [file, id(`file:${file}`)]));
@@ -112,13 +116,16 @@ const commonProjectSettings = `
 
 const commonTargetSettings = `
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = TireShop/TireShop.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "Tire Force US";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Tire Force uses your location while accepting in-person card payments so Stripe Terminal can connect this device to the store.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -147,6 +154,7 @@ const pbxproj = `// !$*UTF8*$!
 /* Begin PBXBuildFile section */
 ${buildFiles}
 		${ids.stripeBuild} /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripeProduct} /* StripeTerminal */; };
+		${ids.stripePaymentSheetBuild} /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripePaymentSheetProduct} /* StripePaymentSheet */; };
 		${ids.assetsBuild} /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.assetsFile} /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -154,6 +162,7 @@ ${buildFiles}
 ${fileRefs}
 		${ids.product} /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		${ids.assetsFile} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		${ids.entitlementsFile} /* TireShop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShop.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +171,7 @@ ${fileRefs}
 			buildActionMask = 2147483647;
 			files = (
 				${ids.stripeBuild} /* StripeTerminal in Frameworks */,
+				${ids.stripePaymentSheetBuild} /* StripePaymentSheet in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -181,6 +191,7 @@ ${fileRefs}
 			children = (
 ${sourceChildren}
 				${ids.assetsFile} /* Assets.xcassets */,
+				${ids.entitlementsFile} /* TireShop.entitlements */,
 			);
 			path = TireShop;
 			sourceTree = "<group>";
@@ -212,6 +223,7 @@ ${sourceChildren}
 			productName = TireShop;
 			packageProductDependencies = (
 				${ids.stripeProduct} /* StripeTerminal */,
+				${ids.stripePaymentSheetProduct} /* StripePaymentSheet */,
 			);
 			productReference = ${ids.product} /* TireShop.app */;
 			productType = "com.apple.product-type.application";
@@ -242,6 +254,7 @@ ${sourceChildren}
 			mainGroup = ${ids.mainGroup};
 			packageReferences = (
 				${ids.stripePackage} /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */,
+				${ids.stripePaymentSheetPackage} /* XCRemoteSwiftPackageReference "stripe-ios-spm" */,
 			);
 			productRefGroup = ${ids.productGroup} /* Products */;
 			projectDirPath = "";
@@ -348,6 +361,14 @@ ${commonTargetSettings}
 				minimumVersion = 5.6.0;
 			};
 		};
+		${ids.stripePaymentSheetPackage} /* XCRemoteSwiftPackageReference "stripe-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-ios-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 26.1.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -355,6 +376,11 @@ ${commonTargetSettings}
 			isa = XCSwiftPackageProductDependency;
 			package = ${ids.stripePackage} /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */;
 			productName = StripeTerminal;
+		};
+		${ids.stripePaymentSheetProduct} /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ${ids.stripePaymentSheetPackage} /* XCRemoteSwiftPackageReference "stripe-ios-spm" */;
+			productName = StripePaymentSheet;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

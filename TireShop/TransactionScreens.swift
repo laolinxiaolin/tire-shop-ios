@@ -1,4 +1,5 @@
 import SwiftUI
+import StripeTerminal
 
 struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
@@ -603,6 +604,9 @@ struct AdjustStockLookupNativeView: View {
 }
 
 struct TapToPayNativeView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var terminal = TapToPayTerminalController.shared
+
     let invoiceId: String
     let amount: Double
 
@@ -620,14 +624,448 @@ struct TapToPayNativeView: View {
                     RowLine(title: "Payment intent", subtitle: intent.paymentIntentId)
                     RowLine(title: "Reader", subtitle: intent.readerId ?? "-", trailing: intent.readerStatus)
                 }
+
+                Section("Status") {
+                    HStack(alignment: .top, spacing: Theme.Space.md) {
+                        if terminal.isBusy {
+                            ProgressView()
+                        } else {
+                            Image(systemName: terminal.succeeded ? "checkmark.circle.fill" : "iphone.gen3")
+                                .foregroundStyle(terminal.succeeded ? Theme.success : Theme.primary)
+                        }
+
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                            Text(terminal.statusMessage)
+                                .foregroundStyle(Theme.text)
+                            if let readerMessage = terminal.readerMessage {
+                                Text(readerMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
+                    }
+
+                    RowLine(title: "Connection", trailing: terminal.connectionStatusText)
+                    RowLine(title: "Payment", trailing: terminal.paymentStatusText)
+
+                    if let readerName = terminal.readerName {
+                        RowLine(title: "Connected reader", subtitle: readerName)
+                    }
+
+                    if let intentStatus = terminal.paymentIntentStatusText {
+                        RowLine(title: "Intent status", trailing: intentStatus)
+                    }
+                }
+
+                if let updateProgress = terminal.updateProgress {
+                    Section("Reader setup") {
+                        ProgressView(value: updateProgress)
+                        Text("\(Int(updateProgress * 100))%")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+
+                if let errorMessage = terminal.errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await terminal.charge(invoiceId: invoiceId, intent: intent) }
+                    } label: {
+                        HStack {
+                            if terminal.isBusy {
+                                ProgressView()
+                            }
+                            Text(terminal.succeeded ? "Payment complete" : "Charge \(AppFormat.money(intent.amount))")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(!terminal.canCharge(intent))
+
+                    if terminal.succeeded {
+                        Button("Done") {
+                            dismiss()
+                        }
+                    }
+                }
             }
             .listStyle(.insetGrouped)
         }
         .navigationTitle("Tap to Pay")
+        .onAppear {
+            terminal.prepare(invoiceId: invoiceId)
+        }
     }
 
     private func loadIntent() async throws -> TerminalIntent {
         try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+    }
+}
+
+final class TapToPayTerminalController: NSObject, ObservableObject {
+    static let shared = TapToPayTerminalController()
+
+    @Published private(set) var isBusy = false
+    @Published private(set) var succeeded = false
+    @Published private(set) var statusMessage = "Reader ready. Tap Charge, then have the customer hold their card to the phone."
+    @Published private(set) var readerMessage: String?
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var readerName: String?
+    @Published private(set) var connectionStatusText = "Not connected"
+    @Published private(set) var paymentStatusText = "Not ready"
+    @Published private(set) var paymentIntentStatusText: String?
+    @Published private(set) var updateProgress: Double?
+
+    private var currentInvoiceId: String?
+    private var lastLocationId: String?
+    private var paymentsAPI = PaymentsAPI()
+
+    private override init() {
+        super.init()
+    }
+
+    @MainActor
+    func prepare(invoiceId: String) {
+        guard currentInvoiceId != invoiceId, !isBusy else { return }
+        currentInvoiceId = invoiceId
+        succeeded = false
+        errorMessage = nil
+        readerMessage = nil
+        paymentIntentStatusText = nil
+        updateProgress = nil
+        statusMessage = "Reader ready. Tap Charge, then have the customer hold their card to the phone."
+    }
+
+    func canCharge(_ intent: TerminalIntent) -> Bool {
+        !isBusy && !succeeded && intent.clientSecret?.nilIfBlank != nil && intent.amount > 0
+    }
+
+    @MainActor
+    func charge(invoiceId: String, intent serverIntent: TerminalIntent) async {
+        guard canCharge(serverIntent) else { return }
+
+        isBusy = true
+        succeeded = false
+        errorMessage = nil
+        readerMessage = nil
+        updateProgress = nil
+        paymentIntentStatusText = nil
+        currentInvoiceId = invoiceId
+
+        do {
+            guard let clientSecret = serverIntent.clientSecret?.nilIfBlank else {
+                throw APIError(status: 0, message: "Server did not return a payment to collect.")
+            }
+
+            statusMessage = "Creating the charge..."
+            let locationId = try await terminalLocationId()
+            ensureTerminalInitialized()
+            try validateTapToPaySupport()
+
+            let reader = try await connectTapToPayReader(locationId: locationId)
+            readerName = readerDisplayName(reader)
+
+            statusMessage = "Loading the payment..."
+            var paymentIntent = try await retrievePaymentIntent(clientSecret: clientSecret)
+            paymentIntentStatusText = paymentIntentStatusLabel(paymentIntent.status)
+
+            statusMessage = "Hold the customer's card to the back of the phone..."
+            paymentIntent = try await Terminal.shared.collectPaymentMethod(paymentIntent)
+            paymentIntentStatusText = paymentIntentStatusLabel(paymentIntent.status)
+
+            statusMessage = "Confirming payment..."
+            let confirmedIntent = try await Terminal.shared.confirmPaymentIntent(paymentIntent)
+            paymentIntentStatusText = paymentIntentStatusLabel(confirmedIntent.status)
+
+            succeeded = confirmedIntent.status == .succeeded || confirmedIntent.status == .requiresCapture
+            statusMessage = confirmedIntent.status == .requiresCapture
+                ? "Charged. The server still needs to capture this payment."
+                : "Payment captured."
+        } catch {
+            errorMessage = paymentErrorMessage(error)
+            statusMessage = "Payment could not be completed."
+        }
+
+        isBusy = false
+    }
+
+    private func ensureTerminalInitialized() {
+        if Terminal.isInitialized() {
+            Terminal.shared.delegate = self
+        } else {
+            Terminal.initWithTokenProvider(self, delegate: self)
+        }
+    }
+
+    private func terminalLocationId() async throws -> String {
+        if let locationId = lastLocationId?.nilIfBlank {
+            return locationId
+        }
+
+        let token = try await paymentsAPI.connectionToken()
+        await MainActor.run {
+            lastLocationId = token.locationId
+        }
+
+        guard let locationId = token.locationId?.nilIfBlank else {
+            throw APIError(status: 0, message: "No Stripe Terminal location is configured on the server.")
+        }
+
+        return locationId
+    }
+
+    private func validateTapToPaySupport() throws {
+        let support = Terminal.shared.supportsReaders(
+            of: .tapToPay,
+            discoveryMethod: .tapToPay,
+            simulated: false
+        )
+
+        if case .failure(let error) = support {
+            throw error
+        }
+    }
+
+    private func connectTapToPayReader(locationId: String) async throws -> Reader {
+        if let connectedReader = Terminal.shared.connectedReader {
+            if connectedReader.deviceType == .tapToPay, connectedReader.locationId == locationId {
+                return connectedReader
+            }
+
+            try await disconnectReader()
+        }
+
+        await MainActor.run {
+            statusMessage = "Looking for the Tap to Pay reader..."
+        }
+
+        let discoveryConfig = try TapToPayDiscoveryConfigurationBuilder()
+            .setSimulated(false)
+            .build()
+
+        let reader = try await discoverReader(configuration: discoveryConfig)
+
+        await MainActor.run {
+            statusMessage = "Connecting to the reader..."
+        }
+
+        let connectionConfig = try TapToPayConnectionConfigurationBuilder(
+            delegate: self,
+            locationId: locationId
+        )
+        .setMerchantDisplayName("Tire Force US")
+        .setAutoReconnectOnUnexpectedDisconnect(true)
+        .build()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            Terminal.shared.connectReader(reader, connectionConfig: connectionConfig) { connectedReader, error in
+                if let connectedReader {
+                    continuation.resume(returning: connectedReader)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(throwing: APIError(status: 0, message: "Tap to Pay reader did not connect."))
+                }
+            }
+        }
+    }
+
+    private func discoverReader(configuration: TapToPayDiscoveryConfiguration) async throws -> Reader {
+        let stream = Terminal.shared.discoverReaders(configuration)
+        for try await readers in stream {
+            if let reader = readers.first {
+                return reader
+            }
+        }
+
+        throw APIError(status: 0, message: "Tap to Pay reader was not found on this device.")
+    }
+
+    private func retrievePaymentIntent(clientSecret: String) async throws -> PaymentIntent {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<PaymentIntent, Error>) in
+            Terminal.shared.retrievePaymentIntent(clientSecret: clientSecret) { paymentIntent, error in
+                if let paymentIntent {
+                    continuation.resume(returning: paymentIntent)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(throwing: APIError(status: 0, message: "Server did not return a payment to collect."))
+                }
+            }
+        }
+    }
+
+    private func disconnectReader() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Terminal.shared.disconnectReader { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    private func readerDisplayName(_ reader: Reader) -> String {
+        if let label = reader.label?.nilIfBlank {
+            return label
+        }
+        if let stripeId = reader.stripeId?.nilIfBlank {
+            return stripeId
+        }
+        return reader.serialNumber
+    }
+
+    private func paymentIntentStatusLabel(_ status: PaymentIntentStatus) -> String {
+        switch status {
+        case .requiresPaymentMethod:
+            return "Needs payment method"
+        case .requiresConfirmation:
+            return "Needs confirmation"
+        case .requiresAction:
+            return "Needs action"
+        case .requiresCapture:
+            return "Needs capture"
+        case .processing:
+            return "Processing"
+        case .canceled:
+            return "Canceled"
+        case .succeeded:
+            return "Succeeded"
+        case .requiresReauthorization:
+            return "Needs reauthorization"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+
+    private func paymentErrorMessage(_ error: Error) -> String {
+        let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        guard fallback != "The operation couldn't be completed." else {
+            return "Something went wrong while taking the payment."
+        }
+        return fallback
+    }
+
+    private func updateOnMain(_ apply: @escaping () -> Void) {
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+}
+
+extension TapToPayTerminalController: ConnectionTokenProvider {
+    func fetchConnectionToken(_ completion: @escaping ConnectionTokenCompletionBlock) {
+        Task {
+            do {
+                let token = try await paymentsAPI.connectionToken()
+                updateOnMain {
+                    self.lastLocationId = token.locationId
+                }
+                completion(token.secret, nil)
+            } catch {
+                completion(nil, error as NSError)
+            }
+        }
+    }
+}
+
+extension TapToPayTerminalController: TerminalDelegate {
+    func terminal(_ terminal: Terminal, didChangeConnectionStatus status: ConnectionStatus) {
+        updateOnMain {
+            self.connectionStatusText = Terminal.stringFromConnectionStatus(status)
+        }
+    }
+
+    func terminal(_ terminal: Terminal, didChangePaymentStatus status: PaymentStatus) {
+        updateOnMain {
+            self.paymentStatusText = Terminal.stringFromPaymentStatus(status)
+        }
+    }
+}
+
+extension TapToPayTerminalController: TapToPayReaderDelegate {
+    func tapToPayReader(
+        _ reader: Reader,
+        didStartInstallingUpdate update: ReaderSoftwareUpdate,
+        cancelable: Cancelable?
+    ) {
+        updateOnMain {
+            self.statusMessage = "Initializing reader..."
+            self.updateProgress = 0
+        }
+    }
+
+    func tapToPayReader(_ reader: Reader, didReportReaderSoftwareUpdateProgress progress: Float) {
+        updateOnMain {
+            self.updateProgress = Double(progress)
+        }
+    }
+
+    func tapToPayReader(
+        _ reader: Reader,
+        didFinishInstallingUpdate update: ReaderSoftwareUpdate?,
+        error: Error?
+    ) {
+        updateOnMain {
+            self.updateProgress = nil
+            if let error {
+                self.errorMessage = self.paymentErrorMessage(error)
+            } else {
+                self.statusMessage = "Reader ready."
+            }
+        }
+    }
+
+    func tapToPayReader(_ reader: Reader, didRequestReaderInput inputOptions: ReaderInputOptions) {
+        updateOnMain {
+            self.readerMessage = Terminal.stringFromReaderInputOptions(inputOptions)
+        }
+    }
+
+    func tapToPayReader(_ reader: Reader, didRequestReaderDisplayMessage displayMessage: ReaderDisplayMessage) {
+        updateOnMain {
+            self.readerMessage = Terminal.stringFromReaderDisplayMessage(displayMessage)
+        }
+    }
+
+    func reader(_ reader: Reader, didDisconnect reason: DisconnectReason) {
+        updateOnMain {
+            self.readerName = nil
+            self.connectionStatusText = "Not connected"
+            self.readerMessage = nil
+            if !self.succeeded {
+                self.statusMessage = "Reader disconnected."
+            }
+        }
+    }
+
+    func reader(_ reader: Reader, didStartReconnect cancelable: Cancelable, disconnectReason: DisconnectReason) {
+        updateOnMain {
+            self.statusMessage = "Reader disconnected. Reconnecting..."
+        }
+    }
+
+    func readerDidSucceedReconnect(_ reader: Reader) {
+        updateOnMain {
+            self.readerName = self.readerDisplayName(reader)
+            self.statusMessage = "Reader reconnected."
+        }
+    }
+
+    func readerDidFailReconnect(_ reader: Reader) {
+        updateOnMain {
+            self.readerName = nil
+            self.statusMessage = "Reader could not reconnect."
+        }
     }
 }
 

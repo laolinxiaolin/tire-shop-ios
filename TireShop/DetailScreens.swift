@@ -73,7 +73,7 @@ struct SaleDetailNativeView: View {
                                 Text("Tap to Pay")
                             }
 
-                            Button("Record manual payment") {
+                            Button("Card / manual payment") {
                                 paymentContext = PaymentContext(invoice: invoice, customerId: sale.customerId)
                             }
                         }

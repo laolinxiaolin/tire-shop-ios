@@ -1,5 +1,7 @@
 import SwiftUI
 import Foundation
+import UIKit
+import StripePaymentSheet
 
 struct TireFilterOption: Identifiable, Hashable {
     let value: String
@@ -73,6 +75,8 @@ struct PaymentSheetNativeView: View {
     @State private var rows: [PaymentRow] = []
     @State private var loading = false
     @State private var recording = false
+    @State private var cardProcessing = false
+    @State private var cardNotice: String?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -82,17 +86,37 @@ struct PaymentSheetNativeView: View {
                     RowLine(title: "Balance owed", trailing: AppFormat.money(balance))
                 }
 
+                Section("Card") {
+                    Button {
+                        Task { await chargeCard() }
+                    } label: {
+                        HStack {
+                            Label("Enter card number", systemImage: "creditcard")
+                            if cardProcessing {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(cardProcessing || recording || balance <= 0)
+
+                    if let cardNotice {
+                        Text(cardNotice)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+
                 if loading {
-                    Section {
+                    Section("Manual record") {
                         ProgressView()
                     }
                 } else if methods.isEmpty {
-                    Section {
+                    Section("Manual record") {
                         Text("No manual payment methods are active.")
                             .foregroundStyle(Theme.muted)
                     }
                 } else {
-                    Section("Payments") {
+                    Section("Manual record") {
                         ForEach($rows) { $row in
                             PaymentRowEditor(
                                 row: $row,
@@ -105,7 +129,7 @@ struct PaymentSheetNativeView: View {
                             rows.remove(atOffsets: offsets)
                         }
 
-                        Button("Add payment method") {
+                        Button("Add manual payment method") {
                             addRow()
                         }
                     }
@@ -137,7 +161,7 @@ struct PaymentSheetNativeView: View {
                     .disabled(!canRecord)
                 }
             }
-            .navigationTitle("Record payment")
+            .navigationTitle("Take payment")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") {
@@ -185,11 +209,74 @@ struct PaymentSheetNativeView: View {
     }
 
     private var canRecord: Bool {
-        !recording && !validRows.isEmpty && !overpay && !overCredit
+        !recording && !cardProcessing && !validRows.isEmpty && !overpay && !overCredit
     }
 
     private var recordTitle: String {
-        validRows.count <= 1 ? "Record payment" : "Record \(validRows.count) payments"
+        validRows.count <= 1 ? "Record manual payment" : "Record \(validRows.count) manual payments"
+    }
+
+    @MainActor
+    private func chargeCard() async {
+        guard !cardProcessing else { return }
+
+        cardProcessing = true
+        cardNotice = nil
+        errorMessage = nil
+        defer { cardProcessing = false }
+
+        do {
+            let status = try await PaymentsAPI().gatewayStatus()
+            guard status.enabled, status.provider.lowercased() == "stripe" else {
+                throw APIError(status: 0, message: "Stripe payments are not enabled.")
+            }
+
+            guard let publishableKey = status.publishableKey?.nilIfBlank else {
+                throw APIError(status: 0, message: "Stripe publishable key is not configured.")
+            }
+
+            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId)
+            guard let clientSecret = intent.clientSecret?.nilIfBlank else {
+                throw APIError(status: 0, message: "The server did not return a card payment client secret.")
+            }
+
+            STPAPIClient.shared.publishableKey = publishableKey
+
+            var configuration = PaymentSheet.Configuration()
+            configuration.merchantDisplayName = "Tire Force US"
+            configuration.allowsDelayedPaymentMethods = false
+
+            let paymentSheet = PaymentSheet(
+                paymentIntentClientSecret: clientSecret,
+                configuration: configuration
+            )
+            let result = try await present(paymentSheet: paymentSheet)
+
+            switch result {
+            case .completed:
+                onPaid()
+                dismiss()
+            case .canceled:
+                cardNotice = "Card entry canceled."
+            case .failed(let error):
+                throw error
+            }
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Card payment failed."
+        }
+    }
+
+    @MainActor
+    private func present(paymentSheet: PaymentSheet) async throws -> PaymentSheetResult {
+        guard let controller = UIApplication.shared.tireShopTopViewController else {
+            throw APIError(status: 0, message: "Card entry could not open.")
+        }
+
+        return await withCheckedContinuation { continuation in
+            paymentSheet.present(from: controller) { result in
+                continuation.resume(returning: result)
+            }
+        }
     }
 
     @MainActor
@@ -281,6 +368,35 @@ struct PaymentSheetNativeView: View {
 
     private func roundMoney(_ value: Double) -> Double {
         (value * 100).rounded() / 100
+    }
+}
+
+private extension UIApplication {
+    var tireShopTopViewController: UIViewController? {
+        connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }?
+            .rootViewController?
+            .tireShopTopPresentedViewController
+    }
+}
+
+private extension UIViewController {
+    var tireShopTopPresentedViewController: UIViewController {
+        if let presentedViewController {
+            return presentedViewController.tireShopTopPresentedViewController
+        }
+
+        if let navigationController = self as? UINavigationController {
+            return navigationController.visibleViewController?.tireShopTopPresentedViewController ?? navigationController
+        }
+
+        if let tabBarController = self as? UITabBarController {
+            return tabBarController.selectedViewController?.tireShopTopPresentedViewController ?? tabBarController
+        }
+
+        return self
     }
 }
 
