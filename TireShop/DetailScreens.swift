@@ -1,8 +1,19 @@
 import SwiftUI
 
 struct SaleDetailNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+
     let id: String
     @State private var paymentContext: PaymentContext?
+    @State private var pdfPreview: PreviewFile?
+    @State private var downloadingPDF = false
+    @State private var printingPDF = false
+    @State private var emailContext: EmailContext?
+    @State private var actionError: String?
+
+    private var canSend: Bool {
+        auth.has("sales.manage")
+    }
 
     var body: some View {
         AsyncContentView(load: { try await SalesAPI().get(id: id) }) { sale in
@@ -22,6 +33,40 @@ struct SaleDetailNativeView: View {
                 if let invoice = sale.invoice {
                     Section("Invoice") {
                         RowLine(title: invoice.ref ?? invoice.id, subtitle: "Paid \(AppFormat.money(invoice.paidTotal))", trailing: AppFormat.money(invoice.amountDue))
+
+                        Button {
+                            Task { await downloadPDF(invoice: invoice) }
+                        } label: {
+                            HStack {
+                                Label("View invoice PDF", systemImage: "doc.text")
+                                if downloadingPDF {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(downloadingPDF || printingPDF)
+
+                        Button {
+                            Task { await printPDF(invoice: invoice) }
+                        } label: {
+                            HStack {
+                                Label("Print invoice", systemImage: "printer")
+                                if printingPDF {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(downloadingPDF || printingPDF)
+
+                        if canSend {
+                            Button {
+                                emailContext = EmailContext(invoice: invoice)
+                            } label: {
+                                Label("Email invoice", systemImage: "envelope")
+                            }
+                        }
 
                         if (Double(invoice.amountDue) ?? 0) > 0 {
                             NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: Double(invoice.amountDue) ?? 0)) {
@@ -55,6 +100,50 @@ struct SaleDetailNativeView: View {
                 onPaid: { paymentContext = nil }
             )
         }
+        .sheet(item: $pdfPreview) { preview in
+            QuickLookSheet(url: preview.url)
+        }
+        .sheet(item: $emailContext) { context in
+            InvoiceEmailView(invoice: context.invoice)
+        }
+        .alert("Couldn't open PDF", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+    }
+
+    private func fetchPDF(invoice: SaleInvoice) async throws -> URL {
+        let fileName = "invoice-\(invoice.ref ?? invoice.id).pdf"
+        return try await InvoicesAPI().downloadPDF(invoiceId: invoice.id, fileName: fileName)
+    }
+
+    @MainActor
+    private func downloadPDF(invoice: SaleInvoice) async {
+        downloadingPDF = true
+        actionError = nil
+        do {
+            pdfPreview = PreviewFile(url: try await fetchPDF(invoice: invoice))
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "The invoice PDF could not be downloaded."
+        }
+        downloadingPDF = false
+    }
+
+    @MainActor
+    private func printPDF(invoice: SaleInvoice) async {
+        printingPDF = true
+        actionError = nil
+        do {
+            let url = try await fetchPDF(invoice: invoice)
+            DocumentPrinter.print(url: url, jobName: "Invoice \(invoice.ref ?? invoice.id)")
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "The invoice PDF could not be printed."
+        }
+        printingPDF = false
     }
 
     private struct PaymentContext: Identifiable {
@@ -62,6 +151,84 @@ struct SaleDetailNativeView: View {
         let customerId: String
 
         var id: String { invoice.id }
+    }
+
+    private struct EmailContext: Identifiable {
+        let invoice: SaleInvoice
+
+        var id: String { invoice.id }
+    }
+}
+
+private struct InvoiceEmailView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let invoice: SaleInvoice
+
+    @State private var email = ""
+    @State private var sending = false
+    @State private var errorMessage: String?
+    @State private var sentTo: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if let sentTo {
+                        Label("Sent to \(sentTo)", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(Theme.success)
+                    } else {
+                        AppTextField(label: "Recipient email", text: $email, placeholder: "name@example.com", keyboardType: .emailAddress, textContentType: .emailAddress)
+                        Text("Leave blank to send to the customer's email on file.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                } header: {
+                    Text("Invoice \(invoice.ref ?? invoice.id)")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+            }
+            .navigationTitle("Email Invoice")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(sentTo == nil ? "Cancel" : "Done") { dismiss() }
+                }
+                if sentTo == nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Task { await send() }
+                        } label: {
+                            if sending {
+                                ProgressView()
+                            } else {
+                                Text("Send")
+                            }
+                        }
+                        .disabled(sending)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func send() async {
+        sending = true
+        errorMessage = nil
+        do {
+            let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try await InvoicesAPI().email(invoiceId: invoice.id, to: trimmed.isEmpty ? nil : trimmed)
+            sentTo = result.to
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "The invoice email could not be sent."
+        }
+        sending = false
     }
 }
 

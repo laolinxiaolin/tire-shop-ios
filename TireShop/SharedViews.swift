@@ -1,5 +1,58 @@
 import SwiftUI
 import UIKit
+import QuickLook
+
+/// A file reference suitable for driving a `.sheet(item:)` QuickLook preview.
+struct PreviewFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Presents the system AirPrint sheet for a printable file (e.g. a PDF at a local URL).
+enum DocumentPrinter {
+    static func print(url: URL, jobName: String) {
+        let controller = UIPrintInteractionController.shared
+        let info = UIPrintInfo(dictionary: nil)
+        info.outputType = .general
+        info.jobName = jobName
+        controller.printInfo = info
+        controller.printingItem = url
+        controller.present(animated: true, completionHandler: nil)
+    }
+}
+
+/// Shared QuickLook preview for local file URLs (PDFs, images, documents).
+struct QuickLookSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+            1
+        }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
+        }
+    }
+}
 
 struct LoadingView: View {
     let label: String

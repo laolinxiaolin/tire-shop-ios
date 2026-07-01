@@ -63,8 +63,8 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ✅ **Work Orders** — `status` filter
 
 ## Phase D — Payments & invoices
-- ⬜ **Invoice PDF** — QuickLook via `InvoicesAPI.downloadPDF` ✱ (QLPreviewController)
-- ⬜ **Invoice email** — modal via `InvoicesAPI.email` ✱
+- ✅ **Invoice PDF** — `SaleDetailNativeView` invoice section "View invoice PDF" downloads via `InvoicesAPI.downloadPDF` ✱ and previews with shared `QuickLookSheet` (moved to `SharedViews.swift` + `PreviewFile`). Also "Print invoice" via `DocumentPrinter` (`UIPrintInteractionController` AirPrint sheet).
+- ✅ **Invoice email** — `InvoiceEmailView` modal via `InvoicesAPI.email` ✱ (optional recipient, defaults to customer email; gated on `sales.manage`).
 - ⬜ **Quote PDF/email** — NEW `/sales/:id/quote-pdf`, `/sales/:id/quote-email`
 - ⬜ **Payment reverse/refund** ✱ — `PaymentsAPI.reverse` (manual) / `refundProcessor` (card) buttons, gated `payments.reverse`
 - ⬜ **Pay-link** — NEW `POST /invoices/:id/payment-link {email}` → share hosted Checkout URL
@@ -98,3 +98,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-07-01: Completed **Sales/Returns Phase C parity**: Sales gained status/date/sort filters and summary totals from `/sales`; Returns gained status chips, tappable detail navigation, richer return detail rendering, and `POST /returns/:id/void`. Verifier and iPhone 17 simulator build passed.
 - 2026-07-01: Fixed **Purchasing** native page: split container list/detail models to match the API list payload, added container search/status filters, supplier search, and a segmented Containers/Suppliers view. Verifier and iPhone 17 simulator build passed.
 - 2026-07-01: Expanded **Purchasing** native parity: added supplier add/edit/delete, new container creation, container cancellation, editable draft header/lines/costs, SKU picker for container lines, status advance, receive, and unreceive. Verifier and iPhone 17 simulator build passed.
+- 2026-07-01: Started **Phase D**. Added **Invoice PDF** + **Invoice email** to `SaleDetailNativeView`: "View invoice PDF" downloads via `InvoicesAPI.downloadPDF` and previews in a shared `QuickLookSheet` (extracted from `CustomerDetailScreens` into `SharedViews.swift` with a `PreviewFile` wrapper); "Email invoice" opens `InvoiceEmailView` (optional recipient, blank = customer default, gated on `sales.manage`); "Print invoice" downloads then presents the AirPrint sheet via shared `DocumentPrinter`. Xcode build passed.
