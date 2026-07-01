@@ -1204,6 +1204,7 @@ struct Role: Codable, Identifiable, Equatable {
     let permissions: [String]
     let approvalPermissions: [String]
     let isSystem: Bool
+    let isAdmin: Bool?
     let userCount: Int
     let createdAt: String
 }

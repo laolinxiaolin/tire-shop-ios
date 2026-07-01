@@ -212,11 +212,45 @@ struct RoleCreateInput: Codable {
     let approvalPermissions: [String]?
 }
 
-struct RolePatchInput: Codable {
+struct RolePatchInput: Encodable {
     let name: String?
     let description: String?
     let permissions: [String]?
     let approvalPermissions: [String]?
+    let clearsDescription: Bool
+
+    init(
+        name: String?,
+        description: String?,
+        permissions: [String]?,
+        approvalPermissions: [String]?,
+        clearsDescription: Bool = false
+    ) {
+        self.name = name
+        self.description = description
+        self.permissions = permissions
+        self.approvalPermissions = approvalPermissions
+        self.clearsDescription = clearsDescription
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case permissions
+        case approvalPermissions
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        if let description {
+            try container.encode(description, forKey: .description)
+        } else if clearsDescription {
+            try container.encodeNil(forKey: .description)
+        }
+        try container.encodeIfPresent(permissions, forKey: .permissions)
+        try container.encodeIfPresent(approvalPermissions, forKey: .approvalPermissions)
+    }
 }
 
 struct ApiKeyCreateInput: Codable {
