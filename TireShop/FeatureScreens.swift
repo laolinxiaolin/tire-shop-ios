@@ -101,14 +101,40 @@ struct InventoryListNativeView: View {
     @State private var position = ""
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
-    @State private var page = 1
-    @State private var data: Paged<TireSku>?
+    @State private var hideZeroStock = false
+    @State private var items: [TireSku] = []
+    @State private var total = 0
+    @State private var loadedPage = 0
+    @State private var hasLoaded = false
     @State private var loading = false
+    @State private var loadingMore = false
     @State private var errorMessage: String?
+    @State private var loadMoreError: String?
+    @State private var searchTask: Task<Void, Never>?
 
-    private var totalPages: Int {
-        guard let data, data.pageSize > 0 else { return 1 }
-        return max(1, (data.total + data.pageSize - 1) / data.pageSize)
+    private var visibleItems: [TireSku] {
+        return hideZeroStock ? items.filter { Self.onHand($0) > 0 } : items
+    }
+
+    private var hasMorePages: Bool {
+        hasLoaded && items.count < total
+    }
+
+    private var hasActiveFilters: Bool {
+        !category.isEmpty || !position.isEmpty || !sortBy.isEmpty
+    }
+
+    private var activeFilterCount: Int {
+        [category, position, sortBy].filter { !$0.isEmpty }.count
+    }
+
+    private var activeSummary: String? {
+        var parts: [String] = []
+        if !category.isEmpty { parts.append(InventoryLabels.category(category)) }
+        if !position.isEmpty { parts.append(InventoryLabels.position(position)) }
+        if !sortBy.isEmpty { parts.append("\(InventoryLabels.sort(sortBy)) \(sortOrder.uppercased())") }
+        if hideZeroStock { parts.append("In stock only") }
+        return parts.isEmpty ? nil : parts.joined(separator: " - ")
     }
 
     var body: some View {
@@ -116,183 +142,345 @@ struct InventoryListNativeView: View {
             filters
 
             Group {
-                if loading && data == nil {
+                if loading && !hasLoaded {
                     LoadingView(label: "Loading...")
-                } else if let errorMessage, data == nil {
-                    RetryView(message: errorMessage) { Task { await load() } }
-                } else if let data, data.items.isEmpty {
-                    EmptyStateView(text: "No inventory found.")
-                } else if let data {
-                    List(data.items) { sku in
-                        if selectForQuote {
-                            Button {
-                                addToQuote(sku)
-                            } label: {
-                                InventorySkuRow(sku: sku)
-                            }
-                            .tint(Theme.text)
-                        } else {
-                            NavigationLink {
-                                SkuDetailNativeView(sku: sku)
-                            } label: {
-                                InventorySkuRow(sku: sku)
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .refreshable { await load() }
+                } else if let errorMessage, !hasLoaded {
+                    RetryView(message: errorMessage) { Task { await reload() } }
+                } else if hasLoaded && visibleItems.isEmpty && !hasMorePages {
+                    EmptyStateView(text: emptyMessage)
+                } else if hasLoaded {
+                    inventoryList
                 } else {
                     LoadingView(label: "Loading...")
                 }
             }
-
-            if let data, data.total > 0 {
-                pagination(data)
-            }
         }
         .background(Theme.background)
         .task {
-            if data == nil { await load() }
+            if !hasLoaded { await reload() }
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
+    }
+
+    private var inventoryList: some View {
+        List {
+            ForEach(visibleItems) { sku in
+                skuRow(sku)
+                    .onAppear {
+                        if sku.id == visibleItems.last?.id {
+                            Task { await loadMoreIfNeeded() }
+                        }
+                    }
+            }
+
+            loadMoreRow
+        }
+        .listStyle(.plain)
+        .refreshable { await reload() }
+    }
+
+    @ViewBuilder
+    private func skuRow(_ sku: TireSku) -> some View {
+        if selectForQuote {
+            Button {
+                addToQuote(sku)
+            } label: {
+                InventorySkuRow(sku: sku)
+            }
+            .tint(Theme.text)
+        } else {
+            NavigationLink {
+                SkuDetailNativeView(sku: sku)
+            } label: {
+                InventorySkuRow(sku: sku)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadMoreRow: some View {
+        if loadingMore {
+            HStack(spacing: Theme.Space.sm) {
+                Spacer()
+                ProgressView()
+                Text("Loading more...")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                Spacer()
+            }
+            .padding(.vertical, Theme.Space.md)
+        } else if let loadMoreError {
+            Button {
+                Task { await loadMoreIfNeeded() }
+            } label: {
+                VStack(spacing: 2) {
+                    Text("Retry loading more")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text(loadMoreError)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Space.sm)
+            }
+        } else if hasMorePages {
+            HStack(spacing: Theme.Space.sm) {
+                Spacer()
+                ProgressView()
+                Text("Loading more...")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                Spacer()
+            }
+            .padding(.vertical, Theme.Space.md)
+            .onAppear {
+                Task { await loadMoreIfNeeded() }
+            }
+        } else if hasLoaded && !items.isEmpty {
+            Text("\(visibleItems.count) shown")
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Space.md)
         }
     }
 
     private var filters: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            AppTextField(label: "Search", text: $q, placeholder: "SKU, brand, model, size")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Theme.Space.sm) {
-                    ForEach(InventoryLabels.categoryOptions, id: \.0) { option in
-                        chip(value: option.0, selected: $category, label: option.1)
-                    }
-                }
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Theme.Space.sm) {
-                    ForEach(InventoryLabels.positionOptions, id: \.0) { option in
-                        chip(value: option.0, selected: $position, label: option.1)
-                    }
-                }
-            }
-
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack(spacing: Theme.Space.sm) {
-                Menu {
-                    ForEach(InventoryLabels.sortOptions) { option in
-                        Button(option.label) {
-                            sortBy = option.id
-                            page = 1
-                            Task { await load() }
-                        }
-                    }
-                } label: {
-                    Label("Sort: \(InventoryLabels.sort(sortBy))", systemImage: "arrow.up.arrow.down")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(Theme.card)
-                        .foregroundStyle(Theme.text)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                                .stroke(Theme.border)
-                        )
-                }
-
-                Button {
-                    sortOrder = sortOrder == "asc" ? "desc" : "asc"
-                    page = 1
-                    Task { await load() }
-                } label: {
-                    Image(systemName: sortOrder == "asc" ? "arrow.up" : "arrow.down")
-                        .frame(width: 46, height: 46)
-                        .background(Theme.card)
-                        .foregroundStyle(Theme.text)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                                .stroke(Theme.border)
-                        )
-                }
-                .disabled(sortBy.isEmpty)
-                .accessibilityLabel(sortOrder == "asc" ? "Ascending" : "Descending")
+                compactSearchField
+                hideZeroButton
+                filterMenu
             }
 
-            HStack(spacing: Theme.Space.sm) {
-                SecondaryButton(title: "Reset") {
-                    q = ""
-                    category = ""
-                    position = ""
-                    sortBy = ""
-                    sortOrder = "asc"
-                    page = 1
-                    Task { await load() }
+            if let activeSummary {
+                HStack(spacing: Theme.Space.sm) {
+                    Text(activeSummary)
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Spacer(minLength: Theme.Space.sm)
+
+                    Button("Reset") {
+                        resetFilters(includeSearch: false)
+                    }
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.primary)
                 }
-                PrimaryButton(title: "Search", loading: loading, disabled: loading) {
-                    page = 1
-                    Task { await load() }
-                }
+                .frame(height: 22)
             }
         }
-        .padding(Theme.Space.lg)
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
         .background(Theme.background)
         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
     }
 
-    private func chip(value: String, selected: Binding<String>, label: String) -> some View {
+    private var compactSearchField: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Theme.muted)
+
+            TextField("Search size, brand, SKU...", text: $q)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit {
+                    searchTask?.cancel()
+                    Task { await reload() }
+                }
+                .onChange(of: q) { _, _ in
+                    scheduleSearch()
+                }
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                    searchTask?.cancel()
+                    Task { await reload() }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .frame(height: 42)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
+        )
+    }
+
+    private var hideZeroButton: some View {
         Button {
-            guard selected.wrappedValue != value else { return }
-            selected.wrappedValue = value
-            page = 1
-            Task { await load() }
+            hideZeroStock.toggle()
         } label: {
-            Text(label)
+            Label("Hide 0", systemImage: hideZeroStock ? "eye.slash.fill" : "eye.slash")
                 .font(.caption)
                 .fontWeight(.semibold)
-                .padding(.horizontal, Theme.Space.md)
-                .padding(.vertical, 7)
-                .background(selected.wrappedValue == value ? Theme.primary : Theme.card)
-                .foregroundStyle(selected.wrappedValue == value ? Theme.primaryText : Theme.text)
+                .labelStyle(.titleAndIcon)
+                .frame(width: 78, height: 42)
+                .background(hideZeroStock ? Theme.primary : Theme.card)
+                .foregroundStyle(hideZeroStock ? Theme.primaryText : Theme.text)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                        .stroke(selected.wrappedValue == value ? Theme.primary : Theme.border)
+                        .stroke(hideZeroStock ? Theme.primary : Theme.border)
                 )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Hide zero stock items")
+        .accessibilityValue(hideZeroStock ? "On" : "Off")
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Section("Category") {
+                ForEach(InventoryLabels.categoryOptions, id: \.0) { option in
+                    Button {
+                        updateFilter($category, option.0)
+                    } label: {
+                        menuLabel(option.1, selected: category == option.0)
+                    }
+                }
+            }
+
+            Section("Position") {
+                ForEach(InventoryLabels.positionOptions, id: \.0) { option in
+                    Button {
+                        updateFilter($position, option.0)
+                    } label: {
+                        menuLabel(option.1, selected: position == option.0)
+                    }
+                }
+            }
+
+            Section("Sort") {
+                ForEach(InventoryLabels.sortOptions) { option in
+                    Button {
+                        updateSort(option.id)
+                    } label: {
+                        menuLabel(option.label, selected: sortBy == option.id)
+                    }
+                }
+            }
+
+            Section("Direction") {
+                Button {
+                    updateSortOrder("asc")
+                } label: {
+                    menuLabel("Ascending", selected: sortOrder == "asc")
+                }
+                .disabled(sortBy.isEmpty)
+
+                Button {
+                    updateSortOrder("desc")
+                } label: {
+                    menuLabel("Descending", selected: sortOrder == "desc")
+                }
+                .disabled(sortBy.isEmpty)
+            }
+
+            Button("Reset filters") {
+                resetFilters(includeSearch: false)
+            }
+            .disabled(!hasActiveFilters && !hideZeroStock)
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.title3)
+                    .frame(width: 42, height: 42)
+                    .background(Theme.card)
+                    .foregroundStyle(activeFilterCount > 0 ? Theme.primary : Theme.text)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                            .stroke(Theme.border)
+                    )
+
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 16, height: 16)
+                        .background(Theme.primary)
+                        .foregroundStyle(Theme.primaryText)
+                        .clipShape(Circle())
+                        .offset(x: 4, y: -4)
+                }
+            }
+        }
+        .accessibilityLabel("Inventory filters")
+    }
+
+    private func menuLabel(_ title: String, selected: Bool) -> some View {
+        Group {
+            if selected {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
         }
     }
 
-    private func pagination(_ data: Paged<TireSku>) -> some View {
-        HStack(spacing: Theme.Space.md) {
-            Button {
-                page = max(1, page - 1)
-                Task { await load() }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .frame(width: 36, height: 36)
-            }
-            .disabled(page <= 1 || loading)
-
-            VStack(spacing: 2) {
-                Text("Page \(data.page) of \(totalPages)")
-                    .font(.footnote)
-                    .fontWeight(.semibold)
-                Text("\(data.total) SKUs")
-                    .font(.caption)
-                    .foregroundStyle(Theme.muted)
-            }
-            .frame(maxWidth: .infinity)
-
-            Button {
-                page = min(totalPages, page + 1)
-                Task { await load() }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .frame(width: 36, height: 36)
-            }
-            .disabled(page >= totalPages || loading)
+    private var emptyMessage: String {
+        if hideZeroStock, !items.isEmpty {
+            return "No in-stock items found."
         }
-        .padding(.horizontal, Theme.Space.lg)
-        .padding(.vertical, Theme.Space.sm)
-        .background(Theme.card)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
+        return "No inventory found."
+    }
+
+    private func updateFilter(_ selected: Binding<String>, _ value: String) {
+        guard selected.wrappedValue != value else { return }
+        selected.wrappedValue = value
+        Task { await reload() }
+    }
+
+    private func updateSort(_ value: String) {
+        guard sortBy != value else { return }
+        sortBy = value
+        if value.isEmpty {
+            sortOrder = "asc"
+        }
+        Task { await reload() }
+    }
+
+    private func updateSortOrder(_ value: String) {
+        guard sortOrder != value else { return }
+        sortOrder = value
+        Task { await reload() }
+    }
+
+    private func resetFilters(includeSearch: Bool) {
+        if includeSearch {
+            q = ""
+        }
+        category = ""
+        position = ""
+        sortBy = ""
+        sortOrder = "asc"
+        hideZeroStock = false
+        Task { await reload() }
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await reload()
+        }
     }
 
     private func addToQuote(_ sku: TireSku) {
@@ -305,12 +493,38 @@ struct InventoryListNativeView: View {
         dismiss()
     }
 
+    private static func onHand(_ sku: TireSku) -> Int {
+        sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+    }
+
     @MainActor
-    private func load() async {
-        loading = true
-        errorMessage = nil
+    private func reload() async {
+        await loadPage(1, reset: true)
+    }
+
+    @MainActor
+    private func loadMoreIfNeeded() async {
+        guard hasMorePages, !loading, !loadingMore else { return }
+        await loadPage(loadedPage + 1, reset: false)
+    }
+
+    @MainActor
+    private func loadPage(_ page: Int, reset: Bool) async {
+        if reset {
+            loading = true
+            items = []
+            total = 0
+            loadedPage = 0
+            hasLoaded = false
+            errorMessage = nil
+            loadMoreError = nil
+        } else {
+            loadingMore = true
+            loadMoreError = nil
+        }
+
         do {
-            data = try await InventoryAPI().listSkus(
+            let pageData = try await InventoryAPI().listSkus(
                 q: q.nilIfBlank,
                 category: category.nilIfBlank,
                 position: position.nilIfBlank,
@@ -319,11 +533,34 @@ struct InventoryListNativeView: View {
                 page: page,
                 pageSize: pageSize
             )
+
+            total = pageData.total
+            loadedPage = pageData.page
+            hasLoaded = true
+
+            if reset {
+                items = pageData.items
+            } else {
+                let existingIds = Set(items.map(\.id))
+                items.append(contentsOf: pageData.items.filter { !existingIds.contains($0.id) })
+            }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
+            let message = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
+            if reset {
+                errorMessage = message
+                hasLoaded = false
+            } else {
+                loadMoreError = message
+            }
         }
-        loading = false
+
+        if reset {
+            loading = false
+        } else {
+            loadingMore = false
+        }
     }
+
 }
 
 private struct InventorySkuRow: View {
@@ -372,19 +609,125 @@ struct SkuManagementNativeView: View {
 }
 
 struct SalesListNativeView: View {
+    private let pageSize = 50
+
+    @State private var q = ""
+    @State private var data: Paged<SaleListItem>?
+    @State private var loading = false
+    @State private var errorMessage: String?
+    @State private var searchTask: Task<Void, Never>?
+
     var body: some View {
-        AsyncContentView(load: { try await SalesAPI().list(pageSize: 50) }) { page in
-            List(page.items) { sale in
-                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                    RowLine(
-                        title: "\(sale.ref ?? "Sale") - \(sale.customer.name)",
-                        subtitle: "\(sale.status) - \(AppFormat.dateTime(sale.createdAt))",
-                        trailing: AppFormat.money(sale.total)
-                    )
+        VStack(spacing: 0) {
+            salesHeader
+
+            Group {
+                if loading && data == nil {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, data == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let data, data.items.isEmpty {
+                    EmptyStateView(text: "No sales found.")
+                } else if let data {
+                    List(data.items) { sale in
+                        NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                            RowLine(
+                                title: "\(sale.ref ?? "Sale") - \(sale.customer.name)",
+                                subtitle: "\(sale.status) - \(AppFormat.dateTime(sale.createdAt))",
+                                trailing: AppFormat.money(sale.total)
+                            )
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
+                } else {
+                    LoadingView(label: "Loading...")
                 }
             }
-            .listStyle(.plain)
         }
+        .background(Theme.background)
+        .task {
+            if data == nil { await load() }
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
+    }
+
+    private var salesHeader: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            Text("Sales")
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.text)
+
+            searchBar
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Theme.background)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Theme.muted)
+
+            TextField("Search customer or sale #...", text: $q)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit {
+                    searchTask?.cancel()
+                    Task { await load() }
+                }
+                .onChange(of: q) { _, _ in
+                    scheduleSearch()
+                }
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                    searchTask?.cancel()
+                    Task { await load() }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .frame(height: 42)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
+        )
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            data = try await SalesAPI().list(q: q.nilIfBlank, pageSize: pageSize)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load sales."
+        }
+        loading = false
     }
 }
 
