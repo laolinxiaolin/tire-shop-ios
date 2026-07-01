@@ -905,11 +905,163 @@ struct ReceivableCustomer: Codable, Equatable {
 
 struct PayableVendor: Codable, Equatable {
     let vendor: String?
+    let vendorId: String?
     let vendorKey: String
     let totalDue: Double
     let count: Int
     let oldestAt: String
     let ageDays: Int
+}
+
+struct ReceivableCustomerDetail: Codable, Equatable {
+    struct Customer: Codable, Identifiable, Equatable {
+        let id: String
+        let name: String
+        let company: String?
+        let phone: String?
+        let email: String?
+    }
+
+    struct OpenInvoice: Codable, Identifiable, Equatable {
+        struct SaleRef: Codable, Equatable {
+            let id: String
+            let ref: String?
+            let status: String
+        }
+
+        let id: String
+        let ref: String?
+        let amountDue: Double
+        let paidTotal: Double
+        let balance: Double
+        let createdAt: String
+        let ageDays: Int
+        let sale: SaleRef
+    }
+
+    let customer: Customer
+    let totalBalance: Double
+    let openInvoices: [OpenInvoice]
+}
+
+struct PayableVendorDetail: Codable, Equatable {
+    struct Item: Codable, Identifiable, Equatable {
+        struct ContainerRef: Codable, Equatable {
+            struct SupplierRef: Codable, Equatable {
+                let id: String
+                let name: String
+            }
+
+            let id: String
+            let ref: String?
+            let supplier: SupplierRef
+        }
+
+        let id: String
+        let category: String
+        let amount: Double
+        let amountPaid: Double
+        let remaining: Double
+        let description: String?
+        let reference: String?
+        let createdAt: String
+        let ageDays: Int
+        let container: ContainerRef
+    }
+
+    let vendor: String?
+    let vendorId: String?
+    let vendorKey: String
+    let totalDue: Double
+    let items: [Item]
+}
+
+// Numbered settlement documents: AR receipts (rc-...) and AP supplier payments (pmt-...).
+struct CustomerReceipt: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let customer: CustomerSummary?
+    let paymentMethod: String?
+    let total: Double
+    let surchargeTotal: Double
+    let reference: String?
+    let status: String
+    let lineCount: Int
+    let createdAt: String
+}
+
+struct CustomerReceiptDetail: Codable, Identifiable, Equatable {
+    struct Line: Codable, Identifiable, Equatable {
+        let id: String
+        let invoiceId: String
+        let invoiceRef: String?
+        let paymentMethod: String?
+        let amount: Double
+        let surchargeAmount: Double
+    }
+
+    let id: String
+    let ref: String
+    let customer: CustomerSummary?
+    let paymentMethod: String?
+    let total: Double
+    let reference: String?
+    let status: String
+    let note: String?
+    let reversedAt: String?
+    let lines: [Line]
+}
+
+struct SupplierPayment: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let vendor: String?
+    let vendorKey: String
+    let total: Double
+    let reference: String?
+    let status: String
+    let lineCount: Int
+    let paidAt: String
+    let createdAt: String
+}
+
+struct SupplierPaymentDetail: Codable, Identifiable, Equatable {
+    struct FundingAccount: Codable, Equatable {
+        let id: String
+        let code: String
+        let name: String
+    }
+
+    struct Line: Codable, Identifiable, Equatable {
+        struct ContainerRef: Codable, Equatable {
+            let id: String
+            let ref: String?
+        }
+
+        let id: String
+        let costId: String
+        let category: String
+        let description: String?
+        let container: ContainerRef
+        let amount: Double
+    }
+
+    let id: String
+    let ref: String
+    let vendor: String?
+    let total: Double
+    let reference: String?
+    let status: String
+    let note: String?
+    let reversedAt: String?
+    let fundingAccount: FundingAccount?
+    let lines: [Line]
+}
+
+/// Result of the AR/AP settlement endpoints: either a posted document ref or a queued approval.
+struct SettlementResult: Codable, Equatable {
+    let ref: String?
+    let approvalRequest: ApprovalRequestRef?
 }
 
 struct VendorCounts: Codable, Equatable {
@@ -1329,6 +1481,64 @@ struct PaymentMethod: Codable, Identifiable, Equatable {
     let isActive: Bool
     let processor: String?
     let account: JournalLine.AccountInfo
+}
+
+struct UndepositedCheck: Codable, Identifiable, Equatable {
+    let id: String
+    let amount: Double
+    let reference: String?
+    let note: String?
+    let createdAt: String
+    let methodName: String
+    let invoiceRef: String?
+    let customerName: String
+}
+
+struct UndepositedChecks: Codable, Equatable {
+    let accountCode: String
+    let items: [UndepositedCheck]
+}
+
+struct ExpensePayment: Codable, Identifiable, Equatable {
+    let id: String
+    let date: String
+    let amount: Double
+    let expenseCode: String
+    let expenseName: String
+    let paidFromCode: String
+    let paidFromName: String
+    let payee: String?
+    let reference: String?
+    let note: String?
+    let reversedAt: String?
+    let receiptCount: Int
+}
+
+/// A receipt (PDF or image) attached to an operating-expense payment.
+struct ExpenseReceipt: Codable, Identifiable, Equatable {
+    let id: String
+    let filename: String
+    let mimeType: String
+    let size: Int
+    let createdAt: String
+}
+
+struct AccountHistory: Codable, Equatable {
+    struct Item: Codable, Identifiable, Equatable {
+        let id: String
+        let date: String
+        let memo: String?
+        let refType: String?
+        let refId: String?
+        let debit: Double
+        let credit: Double
+    }
+
+    let account: Account
+    let items: [Item]
+    let total: Int
+    let page: Int
+    let pageSize: Int
 }
 
 struct FetQuarter: Codable, Equatable {

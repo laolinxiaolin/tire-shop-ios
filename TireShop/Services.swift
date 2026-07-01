@@ -1124,6 +1124,38 @@ struct VendorsAPI {
     }
 }
 
+struct ReceivableApplication: Codable {
+    let invoiceId: String
+    let amount: Double
+}
+
+struct ReceivablesPayInput: Codable {
+    let customerId: String
+    let paymentMethodId: String
+    let applications: [ReceivableApplication]
+    let reference: String?
+    let note: String?
+}
+
+struct StatementEmailInput: Codable {
+    let to: String?
+    let subject: String?
+    let message: String?
+}
+
+struct PayableApplication: Codable {
+    let costId: String
+    let amount: Double
+}
+
+struct PayablesPayInput: Codable {
+    let applications: [PayableApplication]
+    let paidAt: String?
+    let reference: String?
+    let note: String?
+    let accountId: String?
+}
+
 struct MoneyAPI {
     var client = APIClient.shared
 
@@ -1131,8 +1163,57 @@ struct MoneyAPI {
         try await client.request("/receivables\(query(["page": page, "pageSize": pageSize]))")
     }
 
+    func receivable(customerId: String) async throws -> ReceivableCustomerDetail {
+        try await client.request("/receivables/\(customerId)")
+    }
+
+    func payReceivables(_ body: ReceivablesPayInput) async throws -> SettlementResult {
+        try await client.request("/receivables/pay", method: "POST", body: body)
+    }
+
+    func downloadStatement(customerId: String) async throws -> URL {
+        try await client.download("/receivables/\(customerId)/statement.pdf", fileName: "statement-\(customerId).pdf")
+    }
+
+    func emailStatement(customerId: String, body: StatementEmailInput) async throws -> OkResponse {
+        try await client.request("/receivables/\(customerId)/statement/email", method: "POST", body: body)
+    }
+
     func payables(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<PayableVendor> {
         try await client.request("/payables\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func payable(vendorKey: String) async throws -> PayableVendorDetail {
+        let encoded = vendorKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? vendorKey
+        return try await client.request("/payables/\(encoded)")
+    }
+
+    func payPayables(_ body: PayablesPayInput) async throws -> SettlementResult {
+        try await client.request("/payables/pay", method: "POST", body: body)
+    }
+
+    func receipts(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<CustomerReceipt> {
+        try await client.request("/receipts\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func receipt(id: String) async throws -> CustomerReceiptDetail {
+        try await client.request("/receipts/\(id)")
+    }
+
+    func reverseReceipt(id: String) async throws -> SettlementResult {
+        try await client.request("/receipts/\(id)/reverse", method: "POST", body: EmptyBody())
+    }
+
+    func supplierPayments(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<SupplierPayment> {
+        try await client.request("/payables/payments\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func supplierPayment(id: String) async throws -> SupplierPaymentDetail {
+        try await client.request("/payables/payments/\(id)")
+    }
+
+    func reverseSupplierPayment(id: String) async throws -> SettlementResult {
+        try await client.request("/payables/payments/\(id)/reverse", method: "POST", body: EmptyBody())
     }
 }
 
@@ -1234,6 +1315,41 @@ struct AccountingAPI {
     func pnl(from: String? = nil, to: String? = nil) async throws -> Pnl {
         try await client.request("/accounting/reports/pnl\(query(["from": from, "to": to]))")
     }
+
+    func accountHistory(code: String, page: Int? = nil, pageSize: Int? = nil) async throws -> AccountHistory {
+        let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? code
+        return try await client.request("/accounting/accounts/\(encoded)/history\(query(["page": page, "pageSize": pageSize]))")
+    }
+}
+
+struct TransferCreateInput: Codable {
+    let fromCode: String
+    let toCode: String
+    let amount: Double
+    let fee: Double
+    let note: String?
+    let paymentIds: [String]?
+}
+
+struct ExpenseCreateInput: Codable {
+    let amount: Double
+    let expenseCode: String
+    let paidFromCode: String
+    let date: String?
+    let payee: String?
+    let vendorId: String?
+    let reference: String?
+    let note: String?
+}
+
+struct PaymentMethodCreateInput: Codable {
+    let name: String
+    let accountCode: String
+    let feeRate: Double?
+}
+
+struct PaymentMethodPatchInput: Codable {
+    let isActive: Bool
 }
 
 struct CashAccountsAPI {
@@ -1247,9 +1363,74 @@ struct CashAccountsAPI {
         try await client.request("/accounting/transfers\(query(["limit": limit]))")
     }
 
+    func createTransfer(_ body: TransferCreateInput) async throws -> OkResponse {
+        try await client.request("/accounting/transfers", method: "POST", body: body)
+    }
+
+    func reverseTransfer(id: String) async throws -> OkResponse {
+        try await client.request("/accounting/transfers/\(id)/reverse", method: "POST", body: EmptyBody())
+    }
+
+    func undepositedChecks() async throws -> UndepositedChecks {
+        try await client.request("/accounting/undeposited-checks")
+    }
+
+    func expenses(limit: Int? = nil) async throws -> [ExpensePayment] {
+        try await client.request("/accounting/expenses\(query(["limit": limit]))")
+    }
+
+    func createExpense(_ body: ExpenseCreateInput) async throws -> OkResponse {
+        try await client.request("/accounting/expenses", method: "POST", body: body)
+    }
+
+    func reverseExpense(id: String) async throws -> OkResponse {
+        try await client.request("/accounting/expenses/\(id)/reverse", method: "POST", body: EmptyBody())
+    }
+
+    func expenseReceipts(expenseId: String) async throws -> [ExpenseReceipt] {
+        try await client.request("/accounting/expenses/\(expenseId)/receipts")
+    }
+
+    func uploadExpenseReceipt(expenseId: String, fileURL: URL, fileName: String, mimeType: String) async throws -> ExpenseReceipt {
+        try await client.uploadMultipart(
+            "/accounting/expenses/\(expenseId)/receipts",
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType
+        )
+    }
+
+    func deleteExpenseReceipt(id: String) async throws -> OkResponse {
+        try await client.request("/accounting/expense-receipts/\(id)", method: "DELETE")
+    }
+
+    func downloadExpenseReceipt(_ receipt: ExpenseReceipt) async throws -> URL {
+        try await client.download("/accounting/expense-receipts/\(receipt.id)", fileName: receipt.filename)
+    }
+
     func methods() async throws -> [PaymentMethod] {
         try await client.request("/accounting/payment-methods")
     }
+
+    func createMethod(_ body: PaymentMethodCreateInput) async throws -> PaymentMethod {
+        try await client.request("/accounting/payment-methods", method: "POST", body: body)
+    }
+
+    func updateMethod(id: String, body: PaymentMethodPatchInput) async throws -> PaymentMethod {
+        try await client.request("/accounting/payment-methods/\(id)", method: "PATCH", body: body)
+    }
+
+    func deleteMethod(id: String) async throws -> OkResponse {
+        try await client.request("/accounting/payment-methods/\(id)", method: "DELETE")
+    }
+}
+
+struct FetPayInput: Codable {
+    let amount: Double
+    let date: String?
+    let reference: String?
+    let note: String?
+    let quarterKey: String?
 }
 
 struct FetAPI {
@@ -1257,6 +1438,14 @@ struct FetAPI {
 
     func status() async throws -> FetStatus {
         try await client.request("/accounting/fet")
+    }
+
+    func pay(_ body: FetPayInput) async throws -> OkResponse {
+        try await client.request("/accounting/fet/pay", method: "POST", body: body)
+    }
+
+    func reversePayment(refId: String, reason: String? = nil) async throws -> OkResponse {
+        try await client.request("/accounting/fet/pay/\(refId)/reverse", method: "POST", body: ReasonInput(reason: reason))
     }
 }
 
