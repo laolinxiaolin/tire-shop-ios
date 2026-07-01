@@ -14,7 +14,7 @@
 - Inventory and SKU management
 - SKU detail, create/edit, stock adjustment, add-to-sale
 - Sales list, sale detail, new sale, edit sale
-- Customer list, detail, picker, creation
+- Customer list, editable detail, picker, creation, documents, account controls, storefront users, and CRM relationship cards
 - Work orders list/detail, status filtering, and task/status actions
 - Returns list, returnable sale lookup, draft return creation
 - Inventory counts list, detail, creation
