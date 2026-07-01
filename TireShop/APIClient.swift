@@ -198,6 +198,48 @@ final class APIClient {
         return destination
     }
 
+    func data(_ path: String, noAuthBounce: Bool = false) async throws -> Data {
+        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
+        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        components?.path = "/api\(pieces.first.map(String.init) ?? path)"
+        if pieces.count > 1 {
+            components?.percentEncodedQuery = String(pieces[1])
+        }
+
+        guard let url = components?.url else {
+            throw APIError(status: 0, message: "The request URL is invalid.")
+        }
+
+        var request = URLRequest(url: url)
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError(status: 0, message: "Can't reach the server at \(Server.baseURL.absoluteString).")
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError(status: 0, message: "The server returned an invalid response.")
+        }
+
+        if http.statusCode == 401 && !noAuthBounce {
+            token = nil
+            KeychainStore.deleteToken()
+            onUnauthorized?()
+            throw APIError(status: 401, message: "Session expired. Please sign in again.")
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError(status: http.statusCode, message: Self.errorMessage(from: data, status: http.statusCode))
+        }
+
+        return data
+    }
+
     func request<T: Decodable>(
         _ path: String,
         method: String = "GET",

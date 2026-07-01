@@ -391,33 +391,3 @@ struct ActivityNativeView: View {
 }
 
 // Approvals, Users, Roles, and API Keys now have full action flows in AdminScreens.swift.
-
-struct ShopSettingsNativeView: View {
-    var body: some View {
-        AsyncContentView(load: loadSettings) { general, branding, mail in
-            List {
-                Section("General") {
-                    RowLine(title: "Timezone", subtitle: general.timezone, trailing: nil)
-                    RowLine(title: "Default tax rate", subtitle: "\(general.defaultTaxRate)", trailing: nil)
-                }
-
-                Section("Branding") {
-                    RowLine(title: branding.shopName ?? "Shop name", subtitle: branding.shopAddress, trailing: branding.shopPhone)
-                    RowLine(title: "Email", subtitle: branding.shopEmail ?? "-", trailing: nil)
-                }
-
-                Section("Mail") {
-                    RowLine(title: mail.host, subtitle: mail.from, trailing: mail.hasPassword ? "Configured" : "No password")
-                }
-            }
-            .listStyle(.insetGrouped)
-        }
-    }
-
-    private func loadSettings() async throws -> (GeneralSettings, BrandingSettings, MailConfig) {
-        async let general = SettingsAPI().general()
-        async let branding = SettingsAPI().branding()
-        async let mail = SettingsAPI().mail()
-        return try await (general, branding, mail)
-    }
-}

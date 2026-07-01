@@ -28,6 +28,7 @@
 		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
 		67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1782DD0F092018F372E6865E /* Services.swift */; };
 		54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867D8A179010B63034C1EDCF /* SharedViews.swift */; };
+		E2386F88CFA6A5D6802475B3 /* ShopSettingsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */; };
 		A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435F48F77A26D5E9323945F6 /* Theme.swift */; };
 		AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E48A97CA0BFC00EA327436 /* TireShopApp.swift */; };
 		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
@@ -56,6 +57,7 @@
 		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViews.swift"; sourceTree = "<group>"; };
 		1782DD0F092018F372E6865E /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services.swift"; sourceTree = "<group>"; };
 		867D8A179010B63034C1EDCF /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedViews.swift"; sourceTree = "<group>"; };
+		F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopSettingsScreens.swift"; sourceTree = "<group>"; };
 		435F48F77A26D5E9323945F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
 		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TireShopApp.swift"; sourceTree = "<group>"; };
 		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TransactionScreens.swift"; sourceTree = "<group>"; };
@@ -106,6 +108,7 @@
 				B54402C1C6DDB15D78025760 /* RootViews.swift */,
 				1782DD0F092018F372E6865E /* Services.swift */,
 				867D8A179010B63034C1EDCF /* SharedViews.swift */,
+				F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */,
 				435F48F77A26D5E9323945F6 /* Theme.swift */,
 				72E48A97CA0BFC00EA327436 /* TireShopApp.swift */,
 				A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */,
@@ -211,6 +214,7 @@
 				98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */,
 				67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */,
 				54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */,
+				E2386F88CFA6A5D6802475B3 /* ShopSettingsScreens.swift in Sources */,
 				A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */,
 				AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */,
 				E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */,

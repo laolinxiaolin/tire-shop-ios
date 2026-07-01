@@ -20,7 +20,7 @@
 - Inventory counts list, detail, creation
 - Purchasing/container list and detail
 - Money, accounting, cash accounts, FET, EOD
-- Activity, approvals, users, roles, API keys, shop settings
+- Activity, approvals, users, roles, API keys, and shop settings with branding, general, mail, invoice-template, and logo actions
 - Notifications list and read-state sync
 - Web orders list/detail with confirm and cancel actions
 - Tire attributes management

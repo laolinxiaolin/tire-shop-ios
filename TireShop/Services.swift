@@ -93,8 +93,9 @@ struct PasswordInput: Codable {
     let password: String
 }
 
-struct TimezoneInput: Codable {
-    let timezone: String
+struct GeneralPatchInput: Codable {
+    let timezone: String?
+    let defaultTaxRate: Double?
 }
 
 struct TestMailInput: Codable {
@@ -274,12 +275,19 @@ struct BrandingPatchInput: Codable {
 }
 
 struct MailPatchInput: Codable {
+    let provider: String?
     let host: String?
     let port: Int?
     let secure: Bool?
     let user: String?
     let password: String?
     let from: String?
+    let resendApiKey: String?
+}
+
+struct InvoiceTemplatePatchInput: Codable {
+    let subject: String?
+    let body: String?
 }
 
 struct DashboardAPI {
@@ -1134,8 +1142,8 @@ struct SettingsAPI {
         try await client.request("/settings/general")
     }
 
-    func updateGeneral(timezone: String) async throws -> GeneralSettings {
-        try await client.request("/settings/general", method: "PATCH", body: TimezoneInput(timezone: timezone))
+    func updateGeneral(_ body: GeneralPatchInput) async throws -> GeneralSettings {
+        try await client.request("/settings/general", method: "PATCH", body: body)
     }
 
     func branding() async throws -> BrandingSettings {
@@ -1156,6 +1164,31 @@ struct SettingsAPI {
 
     func testMail(to: String) async throws -> [String: Bool] {
         try await client.request("/settings/mail/test", method: "POST", body: TestMailInput(to: to))
+    }
+
+    func invoiceTemplate() async throws -> InvoiceEmailTemplate {
+        try await client.request("/settings/invoice-template")
+    }
+
+    func updateInvoiceTemplate(_ body: InvoiceTemplatePatchInput) async throws -> InvoiceEmailTemplate {
+        try await client.request("/settings/invoice-template", method: "PATCH", body: body)
+    }
+
+    func logoData() async throws -> Data {
+        try await client.data("/settings/logo?_=\(Int(Date().timeIntervalSince1970))")
+    }
+
+    func uploadLogo(fileURL: URL, fileName: String, mimeType: String) async throws -> OkResponse {
+        try await client.uploadMultipart(
+            "/settings/logo",
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType
+        )
+    }
+
+    func deleteLogo() async throws -> OkResponse {
+        try await client.request("/settings/logo", method: "DELETE")
     }
 }
 
