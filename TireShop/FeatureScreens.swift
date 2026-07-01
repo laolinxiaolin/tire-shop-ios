@@ -390,65 +390,7 @@ struct ActivityNativeView: View {
     }
 }
 
-struct ApprovalsNativeView: View {
-    var body: some View {
-        AsyncContentView(load: { try await ApprovalsAPI().list(pageSize: 50) }) { page in
-            List(page.items) { approval in
-                RowLine(
-                    title: approval.action,
-                    subtitle: "\(approval.status) - \(approval.requestedBy.fullName)",
-                    trailing: AppFormat.shortDate(approval.requestedAt)
-                )
-            }
-            .listStyle(.plain)
-        }
-    }
-}
-
-struct UsersNativeView: View {
-    var body: some View {
-        AsyncContentView(load: UsersAPI().list) { users in
-            List(users) { user in
-                RowLine(
-                    title: user.fullName,
-                    subtitle: "\(user.email) - \(user.roleName)",
-                    trailing: user.active ? "Active" : "Inactive"
-                )
-            }
-            .listStyle(.plain)
-        }
-    }
-}
-
-struct RolesNativeView: View {
-    var body: some View {
-        AsyncContentView(load: RolesAPI().list) { roles in
-            List(roles) { role in
-                RowLine(
-                    title: role.name,
-                    subtitle: role.description ?? "\(role.permissions.count) permissions",
-                    trailing: "\(role.userCount) users"
-                )
-            }
-            .listStyle(.plain)
-        }
-    }
-}
-
-struct ApiKeysNativeView: View {
-    var body: some View {
-        AsyncContentView(load: ApiKeysAPI().list) { keys in
-            List(keys) { key in
-                RowLine(
-                    title: key.name,
-                    subtitle: "\(key.scopes.count) scopes",
-                    trailing: key.revoked ? "Revoked" : "Active"
-                )
-            }
-            .listStyle(.plain)
-        }
-    }
-}
+// Approvals, Users, Roles, and API Keys now have full action flows in AdminScreens.swift.
 
 struct ShopSettingsNativeView: View {
     var body: some View {

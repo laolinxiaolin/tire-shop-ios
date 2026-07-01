@@ -47,10 +47,10 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 ## Phase B — Admin edit/action flows (read-only → CRUD)
 (✱ = endpoints already in `Services.swift`, UI only)
 - ✅ **Work Orders detail** ✱ — task add/toggle/delete + status (`WorkOrdersAPI.addTask/toggleTask/deleteTask/update`)
-- ⬜ **Users** ✱ — create modal, role Picker, active toggle, reset password, reset MFA
-- ⬜ **Roles** ✱ — tri-state permission editor (off/approval/granted), create/edit/delete non-system
-- ⬜ **API Keys** ✱ — create w/ scope checkboxes, one-time plaintext reveal, revoke
-- ⬜ **Approvals** ✱ — PENDING/MINE/HISTORY tabs, approve/deny (note), cancel-own, detail sheet
+- ✅ **Users** ✱ — create modal, role Picker, active toggle, reset password, reset MFA
+- ✅ **Roles** ✱ — tri-state permission editor (off/approval/granted), create/edit/delete non-system
+- ✅ **API Keys** ✱ — create w/ scope checkboxes, one-time plaintext reveal, revoke
+- ✅ **Approvals** ✱ — PENDING/MINE/HISTORY tabs, approve/deny (note), cancel-own, detail sheet
 - ⬜ **Shop Settings** — branding form ✱; general timezone ✱ + NEW `defaultTaxRate`; mail form (NEW `provider`/`secure`/`resendApiKey` on `MailPatchInput`); test mail ✱; NEW invoice-template; NEW logo upload/remove
 - ⬜ **Customer detail** — profile edit ✱, tax status ✱, documents ✱ (+NEW get/delete), NEW tags, NEW account/credit, NEW price tier, salesperson, storefront-access users, CRM cards
 
@@ -90,3 +90,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Added **Vendors** native module from `vendors/page.tsx` and `[id]/page.tsx`: list filters, create/edit/deactivate, spend summary, recent costs/expenses, refund history, refund record, and refund reverse. `xcodebuild` succeeded on iPhone 17 simulator.
 - 2026-06-30: Added **Customer Relations (CRM)** native module: follow-up filters/actions, at-risk customer outreach, call logging, email compose with templates, template CRUD, CRM models, and `/crm` API wrappers.
 - 2026-06-30: Added **Work Orders detail actions**: status/bay/notes editor, task add/toggle/delete, status-filtered list, and service wrapper fixes for the live `/work-orders` response shape.
+- 2026-06-30: Added **Admin action flows**: Users create/edit/reset actions, Roles tri-state permission editor, API key create/reveal/revoke, and Approvals tabs/detail/decision actions.
