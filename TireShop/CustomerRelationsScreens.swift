@@ -713,7 +713,7 @@ private struct TemplateEditorView: View {
     }
 }
 
-private struct EmailComposeNativeView: View {
+struct EmailComposeNativeView: View {
     @Environment(\.dismiss) private var dismiss
 
     let customerId: String

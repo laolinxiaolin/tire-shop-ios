@@ -10,6 +10,7 @@
 		72B94A439FA16CE34ADCD5F7 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B5347C69DF89FDD01FFB25E /* APIClient.swift */; };
 		13CAD4CAC1E293E172B5CA96 /* AdminScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */; };
 		8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B63EA5735EBD5B353B9265E /* AuthStore.swift */; };
+		1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */; };
 		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
 		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
 		1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF94A64588D8A0810E39E6C /* DetailScreens.swift */; };
@@ -37,6 +38,7 @@
 		2B5347C69DF89FDD01FFB25E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "APIClient.swift"; sourceTree = "<group>"; };
 		88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AdminScreens.swift"; sourceTree = "<group>"; };
 		7B63EA5735EBD5B353B9265E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AuthStore.swift"; sourceTree = "<group>"; };
+		E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerDetailScreens.swift"; sourceTree = "<group>"; };
 		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerRelationsScreens.swift"; sourceTree = "<group>"; };
 		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Destinations.swift"; sourceTree = "<group>"; };
 		EBF94A64588D8A0810E39E6C /* DetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetailScreens.swift"; sourceTree = "<group>"; };
@@ -86,6 +88,7 @@
 				2B5347C69DF89FDD01FFB25E /* APIClient.swift */,
 				88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */,
 				7B63EA5735EBD5B353B9265E /* AuthStore.swift */,
+				E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */,
 				C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */,
 				6EAC7CD9D797892BEB3CA375 /* Destinations.swift */,
 				EBF94A64588D8A0810E39E6C /* DetailScreens.swift */,
@@ -190,6 +193,7 @@
 				72B94A439FA16CE34ADCD5F7 /* APIClient.swift in Sources */,
 				13CAD4CAC1E293E172B5CA96 /* AdminScreens.swift in Sources */,
 				8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */,
+				1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */,
 				47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */,
 				3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */,
 				1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */,

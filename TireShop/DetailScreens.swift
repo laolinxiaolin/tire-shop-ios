@@ -65,44 +65,6 @@ struct SaleDetailNativeView: View {
     }
 }
 
-struct CustomerDetailNativeView: View {
-    let id: String
-    let fallbackName: String
-
-    var body: some View {
-        AsyncContentView(load: { try await CustomersAPI().get(id: id) }) { customer in
-            List {
-                Section("Profile") {
-                    RowLine(title: customer.name, subtitle: customer.company, trailing: customer.taxExempt ? "Tax exempt" : nil)
-                    RowLine(title: "Phone", subtitle: AppFormat.phone(customer.phone))
-                    RowLine(title: "Email", subtitle: customer.email ?? "-")
-                    RowLine(title: "Address", subtitle: customer.address ?? "-")
-                }
-
-                if let sales = customer.sales, !sales.isEmpty {
-                    Section("Sales") {
-                        ForEach(sales) { sale in
-                            NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                                RowLine(title: sale.ref ?? "Sale", subtitle: sale.status, trailing: AppFormat.money(sale.total))
-                            }
-                        }
-                    }
-                }
-
-                if let documents = customer.documents, !documents.isEmpty {
-                    Section("Documents") {
-                        ForEach(documents) { document in
-                            RowLine(title: document.filename, subtitle: document.kind, trailing: AppFormat.shortDate(document.createdAt))
-                        }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-        }
-        .navigationTitle(fallbackName)
-    }
-}
-
 struct WorkOrderDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
 
