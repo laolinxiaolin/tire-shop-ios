@@ -41,6 +41,7 @@ struct TireSkuPatchInput: Codable {
 struct CustomerTaxStatusInput: Codable {
     let taxExempt: Bool
     let taxExemptNumber: String?
+    let taxExemptExpiresAt: String?
 }
 
 struct WorkOrderPatchInput: Codable {
@@ -122,6 +123,13 @@ struct FollowUpPatchInput: Codable {
     let dueAt: String?
     let assignedToId: String?
     let status: FollowUpStatus?
+}
+
+struct FollowUpCreateInput: Codable {
+    let title: String
+    let note: String?
+    let dueAt: String
+    let assignedToId: String?
 }
 
 struct CrmEmailInput: Codable {
@@ -512,6 +520,14 @@ struct CommissionsAPI {
 struct CrmAPI {
     var client = APIClient.shared
 
+    func relationshipSummary(customerId: String) async throws -> RelationshipSummary {
+        try await client.request("/crm/customers/\(customerId)/summary")
+    }
+
+    func interactions(customerId: String) async throws -> [CustomerInteraction] {
+        try await client.request("/crm/customers/\(customerId)/interactions")
+    }
+
     func followUps(
         status: FollowUpStatus? = nil,
         assignedToId: String? = nil,
@@ -535,8 +551,24 @@ struct CrmAPI {
         try await client.request("/crm/follow-ups/\(id)", method: "PATCH", body: body)
     }
 
+    func addFollowUp(customerId: String, body: FollowUpCreateInput) async throws -> CustomerFollowUp {
+        try await client.request("/crm/customers/\(customerId)/follow-ups", method: "POST", body: body)
+    }
+
     func addInteraction(customerId: String, body: CustomerInteractionInput) async throws -> CustomerInteraction {
         try await client.request("/crm/customers/\(customerId)/interactions", method: "POST", body: body)
+    }
+
+    func updateInteraction(id: String, body: CustomerInteractionInput) async throws -> CustomerInteraction {
+        try await client.request("/crm/interactions/\(id)", method: "PATCH", body: body)
+    }
+
+    func deleteInteraction(id: String) async throws -> EmptyResponse {
+        try await client.request("/crm/interactions/\(id)", method: "DELETE")
+    }
+
+    func assignableUsers() async throws -> [AssignableUser] {
+        try await client.request("/crm/assignable-users")
     }
 
     func atRisk(page: Int? = nil, pageSize: Int? = nil) async throws -> AtRiskCustomersPage {
@@ -677,6 +709,22 @@ struct CustomersAPI {
         try await client.request("/customers/\(id)", method: "PATCH", body: body)
     }
 
+    func updateTags(id: String, body: CustomerTagsPatch) async throws -> Customer {
+        try await client.request("/customers/\(id)", method: "PATCH", body: body)
+    }
+
+    func updateAccount(id: String, body: CustomerAccountPatch) async throws -> Customer {
+        try await client.request("/customers/\(id)", method: "PATCH", body: body)
+    }
+
+    func updatePriceTier(id: String, body: CustomerPriceTierPatch) async throws -> Customer {
+        try await client.request("/customers/\(id)", method: "PATCH", body: body)
+    }
+
+    func updateSalesperson(id: String, body: CustomerSalespersonPatch) async throws -> Customer {
+        try await client.request("/customers/\(id)", method: "PATCH", body: body)
+    }
+
     func setTaxStatus(id: String, body: CustomerTaxStatusInput) async throws -> Customer {
         try await client.request("/customers/\(id)/tax-status", method: "PATCH", body: body)
     }
@@ -689,20 +737,66 @@ struct CustomersAPI {
         try await client.request("/customers/\(id)/credit-balance")
     }
 
+    func account(id: String) async throws -> CustomerAccount {
+        try await client.request("/customers/\(id)/account")
+    }
+
     func uploadDocument(
         id: String,
         fileURL: URL,
         fileName: String,
         mimeType: String,
-        kind: CustomerDocumentKind = "ST5_EXEMPTION"
+        kind: CustomerDocumentKind = "ST5_EXEMPTION",
+        note: String? = nil
     ) async throws -> CustomerDocument {
-        try await client.uploadMultipart(
+        var fields = ["kind": kind]
+        if let note, !note.isEmpty {
+            fields["note"] = note
+        }
+        return try await client.uploadMultipart(
             "/customers/\(id)/documents",
             fileURL: fileURL,
             fileName: fileName,
             mimeType: mimeType,
-            fields: ["kind": kind]
+            fields: fields
         )
+    }
+
+    func downloadDocument(id: String, document: CustomerDocument) async throws -> URL {
+        let safeName = document.filename.replacingOccurrences(of: "/", with: "-")
+        return try await client.download("/customers/\(id)/documents/\(document.id)", fileName: safeName)
+    }
+
+    func deleteDocument(id: String, documentId: String) async throws -> OkResponse {
+        try await client.request("/customers/\(id)/documents/\(documentId)", method: "DELETE")
+    }
+
+    func users(id: String) async throws -> [CustomerUser] {
+        try await client.request("/customers/\(id)/users")
+    }
+
+    func createUser(id: String, body: CustomerUserCreateInput) async throws -> CustomerUser {
+        try await client.request("/customers/\(id)/users", method: "POST", body: body)
+    }
+
+    func resetUserPassword(id: String, userId: String, password: String) async throws -> EmptyResponse {
+        try await client.request("/customers/\(id)/users/\(userId)/reset-password", method: "POST", body: PasswordInput(password: password))
+    }
+
+    func setUserActive(id: String, userId: String, body: CustomerUserActiveInput) async throws -> EmptyResponse {
+        try await client.request("/customers/\(id)/users/\(userId)/toggle-active", method: "POST", body: body)
+    }
+
+    func unlockUser(id: String, userId: String) async throws -> EmptyResponse {
+        try await client.request("/customers/\(id)/users/\(userId)/unlock", method: "POST")
+    }
+}
+
+struct PriceTiersAPI {
+    var client = APIClient.shared
+
+    func list() async throws -> [PriceTier] {
+        try await client.request("/price-tiers")
     }
 }
 

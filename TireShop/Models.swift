@@ -254,6 +254,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
 struct CustomerSaleSummary: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
+    let channel: String?
     let status: SaleStatus
     let subtotal: String
     let taxRate: String
@@ -275,7 +276,9 @@ struct CustomerDocument: Codable, Identifiable, Equatable {
 
 struct Customer: Codable, Identifiable, Equatable {
     let id: String
+    let ref: String?
     let name: String
+    let tags: [String]?
     let company: String?
     let phone: String?
     let email: String?
@@ -283,8 +286,13 @@ struct Customer: Codable, Identifiable, Equatable {
     let notes: String?
     let taxExempt: Bool
     let taxExemptNumber: String?
+    let taxExemptExpiresAt: String?
     let accountEnabled: Bool
     let creditLimit: String?
+    let priceTierId: String?
+    let priceTier: PriceTier?
+    let salespersonId: String?
+    let salesperson: CustomerSalesperson?
     let sales: [CustomerSaleSummary]?
     let documents: [CustomerDocument]?
     let createdAt: String
@@ -301,13 +309,152 @@ struct NewCustomerInput: Codable {
     var taxExemptNumber: String?
 }
 
-struct CustomerProfilePatch: Codable {
-    var name: String
-    var company: String
-    var phone: String
-    var email: String
-    var address: String
-    var notes: String
+struct CustomerProfilePatch: Encodable {
+    let name: String
+    let company: String?
+    let phone: String?
+    let email: String?
+    let address: String?
+    let notes: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case company
+        case phone
+        case email
+        case address
+        case notes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encodeNullable(company, forKey: .company)
+        try container.encodeNullable(phone, forKey: .phone)
+        try container.encodeNullable(email, forKey: .email)
+        try container.encodeNullable(address, forKey: .address)
+        try container.encodeNullable(notes, forKey: .notes)
+    }
+}
+
+struct CustomerTagsPatch: Encodable {
+    let tags: [String]
+}
+
+struct CustomerAccountPatch: Encodable {
+    let accountEnabled: Bool
+    let creditLimit: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case accountEnabled
+        case creditLimit
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(accountEnabled, forKey: .accountEnabled)
+        try container.encodeNullable(creditLimit, forKey: .creditLimit)
+    }
+}
+
+struct CustomerPriceTierPatch: Encodable {
+    let priceTierId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case priceTierId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeNullable(priceTierId, forKey: .priceTierId)
+    }
+}
+
+struct CustomerSalespersonPatch: Encodable {
+    let salespersonId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case salespersonId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeNullable(salespersonId, forKey: .salespersonId)
+    }
+}
+
+struct PriceTier: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let percentOffRetail: String?
+    let active: Bool
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct CustomerSalesperson: Codable, Identifiable, Equatable {
+    let id: String
+    let fullName: String
+    let status: EmployeeStatus?
+}
+
+struct CustomerAccount: Codable, Equatable {
+    struct SummaryCustomer: Codable, Equatable {
+        let id: String
+        let name: String
+        let company: String?
+        let accountEnabled: Bool
+        let creditLimit: Double?
+    }
+
+    struct OpenInvoice: Codable, Identifiable, Equatable {
+        struct SaleRef: Codable, Equatable {
+            let id: String
+            let ref: String?
+            let status: String
+            let createdAt: String
+        }
+
+        let id: String
+        let ref: String?
+        let amountDue: String
+        let paidTotal: String
+        let balance: Double
+        let sale: SaleRef
+        let createdAt: String
+    }
+
+    let customer: SummaryCustomer
+    let totalBalance: Double
+    let openInvoices: [OpenInvoice]
+}
+
+struct CustomerUser: Codable, Identifiable, Equatable {
+    let id: String
+    let email: String
+    let active: Bool
+    let lastLoginAt: String?
+    let lockedUntil: String?
+    let createdAt: String
+}
+
+struct CustomerUserCreateInput: Encodable {
+    let email: String
+    let password: String
+}
+
+struct CustomerUserActiveInput: Encodable {
+    let active: Bool
+}
+
+private extension KeyedEncodingContainer {
+    mutating func encodeNullable<T: Encodable>(_ value: T?, forKey key: Key) throws {
+        if let value {
+            try encode(value, forKey: key)
+        } else {
+            try encodeNil(forKey: key)
+        }
+    }
 }
 
 // MARK: - Customer relations
