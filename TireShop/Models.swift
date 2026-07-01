@@ -1195,6 +1195,68 @@ struct UserAccount: Codable, Identifiable, Equatable {
     let active: Bool
     let mfaMethod: String?
     let createdAt: String
+
+    private struct RoleRef: Codable, Equatable {
+        let id: String
+        let name: String
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case email
+        case fullName
+        case roleId
+        case roleName
+        case role
+        case active
+        case mfaMethod
+        case createdAt
+    }
+
+    init(
+        id: String,
+        email: String,
+        fullName: String,
+        roleId: String,
+        roleName: String,
+        active: Bool,
+        mfaMethod: String?,
+        createdAt: String
+    ) {
+        self.id = id
+        self.email = email
+        self.fullName = fullName
+        self.roleId = roleId
+        self.roleName = roleName
+        self.active = active
+        self.mfaMethod = mfaMethod
+        self.createdAt = createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let role = try container.decodeIfPresent(RoleRef.self, forKey: .role)
+        id = try container.decode(String.self, forKey: .id)
+        email = try container.decode(String.self, forKey: .email)
+        fullName = try container.decode(String.self, forKey: .fullName)
+        roleId = try container.decodeIfPresent(String.self, forKey: .roleId) ?? role?.id ?? ""
+        roleName = try container.decodeIfPresent(String.self, forKey: .roleName) ?? role?.name ?? "Unassigned"
+        active = try container.decode(Bool.self, forKey: .active)
+        mfaMethod = try container.decodeIfPresent(String.self, forKey: .mfaMethod)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(email, forKey: .email)
+        try container.encode(fullName, forKey: .fullName)
+        try container.encode(roleId, forKey: .roleId)
+        try container.encode(roleName, forKey: .roleName)
+        try container.encode(active, forKey: .active)
+        try container.encodeIfPresent(mfaMethod, forKey: .mfaMethod)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
 }
 
 struct Role: Codable, Identifiable, Equatable {
@@ -1207,6 +1269,53 @@ struct Role: Codable, Identifiable, Equatable {
     let isAdmin: Bool?
     let userCount: Int
     let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case permissions
+        case approvalPermissions
+        case isSystem
+        case isAdmin
+        case userCount
+        case createdAt
+    }
+
+    init(
+        id: String,
+        name: String,
+        description: String?,
+        permissions: [String],
+        approvalPermissions: [String],
+        isSystem: Bool,
+        isAdmin: Bool?,
+        userCount: Int,
+        createdAt: String
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.permissions = permissions
+        self.approvalPermissions = approvalPermissions
+        self.isSystem = isSystem
+        self.isAdmin = isAdmin
+        self.userCount = userCount
+        self.createdAt = createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        permissions = try container.decodeIfPresent([String].self, forKey: .permissions) ?? []
+        approvalPermissions = try container.decodeIfPresent([String].self, forKey: .approvalPermissions) ?? []
+        isSystem = try container.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
+        isAdmin = try container.decodeIfPresent(Bool.self, forKey: .isAdmin)
+        userCount = try container.decodeIfPresent(Int.self, forKey: .userCount) ?? 0
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+    }
 }
 
 struct PermissionGroup: Codable, Equatable {
