@@ -1366,14 +1366,26 @@ struct GeneralSettings: Codable, Equatable {
 }
 
 struct BrandingSettings: Codable, Equatable {
+    struct Logo: Codable, Equatable {
+        let exists: Bool
+        let ext: String?
+        let size: Int?
+    }
+
     let shopName: String?
     let shopAddress: String?
     let shopPhone: String?
     let shopEmail: String?
     let logoUrl: String?
+    let logo: Logo?
+
+    var hasLogo: Bool {
+        logo?.exists == true || logoUrl?.nilIfBlank != nil
+    }
 }
 
 struct MailConfig: Codable, Equatable {
+    let provider: String?
     let host: String
     let port: Int
     let secure: Bool
@@ -1381,6 +1393,13 @@ struct MailConfig: Codable, Equatable {
     let from: String
     let fromName: String
     let hasPassword: Bool
+    let hasResendKey: Bool?
+}
+
+struct InvoiceEmailTemplate: Codable, Equatable {
+    let subject: String
+    let body: String
+    let placeholders: [String]
 }
 
 struct OkResponse: Codable, Equatable {
