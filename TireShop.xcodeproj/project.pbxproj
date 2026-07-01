@@ -7,62 +7,65 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		72B94A439FA16CE34ADCD5F7 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B5347C69DF89FDD01FFB25E /* APIClient.swift */; };
-		13CAD4CAC1E293E172B5CA96 /* AdminScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */; };
-		8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B63EA5735EBD5B353B9265E /* AuthStore.swift */; };
-		1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */; };
-		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
-		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
-		1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF94A64588D8A0810E39E6C /* DetailScreens.swift */; };
-		AE3E761B68DB2AD874E2CA90 /* EmployeeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */; };
-		65BB0D41B9531C1AA25DC34D /* FeatureScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */; };
-		6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F2FDAF3073867A0D51FCB72 /* Formatters.swift */; };
-		11A112861298144664360E27 /* I18nMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */; };
-		68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88CA5A639740B9905E77B77 /* I18nStore.swift */; };
-		F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */; };
-		C28E3B592A560C32484F497E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8 /* Models.swift */; };
-		5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4C2DA3A8199A94893222 /* NativeComponents.swift */; };
 		0EE179D1BF9A2F7F9492D53D /* OrderScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35308617946D20EF1B7BEF2F /* OrderScreens.swift */; };
-		ADBB74DC4A2977B91478A152 /* PlaceholderModules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE733E38A18988BEF520070D /* PlaceholderModules.swift */; };
-		AB1BD885025C14A983045AC8 /* QuoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D72B874D73108C84EEA7FC /* QuoteStore.swift */; };
-		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
-		67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1782DD0F092018F372E6865E /* Services.swift */; };
+		11A112861298144664360E27 /* I18nMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */; };
+		13CAD4CAC1E293E172B5CA96 /* AdminScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */; };
+		1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF94A64588D8A0810E39E6C /* DetailScreens.swift */; };
+		1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */; };
+		3872F47F2FF5973900911BE0 /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 3872F47E2FF5973900911BE0 /* StripeTerminal */; };
+		222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */; };
+		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
+		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
 		54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867D8A179010B63034C1EDCF /* SharedViews.swift */; };
-		E2386F88CFA6A5D6802475B3 /* ShopSettingsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */; };
+		5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4C2DA3A8199A94893222 /* NativeComponents.swift */; };
+		65BB0D41B9531C1AA25DC34D /* FeatureScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */; };
+		67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1782DD0F092018F372E6865E /* Services.swift */; };
+		68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88CA5A639740B9905E77B77 /* I18nStore.swift */; };
+		6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F2FDAF3073867A0D51FCB72 /* Formatters.swift */; };
+		72B94A439FA16CE34ADCD5F7 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B5347C69DF89FDD01FFB25E /* APIClient.swift */; };
+		8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B63EA5735EBD5B353B9265E /* AuthStore.swift */; };
+		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
 		A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435F48F77A26D5E9323945F6 /* Theme.swift */; };
+		AB1BD885025C14A983045AC8 /* QuoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D72B874D73108C84EEA7FC /* QuoteStore.swift */; };
 		AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E48A97CA0BFC00EA327436 /* TireShopApp.swift */; };
-		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
+		ADBB74DC4A2977B91478A152 /* PlaceholderModules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE733E38A18988BEF520070D /* PlaceholderModules.swift */; };
+		AE3E761B68DB2AD874E2CA90 /* EmployeeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */; };
+		C28E3B592A560C32484F497E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8 /* Models.swift */; };
+		E2386F88CFA6A5D6802475B3 /* ShopSettingsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */; };
 		E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4464773F8E49D240BCB0CF91 /* VendorScreens.swift */; };
+		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
+		F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		2B5347C69DF89FDD01FFB25E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "APIClient.swift"; sourceTree = "<group>"; };
-		88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AdminScreens.swift"; sourceTree = "<group>"; };
-		7B63EA5735EBD5B353B9265E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AuthStore.swift"; sourceTree = "<group>"; };
-		E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerDetailScreens.swift"; sourceTree = "<group>"; };
-		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerRelationsScreens.swift"; sourceTree = "<group>"; };
-		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Destinations.swift"; sourceTree = "<group>"; };
-		EBF94A64588D8A0810E39E6C /* DetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetailScreens.swift"; sourceTree = "<group>"; };
-		3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EmployeeScreens.swift"; sourceTree = "<group>"; };
-		34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeatureScreens.swift"; sourceTree = "<group>"; };
-		0F2FDAF3073867A0D51FCB72 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Formatters.swift"; sourceTree = "<group>"; };
-		F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nMessages.swift"; sourceTree = "<group>"; };
-		E88CA5A639740B9905E77B77 /* I18nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nStore.swift"; sourceTree = "<group>"; };
-		64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView.swift"; sourceTree = "<group>"; };
-		78FD430803560F137BDECEE8 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>"; };
-		365A4C2DA3A8199A94893222 /* NativeComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeComponents.swift"; sourceTree = "<group>"; };
-		35308617946D20EF1B7BEF2F /* OrderScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrderScreens.swift"; sourceTree = "<group>"; };
-		DE733E38A18988BEF520070D /* PlaceholderModules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaceholderModules.swift"; sourceTree = "<group>"; };
-		B3D72B874D73108C84EEA7FC /* QuoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuoteStore.swift"; sourceTree = "<group>"; };
-		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViews.swift"; sourceTree = "<group>"; };
-		1782DD0F092018F372E6865E /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services.swift"; sourceTree = "<group>"; };
-		867D8A179010B63034C1EDCF /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedViews.swift"; sourceTree = "<group>"; };
-		F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopSettingsScreens.swift"; sourceTree = "<group>"; };
-		435F48F77A26D5E9323945F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
-		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TireShopApp.swift"; sourceTree = "<group>"; };
-		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TransactionScreens.swift"; sourceTree = "<group>"; };
-		4464773F8E49D240BCB0CF91 /* VendorScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VendorScreens.swift"; sourceTree = "<group>"; };
+		0F2FDAF3073867A0D51FCB72 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
+		1782DD0F092018F372E6865E /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services.swift; sourceTree = "<group>"; };
+		2B5347C69DF89FDD01FFB25E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		34FFE1A35DCF1170C20CBE5C /* FeatureScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureScreens.swift; sourceTree = "<group>"; };
+		35308617946D20EF1B7BEF2F /* OrderScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderScreens.swift; sourceTree = "<group>"; };
+		365A4C2DA3A8199A94893222 /* NativeComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeComponents.swift; sourceTree = "<group>"; };
+		3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmployeeScreens.swift; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		435F48F77A26D5E9323945F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		4464773F8E49D240BCB0CF91 /* VendorScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendorScreens.swift; sourceTree = "<group>"; };
+		64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destinations.swift; sourceTree = "<group>"; };
+		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TireShopApp.swift; sourceTree = "<group>"; };
+		78FD430803560F137BDECEE8 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		7B63EA5735EBD5B353B9265E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		867D8A179010B63034C1EDCF /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
+		88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminScreens.swift; sourceTree = "<group>"; };
+		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionScreens.swift; sourceTree = "<group>"; };
+		B3D72B874D73108C84EEA7FC /* QuoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteStore.swift; sourceTree = "<group>"; };
+		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViews.swift; sourceTree = "<group>"; };
+		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerRelationsScreens.swift; sourceTree = "<group>"; };
+		DE733E38A18988BEF520070D /* PlaceholderModules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderModules.swift; sourceTree = "<group>"; };
+		E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerDetailScreens.swift; sourceTree = "<group>"; };
+		E88CA5A639740B9905E77B77 /* I18nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = I18nStore.swift; sourceTree = "<group>"; };
+		EBF94A64588D8A0810E39E6C /* DetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailScreens.swift; sourceTree = "<group>"; };
+		F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopSettingsScreens.swift; sourceTree = "<group>"; };
+		F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = I18nMessages.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,23 +73,25 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3872F47F2FF5973900911BE0 /* StripeTerminal in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		E50290A24C49A459B43487C5 = {
+		17E1D4981A9DED075A3F8B48 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1BDBD24583AAF7F81F76B976 /* TireShop */,
-				17E1D4981A9DED075A3F8B48 /* Products */,
+				38A007151ABE87CC01A5B6E9 /* TireShop.app */,
 			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 		1BDBD24583AAF7F81F76B976 /* TireShop */ = {
 			isa = PBXGroup;
 			children = (
+				6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */,
 				2B5347C69DF89FDD01FFB25E /* APIClient.swift */,
 				88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */,
 				7B63EA5735EBD5B353B9265E /* AuthStore.swift */,
@@ -117,12 +122,12 @@
 			path = TireShop;
 			sourceTree = "<group>";
 		};
-		17E1D4981A9DED075A3F8B48 /* Products */ = {
+		E50290A24C49A459B43487C5 = {
 			isa = PBXGroup;
 			children = (
-				38A007151ABE87CC01A5B6E9 /* TireShop.app */,
+				1BDBD24583AAF7F81F76B976 /* TireShop */,
+				17E1D4981A9DED075A3F8B48 /* Products */,
 			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -169,6 +174,9 @@
 				Base,
 			);
 			mainGroup = E50290A24C49A459B43487C5;
+			packageReferences = (
+				3872F47D2FF5973900911BE0 /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */,
+			);
 			productRefGroup = 17E1D4981A9DED075A3F8B48 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -183,6 +191,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -225,128 +234,45 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		89E1FD6268CC0F221A2BE178 /* Debug */ = {
+		639A7CA24D39909E713B47F7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = "Tire Force US";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				SDKROOT = iphoneos;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.salesystemi;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				ONLY_ACTIVE_ARCH = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-			};
-			name = Debug;
-		};
-		E6DE6C99132752C914FEF632 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.10;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				VALIDATE_PRODUCT = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
 		7082CC0B6FC1282FCEABD07A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "Tire Force US";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -360,7 +286,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.tireshop;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.salesystemi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
@@ -368,33 +294,113 @@
 			};
 			name = Debug;
 		};
-		639A7CA24D39909E713B47F7 /* Release */ = {
+		89E1FD6268CC0F221A2BE178 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Tire Force US";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 0.1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.tireshop;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E6DE6C99132752C914FEF632 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.10;
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -420,6 +426,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3872F47D2FF5973900911BE0 /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-terminal-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3872F47E2FF5973900911BE0 /* StripeTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3872F47D2FF5973900911BE0 /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */;
+			productName = StripeTerminal;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 98F54143AB4E86B28C3AFEE0 /* Project object */;
 }

@@ -38,7 +38,12 @@ const ids = {
   projectDebug: id('projectDebug'),
   projectRelease: id('projectRelease'),
   targetDebug: id('targetDebug'),
-  targetRelease: id('targetRelease')
+  targetRelease: id('targetRelease'),
+  assetsFile: id('file:Assets.xcassets'),
+  assetsBuild: id('build:Assets.xcassets'),
+  stripePackage: id('stripePackage'),
+  stripeProduct: id('stripeProduct'),
+  stripeBuild: id('stripeBuild')
 };
 
 const fileIds = new Map(swiftFiles.map((file) => [file, id(`file:${file}`)]));
@@ -111,6 +116,7 @@ const commonTargetSettings = `
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "Tire Force US";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -124,7 +130,7 @@ const commonTargetSettings = `
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.tireshop;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.salesystemi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
@@ -140,11 +146,14 @@ const pbxproj = `// !$*UTF8*$!
 
 /* Begin PBXBuildFile section */
 ${buildFiles}
+		${ids.stripeBuild} /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripeProduct} /* StripeTerminal */; };
+		${ids.assetsBuild} /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.assetsFile} /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 ${fileRefs}
 		${ids.product} /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		${ids.assetsFile} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +161,7 @@ ${fileRefs}
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				${ids.stripeBuild} /* StripeTerminal in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -170,6 +180,7 @@ ${fileRefs}
 			isa = PBXGroup;
 			children = (
 ${sourceChildren}
+				${ids.assetsFile} /* Assets.xcassets */,
 			);
 			path = TireShop;
 			sourceTree = "<group>";
@@ -199,6 +210,9 @@ ${sourceChildren}
 			);
 			name = TireShop;
 			productName = TireShop;
+			packageProductDependencies = (
+				${ids.stripeProduct} /* StripeTerminal */,
+			);
 			productReference = ${ids.product} /* TireShop.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -226,6 +240,9 @@ ${sourceChildren}
 				Base,
 			);
 			mainGroup = ${ids.mainGroup};
+			packageReferences = (
+				${ids.stripePackage} /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */,
+			);
 			productRefGroup = ${ids.productGroup} /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -240,6 +257,7 @@ ${sourceChildren}
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				${ids.assetsBuild} /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -320,6 +338,25 @@ ${commonTargetSettings}
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		${ids.stripePackage} /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-terminal-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		${ids.stripeProduct} /* StripeTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ${ids.stripePackage} /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */;
+			productName = StripeTerminal;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = ${ids.project} /* Project object */;
 }

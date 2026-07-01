@@ -15,7 +15,7 @@ targets:
       - path: TireShop
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tireforce.tireshop
+        PRODUCT_BUNDLE_IDENTIFIER: com.tireforce.salesystemi
         INFOPLIST_KEY_CFBundleDisplayName: Tire Force US
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
