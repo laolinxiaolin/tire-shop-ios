@@ -59,7 +59,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ✅ **Inventory** — `q`, `category`, `position`, `sortBy/sortOrder`, compact filter menu, hide-zero-stock toggle, pull-to-refresh, infinite scroll
 - ✅ **Sales** — `q`, `status`, date-range presets (`from`/`to`), backend sort, pull-to-refresh, pinned search/filter header, and summary footer
 - ✅ **Returns** — `status` filter, tappable rows, `ReturnDetailNativeView` via `ReturnsAPI.get`, and posted-return void action
-- ⬜ **Purchasing** — `q` + `status` (Containers), `q` (Suppliers)
+- ✅ **Purchasing** — fixed container list decoding; added Containers/Suppliers tabs, search/status filters, supplier CRUD, container create/cancel, draft line/cost editing, receive/unreceive actions
 - ✅ **Work Orders** — `status` filter
 
 ## Phase D — Payments & invoices
@@ -96,3 +96,5 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-07-01: Added **Inventory list search/filter/sort controls**: native `q`, category, position, backend sort field/order, pull-to-refresh, and quote-selection compatibility. Verifier green: 26 swift files, 30 built destinations.
 - 2026-07-01: Refined **Inventory/Sales mobile lists**: compact inventory search/filter toolbar, hide-zero-stock toggle, infinite scroll instead of visible pagination, pinned Sales title/search header, and Sales `q` search. Verifier and iPhone 17 simulator build passed; fresh build launched in Simulator.
 - 2026-07-01: Completed **Sales/Returns Phase C parity**: Sales gained status/date/sort filters and summary totals from `/sales`; Returns gained status chips, tappable detail navigation, richer return detail rendering, and `POST /returns/:id/void`. Verifier and iPhone 17 simulator build passed.
+- 2026-07-01: Fixed **Purchasing** native page: split container list/detail models to match the API list payload, added container search/status filters, supplier search, and a segmented Containers/Suppliers view. Verifier and iPhone 17 simulator build passed.
+- 2026-07-01: Expanded **Purchasing** native parity: added supplier add/edit/delete, new container creation, container cancellation, editable draft header/lines/costs, SKU picker for container lines, status advance, receive, and unreceive. Verifier and iPhone 17 simulator build passed.

@@ -1557,20 +1557,792 @@ struct InventoryCountsListNativeView: View {
     }
 }
 
+private enum PurchasingTab: String, CaseIterable, Identifiable {
+    case containers
+    case suppliers
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .containers: return "Containers"
+        case .suppliers: return "Suppliers"
+        }
+    }
+}
+
+private enum ContainerLabels {
+    static let statusFlow: [ContainerStatus] = ["DRAFT", "ORDERED", "IN_TRANSIT", "ARRIVED", "RECEIVED"]
+
+    static let statusOptions: [(String, String)] = [
+        ("", "All statuses"),
+        ("DRAFT", "Draft"),
+        ("ORDERED", "Ordered"),
+        ("IN_TRANSIT", "In transit"),
+        ("ARRIVED", "Arrived"),
+        ("RECEIVED", "Received"),
+        ("CANCELLED", "Cancelled")
+    ]
+
+    static func status(_ value: ContainerStatus) -> String {
+        statusOptions.first { $0.0 == value }?.1 ?? value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+private struct SupplierEditorTarget: Identifiable {
+    let supplier: Supplier?
+    let id: String
+}
+
 struct PurchasingNativeView: View {
+    @State private var tab: PurchasingTab = .containers
+
     var body: some View {
-        AsyncContentView(load: { try await ContainersAPI().list(pageSize: 50) }) { page in
-            List(page.items) { container in
-                NavigationLink(value: AppRoute.containerDetail(container.id)) {
-                    RowLine(
-                        title: container.ref ?? container.reference ?? "Container",
-                        subtitle: "\(container.supplier.name) - \(container.status)",
-                        trailing: "\(container.lines.count) lines"
-                    )
+        VStack(spacing: 0) {
+            Picker("Purchasing", selection: $tab) {
+                ForEach(PurchasingTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
                 }
             }
-            .listStyle(.plain)
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+            .background(Theme.background)
+
+            switch tab {
+            case .containers:
+                PurchasingContainersListView()
+            case .suppliers:
+                PurchasingSuppliersListView()
+            }
         }
+        .background(Theme.background)
+    }
+}
+
+private struct PurchasingContainersListView: View {
+    @EnvironmentObject private var auth: AuthStore
+
+    private let pageSize = 50
+
+    @State private var q = ""
+    @State private var status = ""
+    @State private var page: Paged<ContainerListItem>?
+    @State private var loading = false
+    @State private var errorMessage: String?
+    @State private var actionError: String?
+    @State private var showingNewContainer = false
+    @State private var cancelTarget: ContainerListItem?
+    @State private var searchTask: Task<Void, Never>?
+
+    private var canManage: Bool {
+        auth.has("purchasing.manage")
+    }
+
+    private var hasFilters: Bool {
+        q.nilIfBlank != nil || !status.isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            filters
+
+            if let actionError {
+                Text(actionError)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Theme.Space.lg)
+                    .padding(.vertical, Theme.Space.sm)
+                    .background(Theme.background)
+            }
+
+            Group {
+                if loading && page == nil {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, page == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let page, page.items.isEmpty {
+                    EmptyStateView(text: hasFilters ? "No containers match the current filters." : "No containers found.")
+                } else if let page {
+                    List(page.items) { container in
+                        NavigationLink(value: AppRoute.containerDetail(container.id)) {
+                            RowLine(
+                                title: container.ref ?? container.reference ?? "Container",
+                                subtitle: subtitle(container),
+                                trailing: "\(container.totalTires ?? 0) tires"
+                            )
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if canManage && container.status != "RECEIVED" && container.status != "CANCELLED" {
+                                Button("Cancel", role: .destructive) {
+                                    cancelTarget = container
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
+                } else {
+                    LoadingView(label: "Loading...")
+                }
+            }
+        }
+        .task {
+            if page == nil { await load() }
+        }
+        .toolbar {
+            if canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingNewContainer = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New container")
+                }
+            }
+        }
+        .sheet(isPresented: $showingNewContainer) {
+            NewContainerNativeView {
+                showingNewContainer = false
+                Task { await load() }
+            }
+        }
+        .alert("Cancel container?", isPresented: Binding(
+            get: { cancelTarget != nil },
+            set: { if !$0 { cancelTarget = nil } }
+        )) {
+            Button("Keep", role: .cancel) { cancelTarget = nil }
+            Button("Cancel container", role: .destructive) {
+                Task { await cancelContainer() }
+            }
+        } message: {
+            Text("This marks the container as cancelled. Received containers cannot be cancelled.")
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
+    }
+
+    private var filters: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(spacing: Theme.Space.sm) {
+                searchBar
+                statusMenu
+            }
+
+            if !status.isEmpty {
+                HStack(spacing: Theme.Space.sm) {
+                    Text(ContainerLabels.status(status))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Button("Reset") {
+                        status = ""
+                        Task { await load() }
+                    }
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.primary)
+                }
+                .frame(height: 22)
+            }
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.bottom, Theme.Space.sm)
+        .background(Theme.background)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Theme.muted)
+
+            TextField("Search ref, BOL, supplier...", text: $q)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit {
+                    searchTask?.cancel()
+                    Task { await load() }
+                }
+                .onChange(of: q) { _, _ in
+                    scheduleSearch()
+                }
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                    searchTask?.cancel()
+                    Task { await load() }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .frame(height: 42)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    private var statusMenu: some View {
+        Menu {
+            Section("Status") {
+                ForEach(ContainerLabels.statusOptions, id: \.0) { option in
+                    Button {
+                        status = option.0
+                        Task { await load() }
+                    } label: {
+                        if status == option.0 {
+                            Label(option.1, systemImage: "checkmark")
+                        } else {
+                            Text(option.1)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Status", systemImage: status.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .labelStyle(.titleAndIcon)
+                .frame(width: 94, height: 42)
+                .background(status.isEmpty ? Theme.card : Theme.primary)
+                .foregroundStyle(status.isEmpty ? Theme.text : Theme.primaryText)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                        .stroke(status.isEmpty ? Theme.border : Theme.primary)
+                )
+        }
+        .accessibilityLabel("Container status filter")
+    }
+
+    private func subtitle(_ container: ContainerListItem) -> String {
+        var parts = [ContainerLabels.status(container.status), container.supplier.name]
+        if let country = container.supplier.country?.nilIfBlank {
+            parts.append(country)
+        }
+        parts.append(paymentLabel(container))
+        return parts.joined(separator: " - ")
+    }
+
+    private func paymentLabel(_ container: ContainerListItem) -> String {
+        let supplierCosts = container.costs.filter { ["DOWN_PAYMENT", "BALANCE_PAYMENT", "SUPPLIER_OTHER"].contains($0.category) }
+        guard !supplierCosts.isEmpty else { return "Unpaid" }
+        let total = supplierCosts.reduce(0) { $0 + (Double($1.amount) ?? 0) }
+        let paid = supplierCosts.reduce(0) { $0 + (Double($1.amountPaid) ?? 0) }
+        if paid >= total - 0.01 { return "Paid" }
+        if paid > 0 { return "Partially paid" }
+        return "Unpaid"
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            page = try await ContainersAPI().list(status: status.nilIfBlank, q: q.nilIfBlank, pageSize: pageSize)
+        } catch {
+            page = nil
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load containers."
+        }
+        loading = false
+    }
+
+    @MainActor
+    private func cancelContainer() async {
+        guard let target = cancelTarget else { return }
+        cancelTarget = nil
+        actionError = nil
+        do {
+            _ = try await ContainersAPI().cancel(id: target.id)
+            await load()
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "Could not cancel container."
+        }
+    }
+}
+
+private struct PurchasingSuppliersListView: View {
+    @EnvironmentObject private var auth: AuthStore
+
+    private let pageSize = 50
+
+    @State private var q = ""
+    @State private var page: Paged<Supplier>?
+    @State private var loading = false
+    @State private var errorMessage: String?
+    @State private var actionError: String?
+    @State private var editing: SupplierEditorTarget?
+    @State private var deleteTarget: Supplier?
+    @State private var searchTask: Task<Void, Never>?
+
+    private var canManage: Bool {
+        auth.has("purchasing.manage")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchBar
+
+            if let actionError {
+                Text(actionError)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Theme.Space.lg)
+                    .padding(.vertical, Theme.Space.sm)
+                    .background(Theme.background)
+            }
+
+            Group {
+                if loading && page == nil {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, page == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let page, page.items.isEmpty {
+                    EmptyStateView(text: q.nilIfBlank == nil ? "No suppliers found." : "No suppliers match this search.")
+                } else if let page {
+                    List(page.items) { supplier in
+                        SupplierListRow(supplier: supplier, subtitle: supplierSubtitle(supplier))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if canManage {
+                                    Button("Delete", role: .destructive) {
+                                        deleteTarget = supplier
+                                    }
+                                    Button("Edit") {
+                                        editing = SupplierEditorTarget(supplier: supplier, id: supplier.id)
+                                    }
+                                    .tint(Theme.primary)
+                                }
+                            }
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
+                } else {
+                    LoadingView(label: "Loading...")
+                }
+            }
+        }
+        .task {
+            if page == nil { await load() }
+        }
+        .toolbar {
+            if canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        editing = SupplierEditorTarget(supplier: nil, id: UUID().uuidString)
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New supplier")
+                }
+            }
+        }
+        .sheet(item: $editing) { target in
+            SupplierEditorView(supplier: target.supplier) {
+                editing = nil
+                Task { await load() }
+            }
+        }
+        .alert("Delete supplier?", isPresented: Binding(
+            get: { deleteTarget != nil },
+            set: { if !$0 { deleteTarget = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+            Button("Delete", role: .destructive) {
+                Task { await deleteSupplier() }
+            }
+        } message: {
+            Text("Suppliers with containers cannot be deleted.")
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Theme.muted)
+
+            TextField("Search supplier, country, contact...", text: $q)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit {
+                    searchTask?.cancel()
+                    Task { await load() }
+                }
+                .onChange(of: q) { _, _ in
+                    scheduleSearch()
+                }
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                    searchTask?.cancel()
+                    Task { await load() }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .frame(height: 42)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
+        )
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.bottom, Theme.Space.sm)
+        .background(Theme.background)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private func supplierSubtitle(_ supplier: Supplier) -> String {
+        [
+            supplier.contactName,
+            supplier.country,
+            supplier.email,
+            supplier.currency
+        ].compactMap { $0?.nilIfBlank }.joined(separator: " - ")
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            page = try await SuppliersAPI().list(q: q.nilIfBlank, pageSize: pageSize)
+        } catch {
+            page = nil
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load suppliers."
+        }
+        loading = false
+    }
+
+    @MainActor
+    private func deleteSupplier() async {
+        guard let supplier = deleteTarget else { return }
+        deleteTarget = nil
+        actionError = nil
+        do {
+            _ = try await SuppliersAPI().remove(id: supplier.id)
+            await load()
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "Could not delete supplier."
+        }
+    }
+}
+
+private struct SupplierListRow: View {
+    let supplier: Supplier
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(supplier.name)
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+
+                Spacer()
+
+                if supplier.defaultDDP == true {
+                    Text("DDP")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, Theme.Space.sm)
+                        .padding(.vertical, 4)
+                        .foregroundStyle(Theme.primary)
+                        .background(Theme.primary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                }
+            }
+
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            }
+
+            Text("\(supplier.count?.containers ?? 0) containers")
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
+        }
+        .padding(.vertical, Theme.Space.xs)
+    }
+}
+
+private struct SupplierEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let supplier: Supplier?
+    let onSaved: () -> Void
+
+    @State private var name: String
+    @State private var country: String
+    @State private var contactName: String
+    @State private var phone: String
+    @State private var email: String
+    @State private var currency: String
+    @State private var defaultDDP: Bool
+    @State private var address: String
+    @State private var notes: String
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    private var isEditing: Bool {
+        supplier != nil
+    }
+
+    init(supplier: Supplier?, onSaved: @escaping () -> Void) {
+        self.supplier = supplier
+        self.onSaved = onSaved
+        _name = State(initialValue: supplier?.name ?? "")
+        _country = State(initialValue: supplier?.country ?? "")
+        _contactName = State(initialValue: supplier?.contactName ?? "")
+        _phone = State(initialValue: supplier?.phone ?? "")
+        _email = State(initialValue: supplier?.email ?? "")
+        _currency = State(initialValue: supplier?.currency ?? "USD")
+        _defaultDDP = State(initialValue: supplier?.defaultDDP ?? false)
+        _address = State(initialValue: supplier?.address ?? "")
+        _notes = State(initialValue: supplier?.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Supplier") {
+                    AppTextField(label: "Name", text: $name, placeholder: "Supplier name")
+                    AppTextField(label: "Country", text: $country, placeholder: "China")
+                    AppTextField(label: "Contact", text: $contactName, textContentType: .name)
+                    AppTextField(label: "Phone", text: $phone, keyboardType: .phonePad, textContentType: .telephoneNumber)
+                    AppTextField(label: "Email", text: $email, keyboardType: .emailAddress, textContentType: .emailAddress)
+                    AppTextField(label: "Currency", text: $currency, placeholder: "USD")
+                        .onChange(of: currency) { _, value in
+                            currency = String(value.uppercased().prefix(8))
+                        }
+                    Toggle("Default DDP pricing", isOn: $defaultDDP)
+                }
+
+                Section("Address") {
+                    TextField("Address", text: $address, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+
+                Section("Notes") {
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+            }
+            .navigationTitle(isEditing ? "Edit Supplier" : "New Supplier")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if saving {
+                            ProgressView()
+                        } else {
+                            Text("Save")
+                        }
+                    }
+                    .disabled(saving || name.nilIfBlank == nil)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        guard let cleanName = name.nilIfBlank else { return }
+        saving = true
+        errorMessage = nil
+        let body = SupplierSaveInput(
+            name: cleanName,
+            contactName: contactName.nilIfBlank,
+            phone: phone.nilIfBlank,
+            email: email.nilIfBlank,
+            country: country.nilIfBlank,
+            address: address.nilIfBlank,
+            currency: currency.nilIfBlank ?? "USD",
+            defaultDDP: defaultDDP,
+            notes: notes.nilIfBlank,
+            encodeNulls: isEditing
+        )
+
+        do {
+            if let supplier {
+                _ = try await SuppliersAPI().update(id: supplier.id, body: body)
+            } else {
+                _ = try await SuppliersAPI().create(body)
+            }
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save supplier."
+        }
+        saving = false
+    }
+}
+
+private struct NewContainerNativeView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let onCreated: () -> Void
+
+    @State private var suppliers: [Supplier] = []
+    @State private var supplierId = ""
+    @State private var reference = ""
+    @State private var loading = false
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Container") {
+                    Picker("Supplier", selection: $supplierId) {
+                        Text("Pick supplier").tag("")
+                        ForEach(suppliers) { supplier in
+                            Text(supplierLabel(supplier)).tag(supplier.id)
+                        }
+                    }
+                    AppTextField(label: "Reference / BOL", text: $reference, placeholder: "BOL-2026-04-001")
+                }
+
+                if suppliers.isEmpty && !loading {
+                    Section {
+                        Text("Add a supplier first, then create a container.")
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+            }
+            .navigationTitle("New Container")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await create() }
+                    } label: {
+                        if saving {
+                            ProgressView()
+                        } else {
+                            Text("Create")
+                        }
+                    }
+                    .disabled(saving || supplierId.isEmpty)
+                }
+            }
+            .task {
+                if suppliers.isEmpty { await loadSuppliers() }
+            }
+        }
+    }
+
+    private func supplierLabel(_ supplier: Supplier) -> String {
+        var label = supplier.name
+        if let country = supplier.country?.nilIfBlank {
+            label += " (\(country))"
+        }
+        if supplier.defaultDDP == true {
+            label += " - DDP"
+        }
+        return label
+    }
+
+    @MainActor
+    private func loadSuppliers() async {
+        loading = true
+        errorMessage = nil
+        do {
+            let page = try await SuppliersAPI().list(pageSize: 1000)
+            suppliers = page.items
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load suppliers."
+        }
+        loading = false
+    }
+
+    @MainActor
+    private func create() async {
+        guard !supplierId.isEmpty else { return }
+        saving = true
+        errorMessage = nil
+        do {
+            _ = try await ContainersAPI().create(ContainerCreateInput(supplierId: supplierId, reference: reference.nilIfBlank))
+            onCreated()
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not create container."
+        }
+        saving = false
     }
 }
 

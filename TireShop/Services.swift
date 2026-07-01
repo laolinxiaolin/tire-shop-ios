@@ -18,6 +18,8 @@ private func unwrapOptional(_ value: Any?) -> Any? {
     return mirror.children.first?.value
 }
 
+struct EmptyBody: Codable {}
+
 struct TireSkuPatchInput: Codable {
     var sku: String?
     var brand: String?
@@ -71,6 +73,162 @@ struct PaymentRecordInput: Codable {
 
 struct ReasonInput: Codable {
     let reason: String?
+}
+
+struct SupplierSaveInput: Encodable {
+    var name: String
+    var contactName: String?
+    var phone: String?
+    var email: String?
+    var country: String?
+    var address: String?
+    var currency: String?
+    var defaultDDP: Bool?
+    var notes: String?
+    var encodeNulls = false
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case contactName
+        case phone
+        case email
+        case country
+        case address
+        case currency
+        case defaultDDP
+        case notes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try encode(contactName, forKey: .contactName, into: &container)
+        try encode(phone, forKey: .phone, into: &container)
+        try encode(email, forKey: .email, into: &container)
+        try encode(country, forKey: .country, into: &container)
+        try encode(address, forKey: .address, into: &container)
+        try encode(currency, forKey: .currency, into: &container)
+        try container.encodeIfPresent(defaultDDP, forKey: .defaultDDP)
+        try encode(notes, forKey: .notes, into: &container)
+    }
+
+    private func encode<T: Encodable>(
+        _ value: T?,
+        forKey key: CodingKeys,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else if encodeNulls {
+            try container.encodeNil(forKey: key)
+        }
+    }
+}
+
+struct ContainerCreateInput: Codable {
+    let supplierId: String
+    let reference: String?
+}
+
+struct ContainerDraftLineInput: Codable, Equatable {
+    let skuId: String
+    let qty: Int
+    let unitCost: Double
+    let fetPerUnit: Double?
+}
+
+struct ContainerPatchInput: Encodable {
+    var reference: String?
+    var bolNumber: String?
+    var isDDP: Bool
+    var costSpread: CostSpreadMethod
+    var etaAt: String?
+    var arrivedAt: String?
+    var notes: String?
+    var lines: [ContainerDraftLineInput]?
+
+    private enum CodingKeys: String, CodingKey {
+        case reference
+        case bolNumber
+        case isDDP
+        case costSpread
+        case etaAt
+        case arrivedAt
+        case notes
+        case lines
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try encode(reference, forKey: .reference, into: &container)
+        try encode(bolNumber, forKey: .bolNumber, into: &container)
+        try container.encode(isDDP, forKey: .isDDP)
+        try container.encode(costSpread, forKey: .costSpread)
+        try encode(etaAt, forKey: .etaAt, into: &container)
+        try encode(arrivedAt, forKey: .arrivedAt, into: &container)
+        try encode(notes, forKey: .notes, into: &container)
+        try container.encodeIfPresent(lines, forKey: .lines)
+    }
+
+    private func encode<T: Encodable>(
+        _ value: T?,
+        forKey key: CodingKeys,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else {
+            try container.encodeNil(forKey: key)
+        }
+    }
+}
+
+struct ContainerStatusInput: Codable {
+    let status: ContainerStatus
+}
+
+struct ContainerCostSaveInput: Encodable {
+    var category: ContainerCostCategory
+    var amount: Double
+    var description: String?
+    var vendor: String?
+    var vendorId: String?
+    var dueAt: String?
+    var reference: String?
+    var encodeNulls = false
+
+    private enum CodingKeys: String, CodingKey {
+        case category
+        case amount
+        case description
+        case vendor
+        case vendorId
+        case dueAt
+        case reference
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(category, forKey: .category)
+        try container.encode(amount, forKey: .amount)
+        try encode(description, forKey: .description, into: &container)
+        try encode(vendor, forKey: .vendor, into: &container)
+        try encode(vendorId, forKey: .vendorId, into: &container)
+        try encode(dueAt, forKey: .dueAt, into: &container)
+        try encode(reference, forKey: .reference, into: &container)
+    }
+
+    private func encode<T: Encodable>(
+        _ value: T?,
+        forKey key: CodingKeys,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else if encodeNulls {
+            try container.encodeNil(forKey: key)
+        }
+    }
 }
 
 struct NoteInput: Codable {
@@ -891,8 +1049,24 @@ struct ReturnsAPI {
 struct SuppliersAPI {
     var client = APIClient.shared
 
-    func list() async throws -> Paged<Supplier> {
-        try await client.request("/suppliers\(query(["pageSize": 1000]))")
+    func list(q: String? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<Supplier> {
+        try await client.request("/suppliers\(query(["q": q, "page": page, "pageSize": pageSize ?? 1000]))")
+    }
+
+    func get(id: String) async throws -> Supplier {
+        try await client.request("/suppliers/\(id)")
+    }
+
+    func create(_ body: SupplierSaveInput) async throws -> Supplier {
+        try await client.request("/suppliers", method: "POST", body: body)
+    }
+
+    func update(id: String, body: SupplierSaveInput) async throws -> Supplier {
+        try await client.request("/suppliers/\(id)", method: "PATCH", body: body)
+    }
+
+    func remove(id: String) async throws -> Supplier {
+        try await client.request("/suppliers/\(id)", method: "DELETE")
     }
 }
 
@@ -988,12 +1162,48 @@ struct InventoryCountsAPI {
 struct ContainersAPI {
     var client = APIClient.shared
 
-    func list(status: ContainerStatus? = nil, q: String? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<Container> {
+    func list(status: ContainerStatus? = nil, q: String? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<ContainerListItem> {
         try await client.request("/containers\(query(["status": status, "q": q, "page": page, "pageSize": pageSize]))")
     }
 
     func get(id: String) async throws -> Container {
         try await client.request("/containers/\(id)")
+    }
+
+    func create(_ body: ContainerCreateInput) async throws -> Container {
+        try await client.request("/containers", method: "POST", body: body)
+    }
+
+    func update(id: String, body: ContainerPatchInput) async throws -> Container {
+        try await client.request("/containers/\(id)", method: "PATCH", body: body)
+    }
+
+    func setStatus(id: String, status: ContainerStatus) async throws -> Container {
+        try await client.request("/containers/\(id)/status", method: "POST", body: ContainerStatusInput(status: status))
+    }
+
+    func receive(id: String) async throws -> Container {
+        try await client.request("/containers/\(id)/receive", method: "POST", body: EmptyBody())
+    }
+
+    func unreceive(id: String, reason: String? = nil) async throws -> Container {
+        try await client.request("/containers/\(id)/unreceive", method: "POST", body: ReasonInput(reason: reason))
+    }
+
+    func cancel(id: String) async throws -> Container {
+        try await client.request("/containers/\(id)/cancel", method: "POST", body: EmptyBody())
+    }
+
+    func addCost(id: String, body: ContainerCostSaveInput) async throws -> ContainerCost {
+        try await client.request("/containers/\(id)/costs", method: "POST", body: body)
+    }
+
+    func updateCost(id: String, costId: String, body: ContainerCostSaveInput) async throws -> ContainerCost {
+        try await client.request("/containers/\(id)/costs/\(costId)", method: "PATCH", body: body)
+    }
+
+    func deleteCost(id: String, costId: String) async throws -> OkResponse {
+        try await client.request("/containers/\(id)/costs/\(costId)", method: "DELETE")
     }
 }
 

@@ -98,6 +98,10 @@ typealias InventoryDisposition = String
 typealias WarrantyDisposition = String
 typealias InventoryCountStatus = String
 typealias ContainerStatus = String
+typealias CostSpreadMethod = String
+typealias ContainerCostCategory = String
+typealias ContainerCostStatus = String
+typealias ContainerAttachmentKind = String
 typealias AccountType = String
 typealias ApprovalStatus = String
 typealias InteractionType = String
@@ -806,8 +810,39 @@ struct PostReturnInput: Codable, Equatable {
 }
 
 struct Supplier: Codable, Identifiable, Equatable {
+    struct Counts: Codable, Equatable {
+        let containers: Int
+    }
+
     let id: String
     let name: String
+    let contactName: String?
+    let phone: String?
+    let email: String?
+    let country: String?
+    let address: String?
+    let currency: String?
+    let defaultDDP: Bool?
+    let notes: String?
+    let createdAt: String?
+    let updatedAt: String?
+    let count: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case contactName
+        case phone
+        case email
+        case country
+        case address
+        case currency
+        case defaultDDP
+        case notes
+        case createdAt
+        case updatedAt
+        case count = "_count"
+    }
 }
 
 struct ReceivableCustomer: Codable, Equatable {
@@ -1017,6 +1052,8 @@ struct ContainerLine: Codable, Identifiable, Equatable {
         let size: String
         let category: String
         let position: String
+        let priceCost: String?
+        let fetPerUnit: String?
     }
 
     let id: String
@@ -1030,20 +1067,37 @@ struct ContainerLine: Codable, Identifiable, Equatable {
     let sku: Sku
 }
 
+struct ContainerAttachment: Codable, Identifiable, Equatable {
+    let id: String
+    let containerId: String
+    let kind: ContainerAttachmentKind
+    let filename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let note: String?
+    let uploadedById: String?
+    let createdAt: String
+}
+
 struct ContainerCost: Codable, Identifiable, Equatable {
     let id: String
     let containerId: String
-    let category: String
-    let status: String
+    let category: ContainerCostCategory
+    let status: ContainerCostStatus
     let description: String?
     let amount: String
     let amountPaid: String
     let vendor: String?
+    let vendorId: String?
+    let dueAt: String?
+    let paidAt: String?
     let reference: String?
+    let attachmentId: String?
+    let attachment: ContainerAttachment?
     let createdAt: String
 }
 
-struct Container: Codable, Identifiable, Equatable {
+struct ContainerListItem: Codable, Identifiable, Equatable {
     struct SupplierInfo: Codable, Identifiable, Equatable {
         let id: String
         let name: String
@@ -1053,6 +1107,7 @@ struct Container: Codable, Identifiable, Equatable {
     struct Counts: Codable, Equatable {
         let lines: Int
         let costs: Int
+        let attachments: Int?
     }
 
     let id: String
@@ -1067,8 +1122,8 @@ struct Container: Codable, Identifiable, Equatable {
     let arrivedAt: String?
     let receivedAt: String?
     let notes: String?
-    let lines: [ContainerLine]
     let costs: [ContainerCost]
+    let totalTires: Int?
     let createdAt: String
     let count: Counts?
 
@@ -1085,9 +1140,65 @@ struct Container: Codable, Identifiable, Equatable {
         case arrivedAt
         case receivedAt
         case notes
+        case costs
+        case totalTires
+        case createdAt
+        case count = "_count"
+    }
+}
+
+struct Container: Codable, Identifiable, Equatable {
+    struct SupplierInfo: Codable, Identifiable, Equatable {
+        let id: String
+        let name: String
+        let country: String?
+    }
+
+    struct Counts: Codable, Equatable {
+        let lines: Int
+        let costs: Int
+        let attachments: Int?
+    }
+
+    let id: String
+    let ref: String?
+    let reference: String?
+    let bolNumber: String?
+    let supplierId: String?
+    let supplier: SupplierInfo
+    let status: ContainerStatus
+    let isDDP: Bool
+    let costSpread: CostSpreadMethod
+    let etaAt: String?
+    let arrivedAt: String?
+    let receivedAt: String?
+    let notes: String?
+    let lines: [ContainerLine]
+    let costs: [ContainerCost]
+    let attachments: [ContainerAttachment]?
+    let createdAt: String
+    let updatedAt: String?
+    let count: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ref
+        case reference
+        case bolNumber
+        case supplierId
+        case supplier
+        case status
+        case isDDP
+        case costSpread
+        case etaAt
+        case arrivedAt
+        case receivedAt
+        case notes
         case lines
         case costs
+        case attachments
         case createdAt
+        case updatedAt
         case count = "_count"
     }
 }
