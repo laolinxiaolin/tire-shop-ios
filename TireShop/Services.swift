@@ -603,6 +603,8 @@ struct InventoryAPI {
         q: String? = nil,
         category: TireCategory? = nil,
         position: TirePosition? = nil,
+        sortBy: String? = nil,
+        sortOrder: String? = nil,
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> Paged<TireSku> {
@@ -610,6 +612,8 @@ struct InventoryAPI {
             "q": q,
             "category": category,
             "position": position,
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
             "page": page,
             "pageSize": pageSize
         ])

@@ -41,49 +41,327 @@ struct DashboardNativeView: View {
     }
 }
 
+private struct InventorySortOption: Identifiable {
+    let id: String
+    let label: String
+}
+
+private enum InventoryLabels {
+    static let categoryOptions: [(String, String)] = [
+        ("", "All categories"),
+        ("SEMI", "Semi"),
+        ("LT", "Light truck")
+    ]
+
+    static let positionOptions: [(String, String)] = [
+        ("", "All positions"),
+        ("STEER", "Steer"),
+        ("DRIVE", "Drive"),
+        ("TRAILER", "Trailer"),
+        ("ALL_POSITION", "All position")
+    ]
+
+    static let sortOptions: [InventorySortOption] = [
+        InventorySortOption(id: "", label: "Default"),
+        InventorySortOption(id: "sku", label: "SKU"),
+        InventorySortOption(id: "brand", label: "Brand"),
+        InventorySortOption(id: "model", label: "Model"),
+        InventorySortOption(id: "size", label: "Size"),
+        InventorySortOption(id: "category", label: "Category"),
+        InventorySortOption(id: "position", label: "Position"),
+        InventorySortOption(id: "priceRetail", label: "Retail price"),
+        InventorySortOption(id: "priceCost", label: "Cost"),
+        InventorySortOption(id: "reorderPoint", label: "Reorder point"),
+        InventorySortOption(id: "createdAt", label: "Created")
+    ]
+
+    static func category(_ value: String) -> String {
+        categoryOptions.first { $0.0 == value }?.1 ?? value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func position(_ value: String) -> String {
+        positionOptions.first { $0.0 == value }?.1 ?? value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func sort(_ value: String) -> String {
+        sortOptions.first { $0.id == value }?.label ?? "Default"
+    }
+}
+
 struct InventoryListNativeView: View {
     var selectForQuote = false
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
 
+    private let pageSize = 25
+
+    @State private var q = ""
+    @State private var category = ""
+    @State private var position = ""
+    @State private var sortBy = ""
+    @State private var sortOrder = "asc"
+    @State private var page = 1
+    @State private var data: Paged<TireSku>?
+    @State private var loading = false
+    @State private var errorMessage: String?
+
+    private var totalPages: Int {
+        guard let data, data.pageSize > 0 else { return 1 }
+        return max(1, (data.total + data.pageSize - 1) / data.pageSize)
+    }
+
     var body: some View {
-        AsyncContentView(load: { try await InventoryAPI().listSkus(pageSize: 50) }) { page in
-            List(page.items) { sku in
-                if selectForQuote {
-                    Button {
-                        quote.addLine(
-                            itemType: "SKU",
-                            itemId: sku.id,
-                            description: "\(sku.brand) \(sku.model) \(sku.size) (\(sku.position.replacingOccurrences(of: "_", with: "-")))",
-                            unitPrice: Double(sku.priceRetail) ?? 0
-                        )
-                        dismiss()
-                    } label: {
-                        skuRow(sku)
+        VStack(spacing: 0) {
+            filters
+
+            Group {
+                if loading && data == nil {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, data == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let data, data.items.isEmpty {
+                    EmptyStateView(text: "No inventory found.")
+                } else if let data {
+                    List(data.items) { sku in
+                        if selectForQuote {
+                            Button {
+                                addToQuote(sku)
+                            } label: {
+                                InventorySkuRow(sku: sku)
+                            }
+                            .tint(Theme.text)
+                        } else {
+                            NavigationLink {
+                                SkuDetailNativeView(sku: sku)
+                            } label: {
+                                InventorySkuRow(sku: sku)
+                            }
+                        }
                     }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
                 } else {
-                    NavigationLink {
-                        SkuDetailNativeView(sku: sku)
-                    } label: {
-                        skuRow(sku)
-                    }
+                    LoadingView(label: "Loading...")
                 }
             }
-            .listStyle(.plain)
+
+            if let data, data.total > 0 {
+                pagination(data)
+            }
+        }
+        .background(Theme.background)
+        .task {
+            if data == nil { await load() }
         }
     }
 
-    private func skuRow(_ sku: TireSku) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            Text("\(sku.brand) \(sku.model)")
+    private var filters: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            AppTextField(label: "Search", text: $q, placeholder: "SKU, brand, model, size")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.sm) {
+                    ForEach(InventoryLabels.categoryOptions, id: \.0) { option in
+                        chip(value: option.0, selected: $category, label: option.1)
+                    }
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.sm) {
+                    ForEach(InventoryLabels.positionOptions, id: \.0) { option in
+                        chip(value: option.0, selected: $position, label: option.1)
+                    }
+                }
+            }
+
+            HStack(spacing: Theme.Space.sm) {
+                Menu {
+                    ForEach(InventoryLabels.sortOptions) { option in
+                        Button(option.label) {
+                            sortBy = option.id
+                            page = 1
+                            Task { await load() }
+                        }
+                    }
+                } label: {
+                    Label("Sort: \(InventoryLabels.sort(sortBy))", systemImage: "arrow.up.arrow.down")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Theme.card)
+                        .foregroundStyle(Theme.text)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                                .stroke(Theme.border)
+                        )
+                }
+
+                Button {
+                    sortOrder = sortOrder == "asc" ? "desc" : "asc"
+                    page = 1
+                    Task { await load() }
+                } label: {
+                    Image(systemName: sortOrder == "asc" ? "arrow.up" : "arrow.down")
+                        .frame(width: 46, height: 46)
+                        .background(Theme.card)
+                        .foregroundStyle(Theme.text)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                                .stroke(Theme.border)
+                        )
+                }
+                .disabled(sortBy.isEmpty)
+                .accessibilityLabel(sortOrder == "asc" ? "Ascending" : "Descending")
+            }
+
+            HStack(spacing: Theme.Space.sm) {
+                SecondaryButton(title: "Reset") {
+                    q = ""
+                    category = ""
+                    position = ""
+                    sortBy = ""
+                    sortOrder = "asc"
+                    page = 1
+                    Task { await load() }
+                }
+                PrimaryButton(title: "Search", loading: loading, disabled: loading) {
+                    page = 1
+                    Task { await load() }
+                }
+            }
+        }
+        .padding(Theme.Space.lg)
+        .background(Theme.background)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private func chip(value: String, selected: Binding<String>, label: String) -> some View {
+        Button {
+            guard selected.wrappedValue != value else { return }
+            selected.wrappedValue = value
+            page = 1
+            Task { await load() }
+        } label: {
+            Text(label)
+                .font(.caption)
                 .fontWeight(.semibold)
+                .padding(.horizontal, Theme.Space.md)
+                .padding(.vertical, 7)
+                .background(selected.wrappedValue == value ? Theme.primary : Theme.card)
+                .foregroundStyle(selected.wrappedValue == value ? Theme.primaryText : Theme.text)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                        .stroke(selected.wrappedValue == value ? Theme.primary : Theme.border)
+                )
+        }
+    }
+
+    private func pagination(_ data: Paged<TireSku>) -> some View {
+        HStack(spacing: Theme.Space.md) {
+            Button {
+                page = max(1, page - 1)
+                Task { await load() }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(page <= 1 || loading)
+
+            VStack(spacing: 2) {
+                Text("Page \(data.page) of \(totalPages)")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                Text("\(data.total) SKUs")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity)
+
+            Button {
+                page = min(totalPages, page + 1)
+                Task { await load() }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(page >= totalPages || loading)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Theme.card)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
+    }
+
+    private func addToQuote(_ sku: TireSku) {
+        quote.addLine(
+            itemType: "SKU",
+            itemId: sku.id,
+            description: "\(sku.brand) \(sku.model) \(sku.size) (\(sku.position.replacingOccurrences(of: "_", with: "-")))",
+            unitPrice: Double(sku.priceRetail) ?? 0
+        )
+        dismiss()
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            data = try await InventoryAPI().listSkus(
+                q: q.nilIfBlank,
+                category: category.nilIfBlank,
+                position: position.nilIfBlank,
+                sortBy: sortBy.nilIfBlank,
+                sortOrder: sortBy.isEmpty ? nil : sortOrder,
+                page: page,
+                pageSize: pageSize
+            )
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
+        }
+        loading = false
+    }
+}
+
+private struct InventorySkuRow: View {
+    let sku: TireSku
+
+    private var onHand: Int {
+        sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(sku.brand) \(sku.model)")
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                Spacer()
+                Text(AppFormat.money(sku.priceRetail))
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+            }
+
             Text("\(sku.size) - \(sku.sku)")
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
-            Text("\(sku.inventory.reduce(0) { $0 + $1.qtyOnHand }) on hand")
-                .font(.caption)
-                .foregroundStyle(Theme.muted)
+                .lineLimit(1)
+
+            HStack {
+                Text("\(InventoryLabels.category(sku.category)) / \(InventoryLabels.position(sku.position))")
+                Spacer()
+                Text("\(onHand) on hand")
+            }
+            .font(.caption)
+            .foregroundStyle(onHand <= sku.reorderPoint ? Theme.danger : Theme.muted)
         }
+        .padding(.vertical, Theme.Space.xs)
     }
 }
 

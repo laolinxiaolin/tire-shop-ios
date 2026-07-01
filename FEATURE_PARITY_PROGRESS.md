@@ -56,7 +56,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 
 ## Phase C — List search / filter / sort / pagination
 (reuse `FilterChips`/`TireFilterOptions`; add shared paginator + search bar; replace hardcoded `pageSize: 50`)
-- ⬜ **Inventory** — `q`, `category`, `position`, `sortBy/sortOrder`, paging
+- ✅ **Inventory** — `q`, `category`, `position`, `sortBy/sortOrder`, paging
 - ⬜ **Sales** — `q`, `status`, date-range presets (`from`/`to`), sort, paging, summary footer
 - ⬜ **Returns** — `status` filter + **make rows tappable** → NEW `ReturnDetailNativeView` (`ReturnsAPI.get` ✱); void action (NEW)
 - ⬜ **Purchasing** — `q` + `status` (Containers), `q` (Suppliers)
@@ -93,3 +93,4 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Added **Admin action flows**: Users create/edit/reset actions, Roles tri-state permission editor, API key create/reveal/revoke, and Approvals tabs/detail/decision actions.
 - 2026-06-30: Added **Shop Settings actions**: branding/general/mail edit forms, default tax rate, SMTP/Resend mail settings, test email, invoice email template, and logo upload/remove. Verifier and iPhone 17 simulator build passed.
 - 2026-06-30: Added **Customer detail actions**: profile edit, tags, tax status, document upload/preview/delete, storefront logins, account/credit controls, price tier, salesperson, payment links for open invoices, and CRM relationship/interactions/follow-ups.
+- 2026-07-01: Added **Inventory list search/filter/sort/pagination**: native `q`, category, position, backend sort field/order, 25-row pages, pull-to-refresh, and quote-selection compatibility. Verifier green: 26 swift files, 30 built destinations.
