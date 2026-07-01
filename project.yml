@@ -30,7 +30,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.tireforce.salesystemi
         DEVELOPMENT_TEAM: C8S3S8T2K2
         CODE_SIGN_ENTITLEMENTS: TireShop/TireShop.entitlements
-        INFOPLIST_KEY_CFBundleDisplayName: Tire Force US
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Tire Force uses your location while accepting in-person card payments so Stripe Terminal can connect this device to the store.
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: TireShop/Info.plist

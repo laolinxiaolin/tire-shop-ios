@@ -1,15 +1,16 @@
 import SwiftUI
+import UIKit
 
 enum Theme {
-    static let background = Color(hex: 0xf4f5f7)
-    static let card = Color.white
-    static let border = Color(hex: 0xe2e5ea)
-    static let text = Color(hex: 0x1a1d22)
-    static let muted = Color(hex: 0x6b7280)
-    static let primary = Color(hex: 0x1f6feb)
+    static let background = Color(lightHex: 0xf4f5f7, darkHex: 0x0f1115)
+    static let card = Color(lightHex: 0xffffff, darkHex: 0x1a1d23)
+    static let border = Color(lightHex: 0xe2e5ea, darkHex: 0x303640)
+    static let text = Color(lightHex: 0x1a1d22, darkHex: 0xf3f4f6)
+    static let muted = Color(lightHex: 0x6b7280, darkHex: 0x9ca3af)
+    static let primary = Color(lightHex: 0x1f6feb, darkHex: 0x5d9bff)
     static let primaryText = Color.white
-    static let danger = Color(hex: 0xd1242f)
-    static let success = Color(hex: 0x1a7f37)
+    static let danger = Color(lightHex: 0xd1242f, darkHex: 0xff6b6b)
+    static let success = Color(lightHex: 0x1a7f37, darkHex: 0x63d587)
 
     enum Space {
         static let xs: CGFloat = 4
@@ -32,5 +33,22 @@ extension Color {
         let green = Double((hex >> 8) & 0xff) / 255
         let blue = Double(hex & 0xff) / 255
         self.init(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
+    }
+
+    init(lightHex: UInt, darkHex: UInt) {
+        self.init(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(hex: darkHex)
+                : UIColor(hex: lightHex)
+        })
+    }
+}
+
+private extension UIColor {
+    convenience init(hex: UInt, alpha: CGFloat = 1) {
+        let red = CGFloat((hex >> 16) & 0xff) / 255
+        let green = CGFloat((hex >> 8) & 0xff) / 255
+        let blue = CGFloat(hex & 0xff) / 255
+        self.init(red: red, green: green, blue: blue, alpha: alpha)
     }
 }
