@@ -54,10 +54,10 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ✅ **Shop Settings** — branding form ✱; general timezone ✱ + NEW `defaultTaxRate`; mail form (NEW `provider`/`secure`/`resendApiKey` on `MailPatchInput`); test mail ✱; NEW invoice-template; NEW logo upload/remove
 - ✅ **Customer detail** — profile edit ✱, tax status ✱, documents ✱ (+NEW get/delete), NEW tags, NEW account/credit, NEW price tier, salesperson, storefront-access users, CRM cards
 
-## Phase C — List search / filter / sort / pagination
-(reuse `FilterChips`/`TireFilterOptions`; add shared paginator + search bar; replace hardcoded `pageSize: 50`)
-- ✅ **Inventory** — `q`, `category`, `position`, `sortBy/sortOrder`, paging
-- ⬜ **Sales** — `q`, `status`, date-range presets (`from`/`to`), sort, paging, summary footer
+## Phase C — List search / filter / sort / mobile loading
+(reuse `FilterChips`/`TireFilterOptions`; add shared search/loading patterns; avoid visible pagination on mobile)
+- ✅ **Inventory** — `q`, `category`, `position`, `sortBy/sortOrder`, compact filter menu, hide-zero-stock toggle, pull-to-refresh, infinite scroll
+- 🟨 **Sales** — `q` search with pinned title/search header and pull-to-refresh; remaining web parity: `status`, date-range presets (`from`/`to`), sort, summary footer
 - ⬜ **Returns** — `status` filter + **make rows tappable** → NEW `ReturnDetailNativeView` (`ReturnsAPI.get` ✱); void action (NEW)
 - ⬜ **Purchasing** — `q` + `status` (Containers), `q` (Suppliers)
 - ✅ **Work Orders** — `status` filter
@@ -93,4 +93,5 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - 2026-06-30: Added **Admin action flows**: Users create/edit/reset actions, Roles tri-state permission editor, API key create/reveal/revoke, and Approvals tabs/detail/decision actions.
 - 2026-06-30: Added **Shop Settings actions**: branding/general/mail edit forms, default tax rate, SMTP/Resend mail settings, test email, invoice email template, and logo upload/remove. Verifier and iPhone 17 simulator build passed.
 - 2026-06-30: Added **Customer detail actions**: profile edit, tags, tax status, document upload/preview/delete, storefront logins, account/credit controls, price tier, salesperson, payment links for open invoices, and CRM relationship/interactions/follow-ups.
-- 2026-07-01: Added **Inventory list search/filter/sort/pagination**: native `q`, category, position, backend sort field/order, 25-row pages, pull-to-refresh, and quote-selection compatibility. Verifier green: 26 swift files, 30 built destinations.
+- 2026-07-01: Added **Inventory list search/filter/sort controls**: native `q`, category, position, backend sort field/order, pull-to-refresh, and quote-selection compatibility. Verifier green: 26 swift files, 30 built destinations.
+- 2026-07-01: Refined **Inventory/Sales mobile lists**: compact inventory search/filter toolbar, hide-zero-stock toggle, infinite scroll instead of visible pagination, pinned Sales title/search header, and Sales `q` search. Verifier and iPhone 17 simulator build passed; fresh build launched in Simulator.

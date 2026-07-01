@@ -12,9 +12,9 @@
 - Language state, persisted language choice, translation lookup, and generated full English/Simplified Chinese message table
 - Dashboard
 - Inventory and SKU management
-- Inventory list search, category/position filters, backend sorting, and pagination
+- Inventory list search, compact category/position/sort filters, hide-zero-stock toggle, backend sorting, and infinite scroll
 - SKU detail, create/edit, stock adjustment, add-to-sale
-- Sales list, sale detail, new sale, edit sale
+- Sales list with pinned search header, sale detail, new sale, edit sale
 - Customer list, editable detail, picker, creation, documents, account controls, storefront users, and CRM relationship cards
 - Work orders list/detail, status filtering, and task/status actions
 - Returns list, returnable sale lookup, draft return creation
