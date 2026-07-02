@@ -787,6 +787,10 @@ struct InventoryAPI {
         return try await client.request("/inventory/skus\(qs)")
     }
 
+    func getSku(id: String) async throws -> TireSku {
+        try await client.request("/inventory/skus/\(id)")
+    }
+
     func createSku(_ body: SkuInput) async throws -> TireSku {
         try await client.request("/inventory/skus", method: "POST", body: body)
     }

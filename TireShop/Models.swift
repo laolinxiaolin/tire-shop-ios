@@ -203,6 +203,54 @@ struct CustomerSummary: Codable, Identifiable, Equatable {
     let company: String?
 }
 
+struct SaleLineSku: Codable, Equatable {
+    let id: String?
+    let sku: String?
+    let brand: String?
+    let model: String?
+    let size: String?
+    let position: TirePosition?
+    let pattern: String?
+    let plyRating: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sku
+        case brand
+        case model
+        case size
+        case position
+        case pattern
+        case plyRating
+        case ply
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        sku = try container.decodeIfPresent(String.self, forKey: .sku)
+        brand = try container.decodeIfPresent(String.self, forKey: .brand)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        size = try container.decodeIfPresent(String.self, forKey: .size)
+        position = try container.decodeIfPresent(TirePosition.self, forKey: .position)
+        pattern = try container.decodeIfPresent(String.self, forKey: .pattern)
+        plyRating = try container.decodeIfPresent(String.self, forKey: .plyRating)
+            ?? container.decodeIfPresent(String.self, forKey: .ply)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(sku, forKey: .sku)
+        try container.encodeIfPresent(brand, forKey: .brand)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(size, forKey: .size)
+        try container.encodeIfPresent(position, forKey: .position)
+        try container.encodeIfPresent(pattern, forKey: .pattern)
+        try container.encodeIfPresent(plyRating, forKey: .plyRating)
+    }
+}
+
 struct SaleLine: Codable, Identifiable, Equatable {
     let id: String
     let itemType: String
@@ -212,6 +260,102 @@ struct SaleLine: Codable, Identifiable, Equatable {
     let unitPrice: String
     let discount: String
     let lineTotal: String
+    let sku: SaleLineSku?
+    let skuCode: String?
+    let brand: String?
+    let model: String?
+    let size: String?
+    let position: TirePosition?
+    let pattern: String?
+    let plyRating: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case itemType
+        case itemId
+        case description
+        case qty
+        case unitPrice
+        case discount
+        case lineTotal
+        case sku
+        case skuCode
+        case tireSku
+        case item
+        case brand
+        case model
+        case size
+        case position
+        case pattern
+        case plyRating
+        case ply
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        itemType = try container.decode(String.self, forKey: .itemType)
+        itemId = try container.decode(String.self, forKey: .itemId)
+        description = try container.decode(String.self, forKey: .description)
+        qty = try container.decode(Int.self, forKey: .qty)
+        unitPrice = try container.decode(String.self, forKey: .unitPrice)
+        discount = try container.decode(String.self, forKey: .discount)
+        lineTotal = try container.decode(String.self, forKey: .lineTotal)
+
+        let embeddedSku = Self.decodeSku(from: container, forKey: .sku)
+            ?? Self.decodeSku(from: container, forKey: .tireSku)
+        if embeddedSku == nil && itemType.uppercased() == "SKU" {
+            sku = Self.decodeSku(from: container, forKey: .item)
+        } else {
+            sku = embeddedSku
+        }
+
+        skuCode = Self.decodeString(from: container, forKey: .sku)
+            ?? Self.decodeString(from: container, forKey: .skuCode)
+        brand = try container.decodeIfPresent(String.self, forKey: .brand)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        size = try container.decodeIfPresent(String.self, forKey: .size)
+        position = try container.decodeIfPresent(TirePosition.self, forKey: .position)
+        pattern = try container.decodeIfPresent(String.self, forKey: .pattern)
+        plyRating = try container.decodeIfPresent(String.self, forKey: .plyRating)
+            ?? container.decodeIfPresent(String.self, forKey: .ply)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(itemType, forKey: .itemType)
+        try container.encode(itemId, forKey: .itemId)
+        try container.encode(description, forKey: .description)
+        try container.encode(qty, forKey: .qty)
+        try container.encode(unitPrice, forKey: .unitPrice)
+        try container.encode(discount, forKey: .discount)
+        try container.encode(lineTotal, forKey: .lineTotal)
+        try container.encodeIfPresent(sku, forKey: .sku)
+        try container.encodeIfPresent(skuCode, forKey: .skuCode)
+        try container.encodeIfPresent(brand, forKey: .brand)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(size, forKey: .size)
+        try container.encodeIfPresent(position, forKey: .position)
+        try container.encodeIfPresent(pattern, forKey: .pattern)
+        try container.encodeIfPresent(plyRating, forKey: .plyRating)
+    }
+
+    private static func decodeSku(from container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> SaleLineSku? {
+        do {
+            return try container.decodeIfPresent(SaleLineSku.self, forKey: key)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func decodeString(from container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String? {
+        do {
+            return try container.decodeIfPresent(String.self, forKey: key)
+        } catch {
+            return nil
+        }
+    }
 }
 
 struct SaleInvoice: Codable, Identifiable, Equatable {

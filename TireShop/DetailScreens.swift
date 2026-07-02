@@ -16,7 +16,8 @@ struct SaleDetailNativeView: View {
     }
 
     var body: some View {
-        AsyncContentView(load: { try await SalesAPI().get(id: id) }) { sale in
+        AsyncContentView(load: loadDetail) { detail in
+            let sale = detail.sale
             List {
                 Section {
                     RowLine(title: sale.customer.name, subtitle: sale.ref ?? sale.id, trailing: AppFormat.money(sale.total))
@@ -26,7 +27,7 @@ struct SaleDetailNativeView: View {
 
                 Section("Lines") {
                     ForEach(sale.lines) { line in
-                        RowLine(title: line.description, subtitle: "Qty \(line.qty)", trailing: AppFormat.money(line.lineTotal))
+                        SaleLineDetailRow(line: line, sku: detail.skusByLineItemId[line.itemId])
                     }
                 }
 
@@ -124,6 +125,44 @@ struct SaleDetailNativeView: View {
         }
     }
 
+    private func loadDetail() async throws -> SaleDetailData {
+        let sale = try await SalesAPI().get(id: id)
+        var skusByLineItemId: [String: TireSku] = [:]
+        var seen = Set<String>()
+
+        let skuIds = sale.lines.compactMap { line -> String? in
+            guard line.itemType.uppercased() == "SKU",
+                  let skuId = line.itemId.nilIfBlank,
+                  seen.insert(skuId).inserted else {
+                return nil
+            }
+            return skuId
+        }
+
+        for skuId in skuIds {
+            if let sku = try? await findSku(idOrSku: skuId) {
+                skusByLineItemId[skuId] = sku
+            }
+        }
+
+        return SaleDetailData(sale: sale, skusByLineItemId: skusByLineItemId)
+    }
+
+    private func findSku(idOrSku: String) async throws -> TireSku {
+        if let sku = try? await InventoryAPI().getSku(id: idOrSku) {
+            return sku
+        }
+
+        let page = try await InventoryAPI().listSkus(q: idOrSku, pageSize: 50)
+        if let exact = page.items.first(where: { $0.id == idOrSku || $0.sku == idOrSku }) {
+            return exact
+        }
+        guard let first = page.items.first else {
+            throw APIError(status: 404, message: "Tire not found.")
+        }
+        return first
+    }
+
     private func fetchPDF(invoice: SaleInvoice) async throws -> URL {
         let fileName = "invoice-\(invoice.ref ?? invoice.id).pdf"
         return try await InvoicesAPI().downloadPDF(invoiceId: invoice.id, fileName: fileName)
@@ -165,6 +204,192 @@ struct SaleDetailNativeView: View {
         let invoice: SaleInvoice
 
         var id: String { invoice.id }
+    }
+
+    private struct SaleDetailData {
+        let sale: Sale
+        let skusByLineItemId: [String: TireSku]
+    }
+}
+
+private struct SaleLineDetailRow: View {
+    let line: SaleLine
+    let sku: TireSku?
+
+    private var parsed: ParsedSaleLineDetails {
+        ParsedSaleLineDetails(description: line.description)
+    }
+
+    private var brand: String? {
+        firstNonBlank(line.brand, line.sku?.brand, sku?.brand, parsed.brand)
+    }
+
+    private var rawSize: String? {
+        firstNonBlank(line.size, line.sku?.size, sku?.size, parsed.size)
+    }
+
+    private var displaySize: String? {
+        rawSize.flatMap(Self.sizeWithoutPly)
+    }
+
+    private var model: String? {
+        firstNonBlank(line.model, line.sku?.model, sku?.model, parsed.model)
+    }
+
+    private var pattern: String? {
+        firstNonBlank(line.pattern, line.sku?.pattern, sku?.pattern, parsed.pattern)
+    }
+
+    private var plyRating: String? {
+        firstNonBlank(line.plyRating, line.sku?.plyRating, sku?.plyRating, parsed.plyRating, rawSize.flatMap(Self.plyRating))
+    }
+
+    private var position: String? {
+        firstNonBlank(line.position, line.sku?.position, sku?.position, parsed.position)
+    }
+
+    private var isTireLine: Bool {
+        line.itemType.uppercased() == "SKU" || [brand, displaySize, model, pattern, plyRating, position].contains { $0 != nil }
+    }
+
+    private var itemTypeLabel: String {
+        line.itemType.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private var title: String {
+        [brand, modelPattern].compactMap { $0 }.joined(separator: " ").nilIfBlank ?? line.description
+    }
+
+    private var subtitle: String {
+        if isTireLine {
+            return (["Qty \(line.qty)", displaySize, plyRating, position.map(Self.formatPosition)] as [String?])
+                .compactMap { $0?.nilIfBlank }
+                .joined(separator: " - ")
+        }
+
+        return "Qty \(line.qty) - \(itemTypeLabel)"
+    }
+
+    private var modelPattern: String? {
+        let cleanModel = model?.nilIfBlank
+        let cleanPattern = pattern?.nilIfBlank
+        guard cleanPattern != cleanModel else { return cleanModel }
+        return [cleanModel, cleanPattern].compactMap { $0 }.joined(separator: " / ").nilIfBlank
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(title)
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(2)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Text(AppFormat.money(line.lineTotal))
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, Theme.Space.xs)
+    }
+
+    private func firstNonBlank(_ values: String?...) -> String? {
+        values.compactMap { $0?.nilIfBlank }.first
+    }
+
+    fileprivate static func sizeWithoutPly(_ value: String) -> String? {
+        var result = value
+        if let range = result.range(of: #"\s*-?\s*[0-9]{1,3}\s?PR\b"#, options: [.regularExpression, .caseInsensitive]) {
+            result.removeSubrange(range)
+        }
+        return result.nilIfBlank
+    }
+
+    fileprivate static func plyRating(from value: String) -> String? {
+        guard let range = value.range(of: #"[0-9]{1,3}\s?PR\b"#, options: [.regularExpression, .caseInsensitive]) else {
+            return nil
+        }
+        return value[range].uppercased().replacingOccurrences(of: " ", with: "")
+    }
+
+    private static func formatPosition(_ value: String) -> String {
+        switch value.replacingOccurrences(of: "-", with: "_").uppercased() {
+        case "STEER":
+            return "Steer"
+        case "DRIVE":
+            return "Drive"
+        case "TRAILER":
+            return "Trailer"
+        case "ALL_POS", "ALL_POSITION":
+            return "All position"
+        default:
+            return value.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+}
+
+private struct ParsedSaleLineDetails {
+    let brand: String?
+    let model: String?
+    let size: String?
+    let position: String?
+    let pattern: String?
+    let plyRating: String?
+
+    init(description: String) {
+        var text = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parsedPosition: String?
+
+        if let open = text.lastIndex(of: "("),
+           let close = text[open...].firstIndex(of: ")") {
+            parsedPosition = String(text[text.index(after: open)..<close]).nilIfBlank
+            text = String(text[..<open]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let parts = text.split(separator: " ")
+        guard let sizeIndex = parts.firstIndex(where: Self.looksLikeTireSize) else {
+            brand = nil
+            model = nil
+            size = nil
+            position = parsedPosition
+            pattern = nil
+            plyRating = nil
+            return
+        }
+
+        let beforeSize = parts[..<sizeIndex].map(String.init)
+        let sizeText = String(parts[sizeIndex])
+        let parsedModel: String?
+
+        if beforeSize.count >= 2 {
+            brand = beforeSize.dropLast().joined(separator: " ").nilIfBlank
+            parsedModel = beforeSize.last?.nilIfBlank
+        } else {
+            brand = beforeSize.first?.nilIfBlank
+            parsedModel = nil
+        }
+
+        model = parsedModel
+        size = SaleLineDetailRow.sizeWithoutPly(sizeText)
+        position = parsedPosition
+        pattern = parsedModel
+        plyRating = SaleLineDetailRow.plyRating(from: sizeText)
+    }
+
+    private static func looksLikeTireSize(_ value: Substring) -> Bool {
+        guard value.first?.isNumber == true else { return false }
+        let uppercased = value.uppercased()
+        return uppercased.contains("R") || uppercased.contains("PR") || value.contains("/")
     }
 }
 
