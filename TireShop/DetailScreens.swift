@@ -70,11 +70,19 @@ struct SaleDetailNativeView: View {
 
                         if (Double(invoice.amountDue) ?? 0) > 0 {
                             NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: Double(invoice.amountDue) ?? 0)) {
-                                Text("Tap to Pay")
+                                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                                    Label("Tap to Pay on iPhone", systemImage: "wave.3.right.circle")
+                                        .fontWeight(.semibold)
+                                    Text("Accept Apple Pay, contactless cards, and other contactless digital wallets on an eligible iPhone.")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.muted)
+                                }
                             }
 
-                            Button("Card / manual payment") {
+                            Button {
                                 paymentContext = PaymentContext(invoice: invoice, customerId: sale.customerId)
+                            } label: {
+                                Label("Card / manual payment", systemImage: "creditcard")
                             }
                         }
                     }
@@ -160,7 +168,7 @@ struct SaleDetailNativeView: View {
     }
 }
 
-private struct InvoiceEmailView: View {
+struct InvoiceEmailView: View {
     @Environment(\.dismiss) private var dismiss
 
     let invoice: SaleInvoice

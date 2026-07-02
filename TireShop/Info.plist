@@ -20,10 +20,14 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.business</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Tire Force uses Face ID to confirm cashier identity before accepting a Tap to Pay on iPhone payment.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Tire Force uses Bluetooth to connect to supported card readers for in-person payments.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

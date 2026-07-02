@@ -27,8 +27,12 @@ targets:
         product: StripePaymentSheet
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tireforce.salesystemi
+        PRODUCT_BUNDLE_IDENTIFIER: com.tireforceus.tireshop
         DEVELOPMENT_TEAM: C8S3S8T2K2
-        CODE_SIGN_ENTITLEMENTS: TireShop/TireShop.entitlements
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: TireShop/Info.plist
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: TireShop/TireShopTesting.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: TireShop/TireShop.entitlements

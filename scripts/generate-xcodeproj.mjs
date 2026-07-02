@@ -42,6 +42,7 @@ const ids = {
   assetsFile: id('file:Assets.xcassets'),
   assetsBuild: id('build:Assets.xcassets'),
   entitlementsFile: id('file:TireShop.entitlements'),
+  testingEntitlementsFile: id('file:TireShopTesting.entitlements'),
   infoPlistFile: id('file:Info.plist'),
   stripePackage: id('stripePackage'),
   stripeProduct: id('stripeProduct'),
@@ -117,7 +118,6 @@ const commonProjectSettings = `
 
 const commonTargetSettings = `
 				CODE_SIGN_STYLE = Automatic;
-				CODE_SIGN_ENTITLEMENTS = TireShop/TireShop.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -130,12 +130,12 @@ const commonTargetSettings = `
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tireforce.salesystemi;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = "1,2";`;
+				TARGETED_DEVICE_FAMILY = 1;`;
 
 const pbxproj = `// !$*UTF8*$!
 {
@@ -157,6 +157,7 @@ ${fileRefs}
 		${ids.product} /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		${ids.assetsFile} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		${ids.entitlementsFile} /* TireShop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShop.entitlements; sourceTree = "<group>"; };
+		${ids.testingEntitlementsFile} /* TireShopTesting.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShopTesting.entitlements; sourceTree = "<group>"; };
 		${ids.infoPlistFile} /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -187,6 +188,7 @@ ${fileRefs}
 ${sourceChildren}
 				${ids.assetsFile} /* Assets.xcassets */,
 				${ids.entitlementsFile} /* TireShop.entitlements */,
+				${ids.testingEntitlementsFile} /* TireShopTesting.entitlements */,
 				${ids.infoPlistFile} /* Info.plist */,
 			);
 			path = TireShop;
@@ -315,6 +317,7 @@ ${commonProjectSettings}
 			isa = XCBuildConfiguration;
 			buildSettings = {
 ${commonTargetSettings}
+				CODE_SIGN_ENTITLEMENTS = TireShop/TireShopTesting.entitlements;
 			};
 			name = Debug;
 		};
@@ -322,6 +325,7 @@ ${commonTargetSettings}
 			isa = XCBuildConfiguration;
 			buildSettings = {
 ${commonTargetSettings}
+				CODE_SIGN_ENTITLEMENTS = TireShop/TireShop.entitlements;
 			};
 			name = Release;
 		};

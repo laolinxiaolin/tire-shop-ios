@@ -24,17 +24,44 @@ private enum DayFormat {
 // MARK: - Notifications
 
 struct NotificationsNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+
     var body: some View {
         AsyncContentView(load: loadAndMark) { page in
-            if page.items.isEmpty {
-                EmptyStateView(text: "No notifications yet.")
-            } else {
-                List(page.items) { note in
-                    NotificationRow(note: note)
-                }
-                .listStyle(.plain)
-            }
+            notificationList(items: notifications(for: page))
         }
+    }
+
+    @ViewBuilder
+    private func notificationList(items: [AppNotification]) -> some View {
+        if items.isEmpty {
+            EmptyStateView(text: "No notifications yet.")
+        } else {
+            List(items) { note in
+                NotificationRow(note: note)
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    private func notifications(for page: NotificationsPage) -> [AppNotification] {
+        guard let launchNotification else { return page.items }
+        guard !page.items.contains(where: { $0.id == launchNotification.id }) else { return page.items }
+        return [launchNotification] + page.items
+    }
+
+    private var launchNotification: AppNotification? {
+        guard auth.has("payments.collect") || auth.has("settings.manage") else { return nil }
+        return AppNotification(
+            id: "local-tap-to-pay-on-iphone-launch",
+            type: "tap_to_pay_on_iphone_launch",
+            title: "Tap to Pay on iPhone is available",
+            body: "Open an unpaid invoice to accept Apple Pay, contactless cards, and other contactless digital wallets on an eligible iPhone. Use Card / manual payment as the fallback.",
+            entityType: "tap_to_pay_on_iphone",
+            entityId: nil,
+            readAt: nil,
+            createdAt: "2026-07-02T00:00:00Z"
+        )
     }
 
     private func loadAndMark() async throws -> NotificationsPage {

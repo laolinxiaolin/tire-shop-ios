@@ -1,3 +1,4 @@
+import LocalAuthentication
 import SwiftUI
 import StripeTerminal
 
@@ -603,12 +604,215 @@ struct AdjustStockLookupNativeView: View {
     }
 }
 
+struct TapToPayLaunchAnnouncementView: View {
+    let canManageSettings: Bool
+    let onDone: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.xl) {
+                    VStack(alignment: .leading, spacing: Theme.Space.md) {
+                        Image(systemName: "wave.3.right.circle.fill")
+                            .font(.system(size: 56, weight: .semibold))
+                            .foregroundStyle(Theme.primary)
+
+                        Text("Tap to Pay on iPhone is available for checkout")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .foregroundStyle(Theme.text)
+
+                        Text("On an eligible iPhone, Tire Force US can accept Apple Pay, contactless cards, and other contactless digital wallets directly from an invoice checkout.")
+                            .font(.body)
+                            .foregroundStyle(Theme.muted)
+                    }
+
+                    VStack(alignment: .leading, spacing: Theme.Space.md) {
+                        TapToPayInfoRow(
+                            title: "Use it at invoice checkout",
+                            detail: "Open an unpaid invoice, choose Tap to Pay on iPhone, confirm your identity, then ask the customer to hold their card or device near the top of the iPhone.",
+                            systemImage: "iphone.gen3"
+                        )
+                        TapToPayInfoRow(
+                            title: "Keep a fallback ready",
+                            detail: "If the iPhone, account, or network is not ready, use Card / manual payment from the same invoice.",
+                            systemImage: "creditcard"
+                        )
+                        TapToPayInfoRow(
+                            title: "Offer a receipt",
+                            detail: "After payment, offer to email the invoice or receipt from the success screen or invoice detail.",
+                            systemImage: "envelope"
+                        )
+
+                        if canManageSettings {
+                            TapToPayInfoRow(
+                                title: "Admin setup only",
+                                detail: "If Stripe or Apple asks to enable Tap to Pay on iPhone or accept terms, an authorized admin should complete that step.",
+                                systemImage: "person.badge.shield.checkmark"
+                            )
+                        }
+                    }
+                }
+                .padding(Theme.Space.xl)
+            }
+            .background(Theme.background)
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: Theme.Space.sm) {
+                    PrimaryButton(title: "I understand", action: onDone)
+                    Text("This message appears once for payment-enabled users.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
+                .padding(Theme.Space.lg)
+                .background(.ultraThinMaterial)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close", action: onDone)
+                }
+            }
+        }
+    }
+}
+
+struct TapToPayEducationView: View {
+    @EnvironmentObject private var auth: AuthStore
+    @AppStorage("ttpoiAdminSetupReviewed.v1") private var adminSetupReviewed = false
+
+    private var canCollect: Bool { auth.has("payments.collect") }
+    private var canManageSettings: Bool { auth.has("settings.manage") }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: Theme.Space.md) {
+                    Image(systemName: "wave.3.right.circle.fill")
+                        .font(.system(size: 44, weight: .semibold))
+                        .foregroundStyle(Theme.primary)
+
+                    Text("Tap to Pay on iPhone")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    Text("Use an eligible iPhone to accept Apple Pay, contactless cards, and other contactless digital wallets from unpaid invoices.")
+                        .foregroundStyle(Theme.muted)
+                }
+                .padding(.vertical, Theme.Space.sm)
+            }
+
+            Section {
+                RowLine(title: "Signed-in role", trailing: auth.user?.roleName ?? "Unknown")
+                TapToPayInfoRow(
+                    title: canCollect ? "Payment access is enabled" : "Payment access is not enabled",
+                    detail: canCollect
+                        ? "This account can start Tap to Pay on iPhone checkout when the device and Stripe account are eligible."
+                        : "Ask an admin to grant payment collection access before using Tap to Pay on iPhone.",
+                    systemImage: canCollect ? "checkmark.seal.fill" : "lock.fill",
+                    tint: canCollect ? Theme.success : Theme.danger
+                )
+
+                if canManageSettings {
+                    Toggle("Admin reviewed setup guidance", isOn: $adminSetupReviewed)
+                } else {
+                    Text("If setup prompts or terms appear, ask an authorized admin to complete them.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
+            } header: {
+                Text("Setup status")
+            } footer: {
+                Text("Stripe or Apple setup prompts should be completed by an authorized admin, not by a cashier account.")
+            }
+
+            Section("New User Flow") {
+                TapToPayInfoRow(
+                    title: "Before the first payment",
+                    detail: "Show the user this guide, explain compatible iPhone requirements, and keep Card / manual payment available as fallback.",
+                    systemImage: "1.circle"
+                )
+                TapToPayInfoRow(
+                    title: "First checkout",
+                    detail: "The app checks device support, initializes the reader, and shows any reader setup progress before collecting payment.",
+                    systemImage: "2.circle"
+                )
+                TapToPayInfoRow(
+                    title: "After payment",
+                    detail: "Confirm the captured payment and offer to send the invoice or receipt to the customer.",
+                    systemImage: "3.circle"
+                )
+            }
+
+            Section("Checkout Flow") {
+                TapToPayInfoRow(
+                    title: "Start from an unpaid invoice",
+                    detail: "Choose Tap to Pay on iPhone from the invoice actions. The amount, balance, surcharge, and payment intent stay visible before charging.",
+                    systemImage: "doc.text"
+                )
+                TapToPayInfoRow(
+                    title: "Customer-present collection",
+                    detail: "When prompted, ask the customer to hold their contactless card or device near the top of the iPhone until the reader confirms the result.",
+                    systemImage: "person.crop.circle.badge.checkmark"
+                )
+                TapToPayInfoRow(
+                    title: "Fallback path",
+                    detail: "If Tap to Pay on iPhone is not available, return to the invoice and use Card / manual payment.",
+                    systemImage: "arrow.uturn.backward.circle"
+                )
+            }
+
+            Section("Apple Review Evidence") {
+                TapToPayInfoRow(
+                    title: "Record these flows",
+                    detail: "New user education, existing user returning to checkout, and the full checkout path from invoice to receipt offer.",
+                    systemImage: "video"
+                )
+                TapToPayInfoRow(
+                    title: "Show unsupported handling",
+                    detail: "If a device is not eligible, the checkout screen explains the issue and keeps the fallback payment path available.",
+                    systemImage: "exclamationmark.triangle"
+                )
+            }
+        }
+        .navigationTitle("Tap to Pay on iPhone")
+    }
+}
+
+private struct TapToPayInfoRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    var tint = Theme.primary
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(tint)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(title)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(.vertical, Theme.Space.xs)
+    }
+}
+
 struct TapToPayNativeView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
     @ObservedObject private var terminal = TapToPayTerminalController.shared
+    @State private var emailInvoice: SaleInvoice?
 
     let invoiceId: String
     let amount: Double
+
+    private var canCollect: Bool { auth.has("payments.collect") }
 
     var body: some View {
         AsyncContentView(load: loadIntent) { intent in
@@ -618,6 +822,29 @@ struct TapToPayNativeView: View {
                     RowLine(title: "Amount", trailing: AppFormat.money(amount))
                     RowLine(title: "Balance", trailing: AppFormat.money(intent.balance))
                     RowLine(title: "Surcharge", trailing: AppFormat.money(intent.surcharge))
+                }
+
+                Section("Before charging") {
+                    if canCollect {
+                        TapToPayInfoRow(
+                            title: "Confirm identity",
+                            detail: "The app asks for Face ID, Touch ID, or the device passcode when available before starting a Tap to Pay on iPhone payment.",
+                            systemImage: "faceid"
+                        )
+                    } else {
+                        TapToPayInfoRow(
+                            title: "Payment permission required",
+                            detail: "This account cannot take payments. Ask an admin to grant payment collection access.",
+                            systemImage: "lock.fill",
+                            tint: Theme.danger
+                        )
+                    }
+
+                    TapToPayInfoRow(
+                        title: "Fallback available",
+                        detail: "If this iPhone, account, or network cannot use Tap to Pay on iPhone, return to the invoice and choose Card / manual payment.",
+                        systemImage: "creditcard"
+                    )
                 }
 
                 Section("Terminal") {
@@ -673,37 +900,80 @@ struct TapToPayNativeView: View {
                     }
                 }
 
-                Section {
-                    Button {
-                        Task { await terminal.charge(invoiceId: invoiceId, intent: intent) }
-                    } label: {
-                        HStack {
-                            if terminal.isBusy {
-                                ProgressView()
-                            }
-                            Text(terminal.succeeded ? "Payment complete" : "Charge \(AppFormat.money(intent.amount))")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .disabled(!terminal.canCharge(intent))
+                if terminal.succeeded {
+                    Section("Receipt") {
+                        TapToPayInfoRow(
+                            title: "Payment captured",
+                            detail: "Offer the customer an emailed invoice or receipt before leaving checkout.",
+                            systemImage: "checkmark.circle.fill",
+                            tint: Theme.success
+                        )
 
-                    if terminal.succeeded {
-                        Button("Done") {
-                            dismiss()
+                        Button {
+                            emailInvoice = SaleInvoice(
+                                id: invoiceId,
+                                ref: nil,
+                                amountDue: "0.00",
+                                paidTotal: String(format: "%.2f", amount)
+                            )
+                        } label: {
+                            Label("Email invoice / receipt", systemImage: "envelope")
                         }
                     }
                 }
             }
             .listStyle(.insetGrouped)
+            .safeAreaInset(edge: .bottom) {
+                chargeBar(intent: intent)
+            }
         }
-        .navigationTitle("Tap to Pay")
+        .navigationTitle("Tap to Pay on iPhone")
         .onAppear {
             terminal.prepare(invoiceId: invoiceId)
+        }
+        .sheet(item: $emailInvoice) { invoice in
+            InvoiceEmailView(invoice: invoice)
         }
     }
 
     private func loadIntent() async throws -> TerminalIntent {
         try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+    }
+
+    private func chargeBar(intent: TerminalIntent) -> some View {
+        VStack(spacing: Theme.Space.sm) {
+            if terminal.succeeded {
+                PrimaryButton(title: "Done") {
+                    dismiss()
+                }
+            } else {
+                Button {
+                    Task { await terminal.charge(invoiceId: invoiceId, intent: intent) }
+                } label: {
+                    HStack {
+                        if terminal.isBusy {
+                            ProgressView()
+                                .tint(Theme.primaryText)
+                        }
+                        Text(terminal.isBusy ? "Processing..." : "Charge \(AppFormat.money(intent.amount))")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(canCharge(intent) ? Theme.primary : Theme.border)
+                    .foregroundStyle(canCharge(intent) ? Theme.primaryText : Theme.muted)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                }
+                .disabled(!canCharge(intent))
+            }
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.md)
+        .background(.ultraThinMaterial)
+    }
+
+    private func canCharge(_ intent: TerminalIntent) -> Bool {
+        canCollect && terminal.canCharge(intent)
     }
 }
 
@@ -738,7 +1008,43 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         readerMessage = nil
         paymentIntentStatusText = nil
         updateProgress = nil
-        statusMessage = "Reader ready. Tap Charge, then have the customer hold their card to the phone."
+        statusMessage = "Checking this iPhone for Tap to Pay on iPhone..."
+        Task { await warmUpForForeground() }
+    }
+
+    @MainActor
+    func warmUpForForeground() async {
+        guard !isBusy else { return }
+
+        ensureTerminalInitialized()
+
+        if #unavailable(iOS 17.0) {
+            errorMessage = tapToPayUnsupportedMessage("Tap to Pay on iPhone requires iOS 17 or later.")
+            statusMessage = "Tap to Pay on iPhone is not available on this iPhone."
+            paymentStatusText = "Unsupported"
+            return
+        }
+
+        let support = Terminal.shared.supportsReaders(
+            of: .tapToPay,
+            discoveryMethod: .tapToPay,
+            simulated: false
+        )
+
+        switch support {
+        case .success:
+            if errorMessage?.contains("Tap to Pay on iPhone is not available") == true {
+                errorMessage = nil
+            }
+            paymentStatusText = currentInvoiceId == nil ? "Ready when checkout starts" : "Ready to charge"
+            statusMessage = currentInvoiceId == nil
+                ? "Tap to Pay on iPhone is available from unpaid invoice checkout."
+                : "Reader ready. Tap Charge, then have the customer hold their card or device near the top of the iPhone."
+        case .failure(let error):
+            errorMessage = paymentErrorMessage(error)
+            paymentStatusText = "Unsupported"
+            statusMessage = "Tap to Pay on iPhone is not available on this iPhone."
+        }
     }
 
     func canCharge(_ intent: TerminalIntent) -> Bool {
@@ -762,6 +1068,9 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
                 throw APIError(status: 0, message: "Server did not return a payment to collect.")
             }
 
+            statusMessage = "Confirming cashier identity..."
+            try await authorizeCashierIfAvailable()
+
             statusMessage = "Creating the charge..."
             let locationId = try await terminalLocationId()
             ensureTerminalInitialized()
@@ -774,7 +1083,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
             var paymentIntent = try await retrievePaymentIntent(clientSecret: clientSecret)
             paymentIntentStatusText = paymentIntentStatusLabel(paymentIntent.status)
 
-            statusMessage = "Hold the customer's card to the back of the phone..."
+            statusMessage = "Hold the customer's card or device near the top of the iPhone..."
             paymentIntent = try await Terminal.shared.collectPaymentMethod(paymentIntent)
             paymentIntentStatusText = paymentIntentStatusLabel(paymentIntent.status)
 
@@ -831,6 +1140,29 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         }
     }
 
+    private func authorizeCashierIfAvailable() async throws {
+        let context = LAContext()
+        context.localizedCancelTitle = "Cancel"
+
+        var authError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &authError) else {
+            return
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            context.evaluatePolicy(
+                .deviceOwnerAuthentication,
+                localizedReason: "Confirm it is you before taking a Tap to Pay on iPhone payment."
+            ) { success, error in
+                if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: error ?? APIError(status: 0, message: "Cashier identity was not confirmed."))
+                }
+            }
+        }
+    }
+
     private func connectTapToPayReader(locationId: String) async throws -> Reader {
         if let connectedReader = Terminal.shared.connectedReader {
             if connectedReader.deviceType == .tapToPay, connectedReader.locationId == locationId {
@@ -841,7 +1173,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         }
 
         await MainActor.run {
-            statusMessage = "Looking for the Tap to Pay reader..."
+            statusMessage = "Looking for the Tap to Pay on iPhone reader..."
         }
 
         let discoveryConfig = try TapToPayDiscoveryConfigurationBuilder()
@@ -869,7 +1201,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
                 } else if let error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume(throwing: APIError(status: 0, message: "Tap to Pay reader did not connect."))
+                    continuation.resume(throwing: APIError(status: 0, message: "Tap to Pay on iPhone reader did not connect."))
                 }
             }
         }
@@ -883,7 +1215,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
             }
         }
 
-        throw APIError(status: 0, message: "Tap to Pay reader was not found on this device.")
+        throw APIError(status: 0, message: "Tap to Pay on iPhone reader was not found on this device.")
     }
 
     private func retrievePaymentIntent(clientSecret: String) async throws -> PaymentIntent {
@@ -947,10 +1279,33 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
 
     private func paymentErrorMessage(_ error: Error) -> String {
         let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let lowercased = fallback.lowercased()
+
+        if error is LAError || fallback.contains("Cashier identity") {
+            return "Cashier identity was not confirmed. Try again, or use Card / manual payment if the customer needs another checkout option."
+        }
+
+        if lowercased.contains("not support")
+            || lowercased.contains("unsupported")
+            || lowercased.contains("not available")
+            || lowercased.contains("eligible")
+            || lowercased.contains("entitlement")
+            || lowercased.contains("proximity reader") {
+            return tapToPayUnsupportedMessage(fallback)
+        }
+
         guard fallback != "The operation couldn't be completed." else {
             return "Something went wrong while taking the payment."
         }
         return fallback
+    }
+
+    private func tapToPayUnsupportedMessage(_ detail: String) -> String {
+        if #unavailable(iOS 17.0) {
+            return "Tap to Pay on iPhone requires iOS 17 or later. Update iOS or use Card / manual payment for this invoice."
+        }
+
+        return "Tap to Pay on iPhone is not available on this device or account. Use an eligible iPhone with Tap to Pay on iPhone enabled for this app and Stripe account, or use Card / manual payment for this invoice. Details: \(detail)"
     }
 
     private func updateOnMain(_ apply: @escaping () -> Void) {

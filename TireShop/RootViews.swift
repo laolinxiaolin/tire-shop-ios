@@ -4,6 +4,7 @@ enum AppRoute: Hashable {
     case profile
     case customizeTabs
     case module(String)
+    case tapToPayEducation
     case skuDetail(String)
     case skuForm(String?)
     case adjustStock(String)
@@ -50,6 +51,7 @@ struct RootNavigatorView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var tabs: TabsStore
     @State private var selectedTab = DestinationRegistry.defaultPinned.first ?? "dashboard"
+    @State private var showTapToPayAnnouncement = false
 
     private var visiblePinned: [Destination] {
         tabs.pinned
@@ -84,7 +86,35 @@ struct RootNavigatorView: View {
                 .tag("more")
             }
             .tint(Theme.primary)
+            .fullScreenCover(isPresented: $showTapToPayAnnouncement) {
+                TapToPayLaunchAnnouncementView(
+                    canManageSettings: auth.has("settings.manage"),
+                    onDone: markTapToPayAnnouncementSeen
+                )
+            }
+            .onAppear(perform: maybeShowTapToPayAnnouncement)
+            .onChange(of: auth.user?.id) { _, _ in
+                maybeShowTapToPayAnnouncement()
+            }
         }
+    }
+
+    private var tapToPayAnnouncementKey: String? {
+        guard let userId = auth.user?.id else { return nil }
+        return "ttpoiLaunchAnnouncementSeen.v1.\(userId)"
+    }
+
+    private func maybeShowTapToPayAnnouncement() {
+        guard auth.has("payments.collect") || auth.has("settings.manage"), let key = tapToPayAnnouncementKey else { return }
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        showTapToPayAnnouncement = true
+    }
+
+    private func markTapToPayAnnouncementSeen() {
+        if let key = tapToPayAnnouncementKey {
+            UserDefaults.standard.set(true, forKey: key)
+        }
+        showTapToPayAnnouncement = false
     }
 }
 
@@ -132,6 +162,8 @@ struct NavigationShell<Content: View>: View {
             } else {
                 PlaceholderScreen(title: "Tire Force US")
             }
+        case .tapToPayEducation:
+            TapToPayEducationView()
         case .newInventoryCount:
             NewInventoryCountNativeView()
         case .skuPicker:
@@ -227,6 +259,8 @@ struct DestinationView: View {
             EodNativeView()
         case "monthlySales":
             MonthlySalesNativeView()
+        case "tapToPay":
+            TapToPayEducationView()
         case "employees":
             EmployeesListNativeView()
         case "commissions":

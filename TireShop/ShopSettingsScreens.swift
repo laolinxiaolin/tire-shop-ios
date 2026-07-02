@@ -86,6 +86,7 @@ struct ShopSettingsNativeView: View {
 
                     shopInfoSection
                     generalSection
+                    tapToPaySection
                     mailSection
                     invoiceTemplateSection
                     logoSection
@@ -163,6 +164,25 @@ struct ShopSettingsNativeView: View {
             Text("General")
         } footer: {
             Text("Tax is stored as a fraction on the server and pre-fills new sales.")
+        }
+    }
+
+    private var tapToPaySection: some View {
+        Section {
+            NavigationLink(value: AppRoute.tapToPayEducation) {
+                Label("Tap to Pay on iPhone setup", systemImage: "wave.3.right.circle")
+            }
+
+            Label(
+                "Only an authorized admin should complete Tap to Pay on iPhone setup prompts or accept terms when Stripe or Apple asks.",
+                systemImage: "person.badge.shield.checkmark"
+            )
+            .font(.caption)
+            .foregroundStyle(Theme.muted)
+        } header: {
+            Text("Tap to Pay on iPhone")
+        } footer: {
+            Text("Use this before recording Apple review videos for the new-user, existing-user, and checkout flows.")
         }
     }
 

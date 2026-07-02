@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct TireShopApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+
     @StateObject private var auth = AuthStore()
     @StateObject private var tabs = TabsStore()
     @StateObject private var quote = QuoteStore()
@@ -14,6 +16,11 @@ struct TireShopApp: App {
                 .environmentObject(tabs)
                 .environmentObject(quote)
                 .environmentObject(i18n)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active {
+                        Task { await TapToPayTerminalController.shared.warmUpForForeground() }
+                    }
+                }
         }
     }
 }

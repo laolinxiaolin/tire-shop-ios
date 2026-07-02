@@ -57,6 +57,7 @@ enum DestinationRegistry {
         Destination(key: "fet", title: "FET", systemImage: "doc.text", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "eod", title: "End of Day", systemImage: "moon", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "monthlySales", title: "Monthly Sales", systemImage: "square.grid.2x2", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
+        Destination(key: "tapToPay", title: "Tap to Pay on iPhone", systemImage: "wave.3.right.circle", group: .finance, permission: "payments.collect", isBuilt: true, blurb: nil),
         Destination(key: "employees", title: "Employees", systemImage: "person.2", group: .team, permission: "employees.view", isBuilt: true, blurb: nil),
         Destination(key: "commissions", title: "Commissions", systemImage: "percent", group: .team, permission: "employees.view", isBuilt: true, blurb: nil),
         Destination(key: "approvals", title: "Approvals", systemImage: "checkmark.seal", group: .admin, permission: nil, isBuilt: true, blurb: nil),

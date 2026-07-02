@@ -539,10 +539,17 @@ struct CustomerDetailNativeView: View {
                                 Text(AppFormat.money(invoice.balance))
                                     .fontWeight(.semibold)
                                 if canCollectPayments && invoice.balance > 0 {
-                                    Button("Take payment") {
-                                        paymentContext = CustomerPaymentContext(invoice: invoice, customerId: customer.id)
+                                    NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: invoice.balance)) {
+                                        Label("Tap to Pay on iPhone", systemImage: "wave.3.right.circle")
+                                            .font(.caption)
                                     }
-                                    .font(.caption)
+
+                                    Button {
+                                        paymentContext = CustomerPaymentContext(invoice: invoice, customerId: customer.id)
+                                    } label: {
+                                        Label("Card / manual", systemImage: "creditcard")
+                                            .font(.caption)
+                                    }
                                 }
                             }
                         }
