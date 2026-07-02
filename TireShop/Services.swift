@@ -848,7 +848,7 @@ struct SalesAPI {
         try await client.request("/sales/\(id)")
     }
 
-    func create(_ body: SaleUpsertInput) async throws -> Sale {
+    func create(_ body: SaleUpsertInput) async throws -> SaleCreateResult {
         try await client.request("/sales", method: "POST", body: body)
     }
 

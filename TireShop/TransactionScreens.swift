@@ -6,9 +6,16 @@ struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
 
+    private enum FocusField: Hashable {
+        case price(String)
+        case taxRate
+        case roundTarget
+    }
+
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var roundTarget = ""
+    @FocusState private var focusedField: FocusField?
 
     var body: some View {
         Form {
@@ -38,6 +45,21 @@ struct NewQuoteNativeView: View {
             }
         }
         .navigationTitle(quote.editingSaleId == nil ? "New Sale" : "Edit sale")
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if focusedField != nil {
+                HStack {
+                    Spacer()
+                    Button("Done") {
+                        focusedField = nil
+                    }
+                    .fontWeight(.semibold)
+                }
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.vertical, Theme.Space.sm)
+                .background(.bar)
+            }
+        }
         .task {
             await quote.restoreDefaultTaxRate()
         }
@@ -87,6 +109,7 @@ struct NewQuoteNativeView: View {
                         set: { quote.updatePrice(line.id, unitPrice: $0) }
                     ), format: .number)
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .price(line.id))
 
                     Button(role: .destructive) {
                         quote.removeLine(line.id)
@@ -118,6 +141,7 @@ struct NewQuoteNativeView: View {
                     Spacer()
                     TextField("Tax", value: $quote.taxRate, format: .number)
                         .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .taxRate)
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: 90)
                     Text("%")
@@ -130,6 +154,7 @@ struct NewQuoteNativeView: View {
             HStack {
                 TextField("Round total", text: $roundTarget)
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .roundTarget)
                 Button("Apply") {
                     if let target = Double(roundTarget) {
                         quote.roundTotal(to: target)

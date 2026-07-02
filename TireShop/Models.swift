@@ -365,6 +365,14 @@ struct SaleInvoice: Codable, Identifiable, Equatable {
     let paidTotal: String
 }
 
+/// Response of POST /sales, which returns the sale without the customer
+/// relation — decoding the full `Sale` there fails.
+struct SaleCreateResult: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+    let status: SaleStatus
+}
+
 struct Sale: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?

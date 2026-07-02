@@ -1138,24 +1138,60 @@ struct SalesListNativeView: View {
 }
 
 struct CustomersListNativeView: View {
+    @State private var q = ""
+    @State private var customers: [Customer] = []
+    @State private var loading = false
+    @State private var errorMessage: String?
+
     var body: some View {
-        AsyncContentView(load: { try await CustomersAPI().list(pageSize: 50) }) { page in
-            List(page.items) { customer in
-                NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
-                    RowLine(
-                        title: customer.company ?? customer.name,
-                        subtitle: [customer.company == nil ? nil : customer.name, AppFormat.phone(customer.phone), customer.email]
-                            .compactMap { text in
-                                guard let text, !text.isEmpty else { return nil }
-                                return text
-                            }
-                            .joined(separator: " - "),
-                        trailing: customer.taxExempt ? "Tax exempt" : nil
-                    )
+        Group {
+            if loading && customers.isEmpty {
+                LoadingView(label: "Loading...")
+            } else if let errorMessage, customers.isEmpty {
+                RetryView(message: errorMessage) { Task { await load() } }
+            } else if customers.isEmpty {
+                EmptyStateView(text: "No customers match that search.")
+            } else {
+                List(customers) { customer in
+                    NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
+                        RowLine(
+                            title: customer.company ?? customer.name,
+                            subtitle: [customer.company == nil ? nil : customer.name, AppFormat.phone(customer.phone), customer.email]
+                                .compactMap { text in
+                                    guard let text, !text.isEmpty else { return nil }
+                                    return text
+                                }
+                                .joined(separator: " - "),
+                            trailing: customer.taxExempt ? "Tax exempt" : nil
+                        )
+                    }
                 }
+                .listStyle(.plain)
+                .refreshable { await load() }
             }
-            .listStyle(.plain)
         }
+        .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search name, company, phone…")
+        .task(id: q) {
+            if !q.isEmpty {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                if Task.isCancelled { return }
+            }
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            customers = try await CustomersAPI().list(q: q.nilIfBlank, pageSize: 50).items
+        } catch {
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load customers."
+            }
+        }
+        loading = false
     }
 }
 

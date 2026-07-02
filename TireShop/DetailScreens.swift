@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SaleDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @Environment(\.dismiss) private var dismiss
 
     let id: String
     @State private var paymentContext: PaymentContext?
@@ -10,6 +11,11 @@ struct SaleDetailNativeView: View {
     @State private var printingPDF = false
     @State private var emailContext: EmailContext?
     @State private var actionError: String?
+    @State private var showReverseConfirm = false
+    @State private var reverting = false
+    @State private var showDeleteConfirm = false
+    @State private var deleting = false
+    @State private var reloadToken = UUID()
 
     private var canSend: Bool {
         auth.has("sales.manage")
@@ -96,10 +102,41 @@ struct SaleDetailNativeView: View {
                     NavigationLink(value: AppRoute.startReturn(saleId: sale.id, saleRef: sale.ref)) {
                         Text("Return / Exchange")
                     }
+
+                    if canSend && sale.status == "INVOICED" && (Double(sale.invoice?.paidTotal ?? "0") ?? 0) == 0 {
+                        Button(role: .destructive) {
+                            showReverseConfirm = true
+                        } label: {
+                            HStack {
+                                Label("Return to draft", systemImage: "arrow.uturn.backward")
+                                if reverting {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(reverting)
+                    }
+
+                    if canSend && sale.status == "DRAFT" {
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            HStack {
+                                Label("Delete draft", systemImage: "trash")
+                                if deleting {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(deleting)
+                    }
                 }
             }
             .listStyle(.insetGrouped)
         }
+        .id(reloadToken)
         .navigationTitle("Sale")
         .sheet(item: $paymentContext) { context in
             PaymentSheetNativeView(
@@ -115,7 +152,23 @@ struct SaleDetailNativeView: View {
         .sheet(item: $emailContext) { context in
             InvoiceEmailView(invoice: context.invoice)
         }
-        .alert("Couldn't open PDF", isPresented: Binding(
+        .alert("Return to draft?", isPresented: $showReverseConfirm) {
+            Button("Return to draft", role: .destructive) {
+                Task { await reverseToDraft() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Tires are restocked, the invoice is removed, and journal entries are reversed. You can then edit the sale.")
+        }
+        .alert("Delete draft?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                Task { await deleteDraft() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the draft sale. This cannot be undone.")
+        }
+        .alert("Something went wrong", isPresented: Binding(
             get: { actionError != nil },
             set: { if !$0 { actionError = nil } }
         )) {
@@ -123,6 +176,32 @@ struct SaleDetailNativeView: View {
         } message: {
             Text(actionError ?? "")
         }
+    }
+
+    @MainActor
+    private func deleteDraft() async {
+        deleting = true
+        actionError = nil
+        do {
+            _ = try await SalesAPI().deleteDraft(id: id)
+            dismiss()
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "The draft could not be deleted."
+        }
+        deleting = false
+    }
+
+    @MainActor
+    private func reverseToDraft() async {
+        reverting = true
+        actionError = nil
+        do {
+            _ = try await SalesAPI().reverseToDraft(id: id)
+            reloadToken = UUID()
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "The sale could not be returned to draft."
+        }
+        reverting = false
     }
 
     private func loadDetail() async throws -> SaleDetailData {
@@ -2000,22 +2079,57 @@ private struct QuoteCustomerPickerList: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
 
+    @State private var q = ""
+    @State private var customers: [Customer] = []
+    @State private var loading = false
+    @State private var errorMessage: String?
+
     var body: some View {
-        AsyncContentView(load: { try await CustomersAPI().list(pageSize: 50) }) { page in
-            List(page.items) { customer in
-                Button {
-                    quote.setCustomer(QuoteCustomer(customer: customer))
-                    dismiss()
-                } label: {
-                    RowLine(
-                        title: customer.company ?? customer.name,
-                        subtitle: customer.company == nil ? nil : customer.name,
-                        trailing: customer.taxExempt ? "Tax exempt" : nil
-                    )
+        Group {
+            if loading && customers.isEmpty {
+                LoadingView(label: "Loading...")
+            } else if let errorMessage, customers.isEmpty {
+                RetryView(message: errorMessage) { Task { await load() } }
+            } else if customers.isEmpty {
+                EmptyStateView(text: "No customers match that search.")
+            } else {
+                List(customers) { customer in
+                    Button {
+                        quote.setCustomer(QuoteCustomer(customer: customer))
+                        dismiss()
+                    } label: {
+                        RowLine(
+                            title: customer.company ?? customer.name,
+                            subtitle: customer.company == nil ? nil : customer.name,
+                            trailing: customer.taxExempt ? "Tax exempt" : nil
+                        )
+                    }
                 }
+                .listStyle(.plain)
             }
-            .listStyle(.plain)
+        }
+        .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search name, company, phone…")
+        .task(id: q) {
+            if !q.isEmpty {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                if Task.isCancelled { return }
+            }
+            await load()
         }
         .navigationTitle("Select customer")
+    }
+
+    @MainActor
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            customers = try await CustomersAPI().list(q: q.nilIfBlank, pageSize: 50).items
+        } catch {
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load customers."
+            }
+        }
+        loading = false
     }
 }
