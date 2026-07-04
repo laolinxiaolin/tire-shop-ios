@@ -23,7 +23,26 @@ enum AppFormat {
         return formatter
     }()
 
+    // The NestJS backend serializes timestamps via Date.toISOString(), which
+    // always includes milliseconds; ISO8601DateFormatter needs a separate
+    // configuration for each variant.
+    private static let isoFractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     private static let isoFormatter = ISO8601DateFormatter()
+
+    // Plain calendar dates (yyyy-MM-dd) parse in the local time zone so the
+    // displayed day matches the stored day.
+    private static let dayOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     static func money(_ value: String?) -> String {
         guard let value, let number = Double(value) else { return "-" }
@@ -37,6 +56,18 @@ enum AppFormat {
 
     static func shortDate(_ value: String?) -> String {
         guard let date = parseDate(value) else { return "-" }
+        return dateFormatter.string(from: date)
+    }
+
+    /// Format a value that represents a calendar day rather than an instant
+    /// (hire dates, due dates, accounting dates). Reads only the yyyy-MM-dd
+    /// part so UTC-midnight timestamps like "2026-07-03T00:00:00.000Z" render
+    /// as Jul 3 in every time zone instead of shifting a day.
+    static func calendarDate(_ value: String?) -> String {
+        guard
+            let value,
+            let date = dayOnlyFormatter.date(from: String(value.prefix(10)))
+        else { return "-" }
         return dateFormatter.string(from: date)
     }
 
@@ -71,10 +102,9 @@ enum AppFormat {
 
     private static func parseDate(_ value: String?) -> Date? {
         guard let value else { return nil }
-        if let date = isoFormatter.date(from: value) {
-            return date
-        }
-        return nil
+        return isoFractionalFormatter.date(from: value)
+            ?? isoFormatter.date(from: value)
+            ?? dayOnlyFormatter.date(from: value)
     }
 }
 

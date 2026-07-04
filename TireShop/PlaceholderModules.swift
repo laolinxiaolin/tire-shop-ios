@@ -196,7 +196,7 @@ private struct MonthlySalesRowView: View {
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
             HStack {
-                Text(AppFormat.shortDate(row.date))
+                Text(AppFormat.calendarDate(row.date))
                 Spacer()
                 Text("Qty \(String(format: "%.0f", row.qty)) @ \(AppFormat.money(row.salesPrice))")
             }
