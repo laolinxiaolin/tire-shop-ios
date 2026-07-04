@@ -12,7 +12,15 @@ final class AuthStore: ObservableObject {
     private let api: APIClient
 
     @Published var ready = false
-    @Published var user: SessionUser?
+    @Published var user: SessionUser? {
+        didSet {
+            permissionSet = Set(user?.permissions ?? [])
+            approvalPermissionSet = Set(user?.approvalPermissions ?? [])
+        }
+    }
+
+    private var permissionSet: Set<String> = []
+    private var approvalPermissionSet: Set<String> = []
 
     init(api: APIClient = .shared) {
         self.api = api
@@ -74,14 +82,14 @@ final class AuthStore: ObservableObject {
 
     func has(_ permission: String) -> Bool {
         guard let user else { return false }
-        return user.isAdmin || user.permissions.contains(permission)
+        return user.isAdmin || permissionSet.contains(permission)
     }
 
     func canActOrRequest(_ permission: String) -> Bool {
         guard let user else { return false }
         return user.isAdmin
-            || user.permissions.contains(permission)
-            || (user.approvalPermissions ?? []).contains(permission)
+            || permissionSet.contains(permission)
+            || approvalPermissionSet.contains(permission)
     }
 
     private func persist(token: String, user: SessionUser) {

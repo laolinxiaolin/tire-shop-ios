@@ -692,6 +692,8 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
         }
     }
 
+    private static let isoFormatter = ISO8601DateFormatter()
+
     func params() -> (from: String?, to: String?) {
         guard self != .all else { return (nil, nil) }
 
@@ -701,7 +703,7 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
         let startTomorrow = calendar.date(byAdding: .day, value: 1, to: startToday) ?? startToday
 
         func iso(_ date: Date) -> String {
-            ISO8601DateFormatter().string(from: date)
+            Self.isoFormatter.string(from: date)
         }
 
         switch self {

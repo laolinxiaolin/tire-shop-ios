@@ -71,8 +71,12 @@ enum DestinationRegistry {
     static let defaultPinned = ["dashboard", "newQuote", "sales", "inventory"]
     static let maxPinned = 4
 
+    private static let byKey: [String: Destination] = Dictionary(
+        uniqueKeysWithValues: all.map { ($0.key, $0) }
+    )
+
     static func destination(for key: String) -> Destination? {
-        all.first { $0.key == key }
+        byKey[key]
     }
 
     @MainActor

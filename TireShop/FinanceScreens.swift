@@ -1141,7 +1141,7 @@ private func documentRow(ref: String, party: String, total: Double, lineCount: I
                 .foregroundStyle(Theme.muted)
                 .lineLimit(1)
             Spacer()
-            Text("\(lineCount) line\(lineCount == 1 ? "" : "s") · \(AppFormat.shortDate(date))")
+            Text("\(lineCount) line\(lineCount == 1 ? "" : "s") · \(AppFormat.calendarDate(date))")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
             DocStatusBadge(status: status)
@@ -1642,7 +1642,7 @@ private struct JournalEntryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack {
-                Text(AppFormat.shortDate(entry.date))
+                Text(AppFormat.calendarDate(entry.date))
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
                 Spacer()
@@ -2077,7 +2077,7 @@ private struct AccountHistorySheet: View {
         let moneyOut = debitNormal ? item.credit : item.debit
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(AppFormat.shortDate(item.date))
+                Text(AppFormat.calendarDate(item.date))
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
                 Spacer()
@@ -2753,7 +2753,7 @@ struct FetNativeView: View {
                 ForEach(status.payments) { payment in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Text(AppFormat.shortDate(payment.date))
+                            Text(AppFormat.calendarDate(payment.date))
                                 .font(.caption)
                                 .foregroundStyle(Theme.muted)
                             Spacer()

@@ -414,8 +414,8 @@ struct EmployeeDetailNativeView: View {
                     ("Phone", AppFormat.phone(employee.phone).nilIfBlank ?? "-"),
                     ("Email", employee.email ?? "-"),
                     ("Address", employee.address ?? "-"),
-                    ("Hire date", AppFormat.shortDate(employee.hireDate)),
-                    ("End date", employee.endDate == nil ? "-" : AppFormat.shortDate(employee.endDate)),
+                    ("Hire date", AppFormat.calendarDate(employee.hireDate)),
+                    ("End date", employee.endDate == nil ? "-" : AppFormat.calendarDate(employee.endDate)),
                     ("Linked user", employee.user?.email ?? "No login")
                 ])
 

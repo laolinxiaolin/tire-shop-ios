@@ -287,9 +287,10 @@ struct MoreMenuView: View {
     @EnvironmentObject private var auth: AuthStore
 
     private var groupedDestinations: [(DestinationGroup, [Destination])] {
-        DestinationGroup.allCases.compactMap { group in
-            let items = DestinationRegistry.visibleDestinations(auth: auth).filter { $0.group == group }
-            return items.isEmpty ? nil : (group, items)
+        let byGroup = Dictionary(grouping: DestinationRegistry.visibleDestinations(auth: auth), by: \.group)
+        return DestinationGroup.allCases.compactMap { group in
+            guard let items = byGroup[group], !items.isEmpty else { return nil }
+            return (group, items)
         }
     }
 

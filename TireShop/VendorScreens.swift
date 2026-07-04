@@ -637,7 +637,7 @@ private struct VendorExpenseList: View {
             ForEach(expenses) { expense in
                 RowLine(
                     title: expense.expenseCode,
-                    subtitle: [expense.reference, AppFormat.shortDate(expense.date)].compactMap { $0?.nilIfBlank }.joined(separator: " - "),
+                    subtitle: [expense.reference, AppFormat.calendarDate(expense.date)].compactMap { $0?.nilIfBlank }.joined(separator: " - "),
                     trailing: AppFormat.money(expense.amount)
                 )
                 .opacity(expense.reversedAt == nil ? 1 : 0.45)
@@ -667,7 +667,7 @@ private struct VendorRefundList: View {
                             .foregroundStyle(Theme.text)
 
                         Text([
-                            AppFormat.shortDate(refund.date),
+                            AppFormat.calendarDate(refund.date),
                             "Deposit \(refund.depositToCode)",
                             "Credit \(refund.creditCode)"
                         ].joined(separator: " - "))
