@@ -568,15 +568,18 @@ struct InventoryListNativeView: View {
     private func loadPage(_ page: Int, reset: Bool) async {
         if reset {
             loading = true
-            items = []
-            total = 0
-            loadedPage = 0
-            hasLoaded = false
             errorMessage = nil
             loadMoreError = nil
         } else {
             loadingMore = true
             loadMoreError = nil
+        }
+        defer {
+            if reset {
+                loading = false
+            } else {
+                loadingMore = false
+            }
         }
 
         do {
@@ -601,22 +604,29 @@ struct InventoryListNativeView: View {
                 items.append(contentsOf: pageData.items.filter { !existingIds.contains($0.id) })
             }
         } catch {
+            guard !isCancellation(error) else { return }
+
             let message = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
             if reset {
                 errorMessage = message
-                hasLoaded = false
+                hasLoaded = !items.isEmpty
             } else {
                 loadMoreError = message
             }
         }
-
-        if reset {
-            loading = false
-        } else {
-            loadingMore = false
-        }
     }
 
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        return false
+    }
 }
 
 private struct InventorySkuRow: View {

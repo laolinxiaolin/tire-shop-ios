@@ -202,6 +202,9 @@ final class APIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
             throw APIError(status: 0, message: "Can't reach the server at \(Server.baseURL.absoluteString).")
         }
 
@@ -225,6 +228,9 @@ final class APIClient {
         do {
             (tempURL, response) = try await session.download(for: request)
         } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
             throw APIError(status: 0, message: "Can't reach the server at \(Server.baseURL.absoluteString).")
         }
 
@@ -270,6 +276,9 @@ final class APIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
             throw APIError(status: 0, message: "Can't reach the server at \(Server.baseURL.absoluteString).")
         }
 
@@ -340,6 +349,9 @@ final class APIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
             throw APIError(
                 status: 0,
                 message: "Can't reach the server at \(Server.baseURL.absoluteString). Check the network."
@@ -402,6 +414,18 @@ final class APIClient {
         }
 
         return "Request failed (\(status))."
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        return false
     }
 }
 
