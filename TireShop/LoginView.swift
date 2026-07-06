@@ -10,35 +10,73 @@ struct LoginView: View {
     @State private var challenge: Challenge?
     @State private var busy = false
     @State private var alert: AlertState?
+    @State private var serverURL = Server.baseURLString
+    @FocusState private var serverFieldFocused: Bool
+
+    private static let serverFieldID = "serverConfig"
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: Theme.Space.lg) {
-                VStack(spacing: Theme.Space.xs) {
-                    Text(i18n.t("app.name"))
-                        .font(.system(size: 32, weight: .heavy))
-                        .foregroundStyle(Theme.text)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: Theme.Space.lg) {
+                    VStack(spacing: Theme.Space.xs) {
+                        Text(i18n.t("app.name"))
+                            .font(.system(size: 32, weight: .heavy))
+                            .foregroundStyle(Theme.text)
 
-                    Text(i18n.t("login.subtitle"))
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.muted)
+                        Text(i18n.t("login.subtitle"))
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.muted)
+                    }
+                    .padding(.bottom, Theme.Space.md)
+
+                    if let challenge {
+                        mfaForm(challenge)
+                    } else {
+                        credentialsForm
+                        serverConfigSection
+                    }
                 }
-                .padding(.bottom, Theme.Space.md)
-
-                if let challenge {
-                    mfaForm(challenge)
-                } else {
-                    credentialsForm
+                .padding(Theme.Space.xl)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: serverFieldFocused) { _, focused in
+                guard focused else { return }
+                // The ScrollView's automatic keyboard avoidance handles most
+                // cases; this makes sure the bottom-most field is fully
+                // visible once the keyboard has animated in.
+                Task {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    withAnimation {
+                        proxy.scrollTo(Self.serverFieldID, anchor: .bottom)
+                    }
                 }
             }
-            .padding(Theme.Space.xl)
-            .frame(maxWidth: .infinity)
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(Theme.background)
         .alert(item: $alert) { state in
             Alert(title: Text(state.title), message: Text(state.message), dismissButton: .default(Text("OK")))
         }
+    }
+
+    private var serverConfigSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            AppTextField(
+                label: "Server",
+                text: $serverURL,
+                placeholder: Server.defaultBaseURLString,
+                keyboardType: .URL,
+                disabled: busy
+            )
+            .focused($serverFieldFocused)
+
+            Text("Leave as \(Server.defaultBaseURLString) unless your shop runs its own server.")
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
+        }
+        .padding(.top, Theme.Space.lg)
+        .id(Self.serverFieldID)
     }
 
     private var credentialsForm: some View {
@@ -105,6 +143,15 @@ struct LoginView: View {
     private func submitCredentials() {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedEmail.isEmpty, !password.isEmpty else { return }
+
+        guard Server.setBaseURL(serverURL) else {
+            alert = AlertState(
+                title: "Invalid server",
+                message: "Enter a server like \(Server.defaultBaseURLString), or leave it blank for the default."
+            )
+            return
+        }
+        serverURL = Server.baseURLString
 
         busy = true
         Task {

@@ -2,7 +2,58 @@ import Foundation
 import Security
 
 enum Server {
-    static let baseURL = URL(string: "https://awstire.tail263731.ts.net")!
+    static let defaultBaseURLString = "https://laolin.net"
+    private static let storageKey = "ts_server_url"
+
+    static var baseURL: URL {
+        if
+            let stored = UserDefaults.standard.string(forKey: storageKey),
+            let url = normalized(stored)
+        {
+            return url
+        }
+        return URL(string: defaultBaseURLString)!
+    }
+
+    static var baseURLString: String {
+        UserDefaults.standard.string(forKey: storageKey) ?? defaultBaseURLString
+    }
+
+    /// Persist a new server URL. Accepts a bare host ("laolin.net") and adds
+    /// https. Returns false without saving when the value is not a usable
+    /// http(s) URL; an empty value resets to the default.
+    @discardableResult
+    static func setBaseURL(_ raw: String) -> Bool {
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+            return true
+        }
+
+        guard let url = normalized(raw) else { return false }
+        UserDefaults.standard.set(url.absoluteString, forKey: storageKey)
+        return true
+    }
+
+    private static func normalized(_ raw: String) -> URL? {
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if !trimmed.contains("://") {
+            trimmed = "https://\(trimmed)"
+        }
+        while trimmed.hasSuffix("/") {
+            trimmed.removeLast()
+        }
+
+        guard
+            let url = URL(string: trimmed),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "https" || scheme == "http",
+            url.host != nil
+        else { return nil }
+
+        return url
+    }
 }
 
 struct APIError: Error, LocalizedError {
