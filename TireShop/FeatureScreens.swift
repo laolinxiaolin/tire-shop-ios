@@ -1150,10 +1150,16 @@ struct SalesListNativeView: View {
 }
 
 struct CustomersListNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+
     @State private var q = ""
     @State private var customers: [Customer] = []
     @State private var loading = false
     @State private var errorMessage: String?
+
+    private var canManageCustomers: Bool {
+        auth.has("customers.manage")
+    }
 
     var body: some View {
         Group {
@@ -1162,7 +1168,7 @@ struct CustomersListNativeView: View {
             } else if let errorMessage, customers.isEmpty {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if customers.isEmpty {
-                EmptyStateView(text: "No customers match that search.")
+                customerEmptyState
             } else {
                 List(customers) { customer in
                     NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
@@ -1183,6 +1189,19 @@ struct CustomersListNativeView: View {
             }
         }
         .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search name, company, phone…")
+        .toolbar {
+            if canManageCustomers {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: AppRoute.newCustomer) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New customer")
+                }
+            }
+        }
+        .onAppear {
+            Task { await load() }
+        }
         .task(id: q) {
             if !q.isEmpty {
                 try? await Task.sleep(nanoseconds: 300_000_000)
@@ -1190,6 +1209,29 @@ struct CustomersListNativeView: View {
             }
             await load()
         }
+    }
+
+    @ViewBuilder
+    private var customerEmptyState: some View {
+        VStack(spacing: Theme.Space.md) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 32, weight: .semibold))
+                .foregroundStyle(Theme.muted)
+            Text(q.nilIfBlank == nil ? "No customers found." : "No customers match that search.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Theme.muted)
+                .padding(.horizontal, Theme.Space.xl)
+            if canManageCustomers {
+                NavigationLink(value: AppRoute.newCustomer) {
+                    Label("New customer", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.primary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
     }
 
     @MainActor
