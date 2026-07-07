@@ -38,8 +38,13 @@ struct SaleDetailNativeView: View {
                 }
 
                 if let invoice = sale.invoice {
+                    let balance = max(0, (Double(invoice.amountDue) ?? 0) - (Double(invoice.paidTotal) ?? 0))
                     Section("Invoice") {
-                        RowLine(title: invoice.ref ?? invoice.id, subtitle: "Paid \(AppFormat.money(invoice.paidTotal))", trailing: AppFormat.money(invoice.amountDue))
+                        RowLine(
+                            title: "Invoice # \(invoice.ref ?? invoice.id)",
+                            subtitle: "Paid \(AppFormat.money(invoice.paidTotal))",
+                            trailing: AppFormat.money(balance)
+                        )
 
                         Button {
                             Task { await downloadPDF(invoice: invoice) }
@@ -75,8 +80,8 @@ struct SaleDetailNativeView: View {
                             }
                         }
 
-                        if (Double(invoice.amountDue) ?? 0) > 0 {
-                            NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: Double(invoice.amountDue) ?? 0)) {
+                        if balance > 0.005 {
+                            NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: balance)) {
                                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                                     Label("Tap to Pay on iPhone", systemImage: "wave.3.right.circle")
                                         .fontWeight(.semibold)
@@ -141,7 +146,7 @@ struct SaleDetailNativeView: View {
         .sheet(item: $paymentContext) { context in
             PaymentSheetNativeView(
                 invoiceId: context.invoice.id,
-                balance: Double(context.invoice.amountDue) ?? 0,
+                balance: max(0, (Double(context.invoice.amountDue) ?? 0) - (Double(context.invoice.paidTotal) ?? 0)),
                 customerId: context.customerId,
                 onPaid: { paymentContext = nil }
             )
@@ -1928,6 +1933,11 @@ struct NewCustomerNativeView: View {
     @State private var phone = ""
     @State private var email = ""
     @State private var address = ""
+    @State private var address2 = ""
+    @State private var state = "GA"
+    @State private var county = ""
+    @State private var city = ""
+    @State private var postalCode = ""
     @State private var notes = ""
     @State private var taxExempt = false
     @State private var taxExemptNumber = ""
@@ -1945,6 +1955,13 @@ struct NewCustomerNativeView: View {
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                 TextField("Address", text: $address, axis: .vertical)
+                TextField("Address 2", text: $address2)
+                AddressLookupFields(
+                    postalCode: $postalCode,
+                    state: $state,
+                    city: $city,
+                    county: $county
+                )
                 TextField("Notes", text: $notes, axis: .vertical)
             }
 
@@ -1983,6 +2000,11 @@ struct NewCustomerNativeView: View {
                 phone: normalizedPhone,
                 email: email.nilIfBlank,
                 address: address.nilIfBlank,
+                address2: address2.nilIfBlank,
+                state: state.nilIfBlank,
+                county: county.nilIfBlank,
+                city: city.nilIfBlank,
+                postalCode: postalCode.nilIfBlank,
                 notes: notes.nilIfBlank,
                 taxExempt: taxExempt,
                 taxExemptNumber: taxExemptNumber.nilIfBlank

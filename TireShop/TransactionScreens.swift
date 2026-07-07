@@ -63,6 +63,9 @@ struct NewQuoteNativeView: View {
         .task {
             await quote.restoreDefaultTaxRate()
         }
+        .onChange(of: quote.customer) { _, _ in
+            Task { await quote.applyCustomerTaxRate() }
+        }
     }
 
     private var customerSection: some View {
@@ -136,10 +139,19 @@ struct NewQuoteNativeView: View {
             if quote.customer?.taxExempt == true {
                 RowLine(title: "Tax exempt", trailing: AppFormat.money(0.0))
             } else {
+                if let message = quote.taxLookupMessage {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                }
+
                 HStack {
                     Text("Tax rate")
                     Spacer()
-                    TextField("Tax", value: $quote.taxRate, format: .number)
+                    TextField("Tax", value: Binding(
+                        get: { quote.taxRate },
+                        set: { quote.setTaxRate($0) }
+                    ), format: .number)
                         .keyboardType(.decimalPad)
                         .focused($focusedField, equals: .taxRate)
                         .multilineTextAlignment(.trailing)

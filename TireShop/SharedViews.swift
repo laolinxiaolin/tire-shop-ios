@@ -153,6 +153,97 @@ struct AppTextField: View {
     }
 }
 
+struct AddressLookupFields: View {
+    @Binding var postalCode: String
+    @Binding var state: String
+    @Binding var city: String
+    @Binding var county: String
+
+    @State private var lookupStatus: String?
+    @State private var candidates: [ZipCandidate] = []
+    @State private var pickingCounty = false
+
+    var body: some View {
+        Group {
+            HStack {
+                TextField("ZIP", text: $postalCode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.postalCode)
+                    .onChange(of: postalCode) { _, value in
+                        let digits = String(value.filter(\.isNumber).prefix(5))
+                        if digits != value {
+                            postalCode = digits
+                        }
+                    }
+
+                TextField("State", text: $state)
+                    .textInputAutocapitalization(.characters)
+                    .onChange(of: state) { _, value in
+                        state = String(value.uppercased().prefix(2))
+                    }
+
+                Button("Lookup") {
+                    Task { await lookupZip() }
+                }
+                .disabled(postalCode.count != 5)
+            }
+
+            TextField("City", text: $city)
+                .textInputAutocapitalization(.words)
+            TextField("County", text: $county)
+                .textInputAutocapitalization(.words)
+
+            if let lookupStatus {
+                Text(lookupStatus)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.muted)
+            }
+        }
+        .confirmationDialog("Choose county", isPresented: $pickingCounty, titleVisibility: .visible) {
+            ForEach(candidates) { candidate in
+                Button("\(candidate.county) - \(candidate.city) (\(String(format: "%.1f", candidate.sharePct))%)") {
+                    apply(candidate)
+                }
+            }
+        } message: {
+            Text("This ZIP crosses county lines. Pick the customer location.")
+        }
+    }
+
+    @MainActor
+    private func lookupZip() async {
+        lookupStatus = "Looking up ZIP..."
+        do {
+            let result = try await ZipLocationsAPI().lookup(
+                postalCode: postalCode,
+                state: state.nilIfBlank ?? "GA"
+            )
+            candidates = result.candidates
+            guard let first = result.candidates.first else {
+                lookupStatus = "No match found. You can enter city and county manually."
+                return
+            }
+
+            apply(first)
+            lookupStatus = result.candidates.count > 1
+                ? "ZIP has multiple county matches. Confirm the county."
+                : "City and county filled from ZIP."
+            if result.candidates.count > 1 {
+                pickingCounty = true
+            }
+        } catch {
+            lookupStatus = (error as? LocalizedError)?.errorDescription ?? "Could not look up ZIP."
+        }
+    }
+
+    private func apply(_ candidate: ZipCandidate) {
+        postalCode = candidate.postalCode
+        state = candidate.state
+        city = candidate.city
+        county = candidate.county
+    }
+}
+
 private extension View {
     func fieldChrome() -> some View {
         self

@@ -987,6 +987,28 @@ struct CustomersAPI {
     }
 }
 
+struct ZipLocationsAPI {
+    var client = APIClient.shared
+
+    func lookup(postalCode: String, state: String = "GA") async throws -> ZipLookupResult {
+        try await client.request("/zip-locations/lookup\(query(["postalCode": postalCode, "state": state]))")
+    }
+}
+
+struct TaxRatesAPI {
+    var client = APIClient.shared
+
+    func lookup(state: String? = nil, county: String? = nil, city: String? = nil, postalCode: String? = nil) async throws -> SalesTaxRate? {
+        let search = query([
+            "state": state,
+            "county": county,
+            "city": city,
+            "postalCode": postalCode
+        ])
+        return try await client.request("/settings/tax-rates/lookup\(search)")
+    }
+}
+
 struct PriceTiersAPI {
     var client = APIClient.shared
 

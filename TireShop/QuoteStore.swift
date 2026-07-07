@@ -6,12 +6,20 @@ struct QuoteCustomer: Equatable {
     let name: String
     let company: String?
     let taxExempt: Bool
+    let state: String?
+    let county: String?
+    let city: String?
+    let postalCode: String?
 
     init(customer: Customer) {
         id = customer.id
         name = customer.name
         company = customer.company
         taxExempt = customer.taxExempt
+        state = customer.state
+        county = customer.county
+        city = customer.city
+        postalCode = customer.postalCode
     }
 
     init(summary: CustomerSummary, taxExempt: Bool = false) {
@@ -19,6 +27,10 @@ struct QuoteCustomer: Equatable {
         name = summary.name
         company = summary.company
         self.taxExempt = taxExempt
+        state = nil
+        county = nil
+        city = nil
+        postalCode = nil
     }
 }
 
@@ -45,6 +57,8 @@ final class QuoteStore: ObservableObject {
     @Published var customer: QuoteCustomer?
     @Published var lines: [QuoteLine] = []
     @Published var taxRate = 7.0
+    @Published var taxOverride: Double?
+    @Published var taxLookupMessage: String?
     @Published var editingSaleId: String?
 
     var subtotal: Double {
@@ -53,6 +67,9 @@ final class QuoteStore: ObservableObject {
 
     var taxAmount: Double {
         guard customer?.taxExempt != true else { return 0 }
+        if let taxOverride {
+            return taxOverride
+        }
         return (subtotal * (taxRate / 100) * 100).rounded() / 100
     }
 
@@ -73,10 +90,50 @@ final class QuoteStore: ObservableObject {
     }
 
     func setCustomer(_ customer: QuoteCustomer?) {
+        taxOverride = nil
+        taxLookupMessage = nil
         self.customer = customer
     }
 
+    func setTaxRate(_ pct: Double) {
+        taxOverride = nil
+        taxRate = pct
+        taxLookupMessage = nil
+    }
+
+    func applyCustomerTaxRate() async {
+        guard let customer, customer.taxExempt != true else { return }
+        guard customer.state?.nilIfBlank != nil
+            || customer.county?.nilIfBlank != nil
+            || customer.city?.nilIfBlank != nil
+            || customer.postalCode?.nilIfBlank != nil else {
+            taxLookupMessage = nil
+            return
+        }
+
+        do {
+            let rate = try await TaxRatesAPI().lookup(
+                state: customer.state?.nilIfBlank ?? "GA",
+                county: customer.county?.nilIfBlank,
+                city: customer.city?.nilIfBlank,
+                postalCode: customer.postalCode?.nilIfBlank
+            )
+            guard let rate else {
+                taxLookupMessage = "No saved tax rate matched this customer location."
+                return
+            }
+            let fraction = rate.rate
+            taxOverride = nil
+            taxRate = (fraction * 10000).rounded() / 100
+            let location = [rate.county, rate.city, rate.postalCode].compactMap { $0?.nilIfBlank }.joined(separator: " - ")
+            taxLookupMessage = location.isEmpty ? "Applied saved tax rate." : "Applied tax for \(location)."
+        } catch {
+            taxLookupMessage = (error as? LocalizedError)?.errorDescription ?? "Could not look up tax rate."
+        }
+    }
+
     func addLine(itemType: String, itemId: String, description: String, qty: Int = 1, unitPrice: Double) {
+        taxOverride = nil
         if let index = lines.firstIndex(where: { $0.itemType == itemType && $0.itemId == itemId }) {
             lines[index].qty += qty
             return
@@ -96,26 +153,31 @@ final class QuoteStore: ObservableObject {
 
     func updateQty(_ lineId: String, qty: Int) {
         guard let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
+        taxOverride = nil
         lines[index].qty = max(1, qty)
     }
 
     func updatePrice(_ lineId: String, unitPrice: Double) {
         guard let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
+        taxOverride = nil
         lines[index].unitPrice = max(0, unitPrice)
     }
 
     func removeLine(_ lineId: String) {
+        taxOverride = nil
         lines.removeAll { $0.id == lineId }
     }
 
     func roundTotal(to target: Double) {
-        guard target > 0, subtotal > 0 else { return }
+        let target = Self.roundMoney(target)
+        guard target > 0 else { return }
         let effectiveRate = customer?.taxExempt == true ? 0 : taxRate / 100
-        let targetSubtotal = effectiveRate > 0 ? target / (1 + effectiveRate) : target
-        let factor = targetSubtotal / subtotal
+        guard let plan = Self.roundTotalPlan(lines: lines, taxRate: effectiveRate, target: target) else { return }
         for index in lines.indices {
-            lines[index].unitPrice = (lines[index].unitPrice * factor * 100).rounded() / 100
+            lines[index].unitPrice = plan.lines[index].unitPrice
+            lines[index].discount = plan.lines[index].discount
         }
+        taxOverride = plan.taxAmount
     }
 
     func seed(from sale: Sale, customer: QuoteCustomer) {
@@ -134,6 +196,8 @@ final class QuoteStore: ObservableObject {
             )
         }
         taxRate = ((Double(sale.taxRate) ?? 0) * 10000).rounded() / 100
+        taxOverride = nil
+        taxLookupMessage = nil
         editingSaleId = sale.id
     }
 
@@ -141,6 +205,8 @@ final class QuoteStore: ObservableObject {
         customer = nil
         lines = []
         taxRate = defaultTaxPct
+        taxOverride = nil
+        taxLookupMessage = nil
         editingSaleId = nil
     }
 
@@ -152,6 +218,7 @@ final class QuoteStore: ObservableObject {
         return SaleUpsertInput(
             customerId: customer.id,
             taxRate: customer.taxExempt ? 0 : taxRate / 100,
+            taxAmount: customer.taxExempt ? nil : taxOverride,
             lines: lines.map {
                 NewSaleLine(
                     itemType: $0.itemType,
@@ -163,5 +230,44 @@ final class QuoteStore: ObservableObject {
                 )
             }
         )
+    }
+
+    private static func roundMoney(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+
+    private static func roundTotalPlan(lines: [QuoteLine], taxRate: Double, target: Double) -> (lines: [QuoteLine], taxAmount: Double)? {
+        let base = lines.reduce(0) { $0 + $1.unitPrice * Double($1.qty) }
+        guard base > 0 else { return nil }
+
+        let guess = taxRate > 0 ? target / (1 + taxRate) : target
+        var targetSubtotal = roundMoney(guess)
+        if taxRate > 0 {
+            for delta in [0.0, -0.01, 0.01, -0.02, 0.02] {
+                let subtotal = roundMoney(guess + delta)
+                if roundMoney(subtotal + roundMoney(subtotal * taxRate)) == target {
+                    targetSubtotal = subtotal
+                    break
+                }
+            }
+        }
+
+        let factor = targetSubtotal / base
+        var adjusted = lines.map { line in
+            var next = line
+            next.unitPrice = Foundation.ceil(line.unitPrice * factor * 100) / 100
+            next.discount = nil
+            return next
+        }
+
+        let sum = roundMoney(adjusted.reduce(0) { $0 + roundMoney($1.unitPrice * Double($1.qty)) })
+        let discount = roundMoney(sum - targetSubtotal)
+        if discount > 0, let index = adjusted.indices.max(by: {
+            adjusted[$0].unitPrice * Double(adjusted[$0].qty) < adjusted[$1].unitPrice * Double(adjusted[$1].qty)
+        }) {
+            adjusted[index].discount = discount
+        }
+
+        return (adjusted, roundMoney(target - targetSubtotal))
     }
 }

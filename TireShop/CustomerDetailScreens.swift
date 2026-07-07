@@ -261,6 +261,21 @@ struct CustomerDetailNativeView: View {
                 RowLine(title: "Phone", subtitle: AppFormat.phone(customer.phone).nilIfBlank ?? "-")
                 RowLine(title: "Email", subtitle: customer.email ?? "-")
                 RowLine(title: "Address", subtitle: customer.address ?? "-")
+                if let address2 = customer.address2?.nilIfBlank {
+                    RowLine(title: "Address 2", subtitle: address2)
+                }
+                if let city = customer.city?.nilIfBlank {
+                    RowLine(title: "City", subtitle: city)
+                }
+                if let county = customer.county?.nilIfBlank {
+                    RowLine(title: "County", subtitle: county)
+                }
+                if customer.postalCode?.nilIfBlank != nil || customer.state?.nilIfBlank != nil {
+                    RowLine(
+                        title: "ZIP / State",
+                        subtitle: [customer.postalCode, customer.state].compactMap { $0?.nilIfBlank }.joined(separator: " - ")
+                    )
+                }
                 if let notes = customer.notes?.nilIfBlank {
                     RowLine(title: "Notes", subtitle: notes)
                 }
@@ -1339,6 +1354,11 @@ private struct CustomerProfileEditorView: View {
     @State private var phone: String
     @State private var email: String
     @State private var address: String
+    @State private var address2: String
+    @State private var state: String
+    @State private var county: String
+    @State private var city: String
+    @State private var postalCode: String
     @State private var notes: String
     @State private var saving = false
     @State private var errorMessage: String?
@@ -1351,6 +1371,11 @@ private struct CustomerProfileEditorView: View {
         _phone = State(initialValue: AppFormat.phone(customer.phone))
         _email = State(initialValue: customer.email ?? "")
         _address = State(initialValue: customer.address ?? "")
+        _address2 = State(initialValue: customer.address2 ?? "")
+        _state = State(initialValue: customer.state ?? "GA")
+        _county = State(initialValue: customer.county ?? "")
+        _city = State(initialValue: customer.city ?? "")
+        _postalCode = State(initialValue: customer.postalCode ?? "")
         _notes = State(initialValue: customer.notes ?? "")
     }
 
@@ -1364,6 +1389,13 @@ private struct CustomerProfileEditorView: View {
                     AppTextField(label: "Email", text: $email)
                     TextField("Address", text: $address, axis: .vertical)
                         .lineLimit(1...3)
+                    TextField("Address 2", text: $address2)
+                    AddressLookupFields(
+                        postalCode: $postalCode,
+                        state: $state,
+                        city: $city,
+                        county: $county
+                    )
                     TextEditor(text: $notes)
                         .frame(minHeight: 120)
                 }
@@ -1412,6 +1444,11 @@ private struct CustomerProfileEditorView: View {
                     phone: normalizedPhone,
                     email: email.nilIfBlank,
                     address: address.nilIfBlank,
+                    address2: address2.nilIfBlank,
+                    state: state.nilIfBlank,
+                    county: county.nilIfBlank,
+                    city: city.nilIfBlank,
+                    postalCode: postalCode.nilIfBlank,
                     notes: notes.nilIfBlank
                 )
             )

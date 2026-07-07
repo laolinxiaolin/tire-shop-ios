@@ -455,6 +455,11 @@ struct Customer: Codable, Identifiable, Equatable {
     let phone: String?
     let email: String?
     let address: String?
+    let address2: String?
+    let state: String?
+    let county: String?
+    let city: String?
+    let postalCode: String?
     let notes: String?
     let taxExempt: Bool
     let taxExemptNumber: String?
@@ -476,6 +481,11 @@ struct NewCustomerInput: Codable {
     var phone: String?
     var email: String?
     var address: String?
+    var address2: String?
+    var state: String?
+    var county: String?
+    var city: String?
+    var postalCode: String?
     var notes: String?
     var taxExempt: Bool?
     var taxExemptNumber: String?
@@ -487,6 +497,11 @@ struct CustomerProfilePatch: Encodable {
     let phone: String?
     let email: String?
     let address: String?
+    let address2: String?
+    let state: String?
+    let county: String?
+    let city: String?
+    let postalCode: String?
     let notes: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -495,6 +510,11 @@ struct CustomerProfilePatch: Encodable {
         case phone
         case email
         case address
+        case address2
+        case state
+        case county
+        case city
+        case postalCode
         case notes
     }
 
@@ -505,7 +525,66 @@ struct CustomerProfilePatch: Encodable {
         try container.encodeNullable(phone, forKey: .phone)
         try container.encodeNullable(email, forKey: .email)
         try container.encodeNullable(address, forKey: .address)
+        try container.encodeNullable(address2, forKey: .address2)
+        try container.encodeNullable(state, forKey: .state)
+        try container.encodeNullable(county, forKey: .county)
+        try container.encodeNullable(city, forKey: .city)
+        try container.encodeNullable(postalCode, forKey: .postalCode)
         try container.encodeNullable(notes, forKey: .notes)
+    }
+}
+
+struct ZipCandidate: Codable, Identifiable, Equatable {
+    var id: String { "\(postalCode)-\(county)-\(city)" }
+
+    let state: String
+    let postalCode: String
+    let city: String
+    let county: String
+    let primary: Bool
+    let sharePct: Double
+}
+
+struct ZipLookupResult: Codable, Equatable {
+    let state: String
+    let postalCode: String
+    let candidates: [ZipCandidate]
+}
+
+struct SalesTaxRate: Codable, Identifiable, Equatable {
+    let id: String
+    let state: String
+    let county: String?
+    let city: String?
+    let postalCode: String?
+    let rate: Double
+    let source: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case state
+        case county
+        case city
+        case postalCode
+        case rate
+        case source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        state = try container.decode(String.self, forKey: .state)
+        county = try container.decodeIfPresent(String.self, forKey: .county)
+        city = try container.decodeIfPresent(String.self, forKey: .city)
+        postalCode = try container.decodeIfPresent(String.self, forKey: .postalCode)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+
+        if let numericRate = try? container.decode(Double.self, forKey: .rate) {
+            rate = numericRate
+        } else {
+            let stringRate = try container.decode(String.self, forKey: .rate)
+            rate = Double(stringRate) ?? 0
+        }
     }
 }
 
@@ -732,6 +811,7 @@ struct NewSaleLine: Codable, Equatable {
 struct SaleUpsertInput: Codable {
     let customerId: String
     let taxRate: Double?
+    let taxAmount: Double?
     let lines: [NewSaleLine]
 }
 
