@@ -1286,7 +1286,7 @@ struct WorkOrdersListNativeView: View {
                 } else if let errorMessage, items.isEmpty {
                     RetryView(message: errorMessage) { Task { await load() } }
                 } else if items.isEmpty {
-                    EmptyStateView(text: "No work orders found.")
+                    EmptyStateView(text: "No work orders have been started yet.")
                 } else {
                     List(items) { order in
                         NavigationLink(value: AppRoute.workOrderDetail(order.id)) {
@@ -1313,6 +1313,7 @@ struct WorkOrdersListNativeView: View {
         errorMessage = nil
         do {
             items = try await WorkOrdersAPI().list(status: status.nilIfBlank)
+                .filter(\.hasVisibleWorkContent)
         } catch {
             items = []
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load work orders."

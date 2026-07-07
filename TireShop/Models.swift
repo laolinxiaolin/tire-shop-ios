@@ -972,6 +972,13 @@ struct WorkOrder: Codable, Identifiable, Equatable {
     let updatedAt: String
     let tasks: [WorkOrderTask]
     let sale: SaleInfo
+
+    var hasVisibleWorkContent: Bool {
+        status != "OPEN"
+            || !tasks.isEmpty
+            || bay?.nilIfBlank != nil
+            || notes?.nilIfBlank != nil
+    }
 }
 
 struct Returnable: Codable, Equatable {
