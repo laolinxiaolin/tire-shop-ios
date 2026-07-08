@@ -770,6 +770,7 @@ struct InventoryAPI {
         q: String? = nil,
         category: TireCategory? = nil,
         position: TirePosition? = nil,
+        brand: String? = nil,
         sortBy: String? = nil,
         sortOrder: String? = nil,
         page: Int? = nil,
@@ -779,12 +780,17 @@ struct InventoryAPI {
             "q": q,
             "category": category,
             "position": position,
+            "brand": brand,
             "sortBy": sortBy,
             "sortOrder": sortOrder,
             "page": page,
             "pageSize": pageSize
         ])
         return try await client.request("/inventory/skus\(qs)")
+    }
+
+    func listBrands() async throws -> [String] {
+        try await client.request("/inventory/brands")
     }
 
     func getSku(id: String) async throws -> TireSku {

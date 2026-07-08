@@ -150,11 +150,13 @@ struct InventoryListNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
 
-    private let pageSize = 25
+    private let pageSize = 1000
 
     @State private var q = ""
     @State private var category = ""
     @State private var position = ""
+    @State private var brand = ""
+    @State private var brands: [String] = []
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
     @State private var hideZeroStock = false
@@ -177,17 +179,18 @@ struct InventoryListNativeView: View {
     }
 
     private var hasActiveFilters: Bool {
-        !category.isEmpty || !position.isEmpty || !sortBy.isEmpty
+        !category.isEmpty || !position.isEmpty || !brand.isEmpty || !sortBy.isEmpty
     }
 
     private var activeFilterCount: Int {
-        [category, position, sortBy].filter { !$0.isEmpty }.count
+        [category, position, brand, sortBy].filter { !$0.isEmpty }.count
     }
 
     private var activeSummary: String? {
         var parts: [String] = []
         if !category.isEmpty { parts.append(InventoryLabels.category(category)) }
         if !position.isEmpty { parts.append(InventoryLabels.position(position)) }
+        if !brand.isEmpty { parts.append(brand) }
         if !sortBy.isEmpty { parts.append("\(InventoryLabels.sort(sortBy)) \(sortOrder.uppercased())") }
         if hideZeroStock { parts.append("In stock only") }
         return parts.isEmpty ? nil : parts.joined(separator: " - ")
@@ -213,6 +216,7 @@ struct InventoryListNativeView: View {
         }
         .background(Theme.background)
         .task {
+            if brands.isEmpty { await loadBrands() }
             if !hasLoaded { await reload() }
         }
         .onDisappear {
@@ -423,6 +427,24 @@ struct InventoryListNativeView: View {
                 }
             }
 
+            if !brands.isEmpty {
+                Section("Brand") {
+                    Button {
+                        updateFilter($brand, "")
+                    } label: {
+                        menuLabel("All brands", selected: brand.isEmpty)
+                    }
+
+                    ForEach(brands, id: \.self) { option in
+                        Button {
+                            updateFilter($brand, option)
+                        } label: {
+                            menuLabel(option, selected: brand == option)
+                        }
+                    }
+                }
+            }
+
             Section("Sort") {
                 ForEach(InventoryLabels.sortOptions) { option in
                     Button {
@@ -524,6 +546,7 @@ struct InventoryListNativeView: View {
         }
         category = ""
         position = ""
+        brand = ""
         sortBy = ""
         sortOrder = "asc"
         hideZeroStock = false
@@ -555,7 +578,39 @@ struct InventoryListNativeView: View {
 
     @MainActor
     private func reload() async {
-        await loadPage(1, reset: true)
+        loading = true
+        errorMessage = nil
+        loadMoreError = nil
+        defer { loading = false }
+
+        do {
+            var page = 1
+            var allItems: [TireSku] = []
+            var expectedTotal = 0
+            var lastLoadedPage = 0
+
+            while true {
+                let pageData = try await requestInventoryPage(page)
+                expectedTotal = pageData.total
+                lastLoadedPage = pageData.page
+
+                let existingIds = Set(allItems.map(\.id))
+                allItems.append(contentsOf: pageData.items.filter { !existingIds.contains($0.id) })
+
+                guard allItems.count < pageData.total, !pageData.items.isEmpty else { break }
+                page = pageData.page + 1
+            }
+
+            items = allItems
+            total = expectedTotal
+            loadedPage = lastLoadedPage
+            hasLoaded = true
+        } catch {
+            guard !isCancellation(error) else { return }
+
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
+            hasLoaded = !items.isEmpty
+        }
     }
 
     @MainActor
@@ -583,15 +638,7 @@ struct InventoryListNativeView: View {
         }
 
         do {
-            let pageData = try await InventoryAPI().listSkus(
-                q: q.nilIfBlank,
-                category: category.nilIfBlank,
-                position: position.nilIfBlank,
-                sortBy: sortBy.nilIfBlank,
-                sortOrder: sortBy.isEmpty ? nil : sortOrder,
-                page: page,
-                pageSize: pageSize
-            )
+            let pageData = try await requestInventoryPage(page)
 
             total = pageData.total
             loadedPage = pageData.page
@@ -613,6 +660,28 @@ struct InventoryListNativeView: View {
             } else {
                 loadMoreError = message
             }
+        }
+    }
+
+    private func requestInventoryPage(_ page: Int) async throws -> Paged<TireSku> {
+        try await InventoryAPI().listSkus(
+            q: q.nilIfBlank,
+            category: category.nilIfBlank,
+            position: position.nilIfBlank,
+            brand: brand.nilIfBlank,
+            sortBy: sortBy.nilIfBlank,
+            sortOrder: sortBy.isEmpty ? nil : sortOrder,
+            page: page,
+            pageSize: pageSize
+        )
+    }
+
+    @MainActor
+    private func loadBrands() async {
+        do {
+            brands = try await InventoryAPI().listBrands()
+        } catch {
+            brands = []
         }
     }
 
