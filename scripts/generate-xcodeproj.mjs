@@ -118,7 +118,7 @@ const commonProjectSettings = `
 
 const commonTargetSettings = `
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026070802;
+				CURRENT_PROJECT_VERSION = 2026071401;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;

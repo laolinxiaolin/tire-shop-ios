@@ -16,6 +16,7 @@ struct SaleDetailNativeView: View {
     @State private var showDeleteConfirm = false
     @State private var deleting = false
     @State private var reloadToken = UUID()
+    @State private var hasAppeared = false
 
     private var canSend: Bool {
         auth.has("sales.manage")
@@ -81,7 +82,13 @@ struct SaleDetailNativeView: View {
                         }
 
                         if balance > 0.005 {
-                            NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: balance)) {
+                            NavigationLink(value: AppRoute.tapToPay(
+                                invoiceId: invoice.id,
+                                amount: balance,
+                                saleId: sale.id,
+                                saleRef: sale.ref,
+                                customerName: sale.customer.company ?? sale.customer.name
+                            )) {
                                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                                     Label("Tap to Pay on iPhone", systemImage: "wave.3.right.circle")
                                         .fontWeight(.semibold)
@@ -148,7 +155,10 @@ struct SaleDetailNativeView: View {
                 invoiceId: context.invoice.id,
                 balance: max(0, (Double(context.invoice.amountDue) ?? 0) - (Double(context.invoice.paidTotal) ?? 0)),
                 customerId: context.customerId,
-                onPaid: { paymentContext = nil }
+                onPaid: {
+                    paymentContext = nil
+                    reloadToken = UUID()
+                }
             )
         }
         .sheet(item: $pdfPreview) { preview in
@@ -180,6 +190,13 @@ struct SaleDetailNativeView: View {
             Button("OK", role: .cancel) { actionError = nil }
         } message: {
             Text(actionError ?? "")
+        }
+        .onAppear {
+            if hasAppeared {
+                reloadToken = UUID()
+            } else {
+                hasAppeared = true
+            }
         }
     }
 
@@ -1550,37 +1567,49 @@ private struct ContainerLocalPreview {
         let requestedSpread = isDDP ? "NONE" : costSpread
         let effectiveSpread = requestedSpread == "NONE" && extras > 0.005 ? "VALUE" : requestedSpread
 
-        let previewLines = draftLines.map { line -> ContainerPreviewLine in
+        var previewLines = draftLines.map { line -> ContainerPreviewLine in
             let qty = Int(line.qty) ?? 0
             let unitCost = Double(line.unitCost) ?? 0
-            var allocPerUnit = 0.0
+            var share = 0.0
             if effectiveSpread == "QUANTITY" {
-                allocPerUnit = totalQty > 0 ? extras / Double(totalQty) : 0
+                share = totalQty > 0 ? (extras / Double(totalQty)) * Double(qty) : 0
             } else if effectiveSpread == "VALUE" {
                 let lineValue = Double(qty) * unitCost
-                let share = supplierTotal > 0 ? (lineValue / supplierTotal) * extras : 0
-                allocPerUnit = qty > 0 ? share / Double(qty) : 0
+                share = supplierTotal > 0 ? (lineValue / supplierTotal) * extras : 0
             }
+            let allocPerUnit = qty > 0 ? share / Double(qty) : 0
             let landedUnit = round(unitCost + allocPerUnit, places: 4)
             return ContainerPreviewLine(
                 id: line.id,
                 allocPerUnit: round(allocPerUnit, places: 4),
                 landedUnitCost: landedUnit,
-                landedTotal: round(landedUnit * Double(qty), places: 2)
+                landedTotal: round(Double(qty) * unitCost + share, places: 2)
+            )
+        }
+
+        let landedTarget = round(supplierTotal + extras, places: 2)
+        let roundedSum = round(previewLines.reduce(0) { $0 + $1.landedTotal }, places: 2)
+        let drift = round(landedTarget - roundedSum, places: 2)
+        if drift != 0, let last = previewLines.indices.last {
+            let line = previewLines[last]
+            previewLines[last] = ContainerPreviewLine(
+                id: line.id,
+                allocPerUnit: line.allocPerUnit,
+                landedUnitCost: line.landedUnitCost,
+                landedTotal: round(line.landedTotal + drift, places: 2)
             )
         }
 
         let fetTotal = draftLines.reduce(0) { total, line in
             total + Double(Int(line.qty) ?? 0) * (Double(line.fetPerUnit) ?? 0)
         }
-        let grand = previewLines.reduce(0) { $0 + $1.landedTotal }
         let supplierBalance = supplierTotal - supplierPaid
         return ContainerLocalPreview(
             totalQty: totalQty,
             supplierTotal: round(supplierTotal, places: 2),
             extrasTotal: round(extras, places: 2),
             fetTotal: round(fetTotal, places: 2),
-            grandLanded: round(grand, places: 2),
+            grandLanded: previewLines.isEmpty ? 0 : landedTarget,
             supplierPaid: round(supplierPaid, places: 2),
             supplierBalance: round(supplierBalance, places: 2),
             lines: previewLines

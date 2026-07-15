@@ -18,7 +18,7 @@ enum AppRoute: Hashable {
     case newInventoryCount
     case containerDetail(String)
     case vendorDetail(String)
-    case tapToPay(invoiceId: String, amount: Double)
+    case tapToPay(invoiceId: String, amount: Double, saleId: String?, saleRef: String?, customerName: String?)
     case customerDetail(id: String, name: String)
     case employeeDetail(String)
     case skuPicker
@@ -200,8 +200,8 @@ struct NavigationShell<Content: View>: View {
             ContainerDetailNativeView(id: id)
         case .vendorDetail(let id):
             VendorDetailNativeView(id: id)
-        case .tapToPay(let invoiceId, let amount):
-            TapToPayNativeView(invoiceId: invoiceId, amount: amount)
+        case .tapToPay(let invoiceId, let amount, let saleId, let saleRef, let customerName):
+            TapToPayNativeView(invoiceId: invoiceId, amount: amount, saleId: saleId, saleRef: saleRef, customerName: customerName)
         case .customerDetail(let id, let name):
             CustomerDetailNativeView(id: id, fallbackName: name)
         case .employeeDetail(let id):

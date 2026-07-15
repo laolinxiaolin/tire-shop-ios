@@ -1,6 +1,8 @@
 import LocalAuthentication
+import ProximityReader
 import SwiftUI
 import StripeTerminal
+import UIKit
 
 struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
@@ -664,6 +666,13 @@ struct TapToPayLaunchAnnouncementView: View {
                             .foregroundStyle(Theme.muted)
                     }
 
+                    VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                        ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
+                        Text("This opens Apple's merchant education for how customers should tap cards and devices on iPhone.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+
                     VStack(alignment: .leading, spacing: Theme.Space.md) {
                         TapToPayInfoRow(
                             title: "Use it at invoice checkout",
@@ -761,6 +770,20 @@ struct TapToPayEducationView: View {
                 Text("Stripe or Apple setup prompts should be completed by an authorized admin, not by a cashier account.")
             }
 
+            Section("Apple Merchant Education") {
+                ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
+                TapToPayInfoRow(
+                    title: "Customer tap guidance",
+                    detail: "Use Apple's guide to show where the customer should hold a contactless card, iPhone, Apple Watch, or other NFC wallet during checkout.",
+                    systemImage: "iphone.radiowaves.left.and.right"
+                )
+                TapToPayInfoRow(
+                    title: "Record this for review",
+                    detail: "Open this guide before checkout in the App Review screen recording so merchant education is visible.",
+                    systemImage: "video"
+                )
+            }
+
             Section("New User Flow") {
                 TapToPayInfoRow(
                     title: "Before the first payment",
@@ -840,14 +863,150 @@ private struct TapToPayInfoRow: View {
     }
 }
 
+private struct ProximityReaderDiscoveryButton: View {
+    let title: String
+
+    @State private var presenting = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Button {
+                Task { await presentAppleGuide() }
+            } label: {
+                HStack {
+                    Label(presenting ? "Opening Apple guide..." : title, systemImage: "questionmark.circle")
+                    if presenting {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(presenting)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+            }
+        }
+    }
+
+    @MainActor
+    private func presentAppleGuide() async {
+        guard #available(iOS 18.0, *) else {
+            errorMessage = "Apple's in-app Tap to Pay guide requires iOS 18 or later. Use the checklist below on this device."
+            return
+        }
+
+        presenting = true
+        defer { presenting = false }
+
+        do {
+            let discovery = ProximityReaderDiscovery()
+            let content = try await discovery.content(for: .payment(.howToTap))
+            guard let viewController = topPresentedViewController() else {
+                throw APIError(status: 0, message: "Could not open the Apple guide from this screen.")
+            }
+            try await discovery.presentContent(content, from: viewController)
+            errorMessage = nil
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not open the Apple guide."
+        }
+    }
+}
+
+@MainActor
+private func topPresentedViewController() -> UIViewController? {
+    let scene = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first { $0.activationState == .foregroundActive }
+    guard let root = scene?.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return nil }
+    return topPresentedViewController(from: root)
+}
+
+@MainActor
+private func topPresentedViewController(from root: UIViewController) -> UIViewController {
+    if let presented = root.presentedViewController {
+        return topPresentedViewController(from: presented)
+    }
+    if let navigation = root as? UINavigationController, let visible = navigation.visibleViewController {
+        return topPresentedViewController(from: visible)
+    }
+    if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
+        return topPresentedViewController(from: selected)
+    }
+    return root
+}
+
+enum TapToPayOutcomeStatus: Equatable {
+    case approved
+    case declined
+    case timedOut
+    case failed
+
+    var title: String {
+        switch self {
+        case .approved: return "Approved"
+        case .declined: return "Declined"
+        case .timedOut: return "Timed out"
+        case .failed: return "Not completed"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .approved: return "checkmark.circle.fill"
+        case .declined: return "xmark.octagon.fill"
+        case .timedOut: return "clock.badge.exclamationmark.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .approved: return Theme.success
+        case .declined, .timedOut, .failed: return Theme.danger
+        }
+    }
+}
+
+struct TapToPayOutcome: Equatable {
+    let status: TapToPayOutcomeStatus
+    let detail: String
+    let amount: Double
+    let invoiceId: String
+    let paymentIntentId: String
+    let happenedAt: Date
+}
+
+private struct TapToPayReceiptShare: Identifiable {
+    let text: String
+    let id = UUID()
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
 struct TapToPayNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
     @ObservedObject private var terminal = TapToPayTerminalController.shared
     @State private var emailInvoice: SaleInvoice?
+    @State private var receiptShare: TapToPayReceiptShare?
 
     let invoiceId: String
     let amount: Double
+    let saleId: String?
+    let saleRef: String?
+    let customerName: String?
 
     private var canCollect: Bool { auth.has("payments.collect") }
 
@@ -856,12 +1015,22 @@ struct TapToPayNativeView: View {
             List {
                 Section("Payment") {
                     RowLine(title: "Invoice", trailing: invoiceId)
-                    RowLine(title: "Amount", trailing: AppFormat.money(amount))
-                    RowLine(title: "Balance", trailing: AppFormat.money(intent.balance))
-                    RowLine(title: "Surcharge", trailing: AppFormat.money(intent.surcharge))
+                    if let saleRef = saleRef?.nilIfBlank {
+                        RowLine(title: "Sale", trailing: saleRef)
+                    } else if let saleId = saleId?.nilIfBlank {
+                        RowLine(title: "Sale", trailing: saleId)
+                    }
+                    if let customerName = customerName?.nilIfBlank {
+                        RowLine(title: "Customer", trailing: customerName)
+                    }
+                    RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
+                    RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
+                    RowLine(title: "Customer pays", trailing: AppFormat.money(intent.amount))
                 }
 
                 Section("Before charging") {
+                    ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
+
                     if canCollect {
                         TapToPayInfoRow(
                             title: "Confirm identity",
@@ -882,6 +1051,26 @@ struct TapToPayNativeView: View {
                         detail: "If this iPhone, account, or network cannot use Tap to Pay on iPhone, return to the invoice and choose Card / manual payment.",
                         systemImage: "creditcard"
                     )
+                }
+
+                Section("Transaction outcome") {
+                    if let outcome = terminal.outcome {
+                        TapToPayOutcomeView(outcome: outcome)
+                    } else if terminal.isBusy {
+                        TapToPayInfoRow(
+                            title: "Processing",
+                            detail: "Keep this screen open until the transaction is approved, declined, or timed out.",
+                            systemImage: "hourglass",
+                            tint: Theme.primary
+                        )
+                    } else {
+                        TapToPayInfoRow(
+                            title: "Ready",
+                            detail: "No transaction has been processed yet.",
+                            systemImage: "circle",
+                            tint: Theme.muted
+                        )
+                    }
                 }
 
                 Section("Terminal") {
@@ -937,24 +1126,34 @@ struct TapToPayNativeView: View {
                     }
                 }
 
-                if terminal.succeeded {
-                    Section("Receipt") {
+                if let outcome = terminal.outcome {
+                    Section(outcome.status == .approved ? "Receipt" : "Transaction Result") {
                         TapToPayInfoRow(
-                            title: "Payment captured",
-                            detail: "Offer the customer an emailed invoice or receipt before leaving checkout.",
-                            systemImage: "checkmark.circle.fill",
-                            tint: Theme.success
+                            title: outcome.status == .approved ? "Send a digital receipt" : "Share the result privately",
+                            detail: outcome.status == .approved
+                                ? "Send the receipt by email, or use the private share sheet for Messages, Mail, AirDrop, or other approved destinations."
+                                : "If the customer wants confirmation, use the private share sheet to send the declined or timed-out result by Messages, Mail, AirDrop, or another approved destination.",
+                            systemImage: "square.and.arrow.up",
+                            tint: outcome.status == .approved ? Theme.success : Theme.primary
                         )
 
+                        if outcome.status == .approved {
+                            Button {
+                                emailInvoice = SaleInvoice(
+                                    id: invoiceId,
+                                    ref: nil,
+                                    amountDue: "0.00",
+                                    paidTotal: String(format: "%.2f", outcome.amount)
+                                )
+                            } label: {
+                                Label("Email invoice / receipt", systemImage: "envelope")
+                            }
+                        }
+
                         Button {
-                            emailInvoice = SaleInvoice(
-                                id: invoiceId,
-                                ref: nil,
-                                amountDue: "0.00",
-                                paidTotal: String(format: "%.2f", amount)
-                            )
+                            receiptShare = TapToPayReceiptShare(text: shareText(for: outcome))
                         } label: {
-                            Label("Email invoice / receipt", systemImage: "envelope")
+                            Label("Share digital receipt / result", systemImage: "square.and.arrow.up")
                         }
                     }
                 }
@@ -970,6 +1169,9 @@ struct TapToPayNativeView: View {
         }
         .sheet(item: $emailInvoice) { invoice in
             InvoiceEmailView(invoice: invoice)
+        }
+        .sheet(item: $receiptShare) { share in
+            ActivityShareSheet(items: [share.text])
         }
     }
 
@@ -1012,6 +1214,50 @@ struct TapToPayNativeView: View {
     private func canCharge(_ intent: TerminalIntent) -> Bool {
         canCollect && terminal.canCharge(intent)
     }
+
+    private func shareText(for outcome: TapToPayOutcome) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        let saleText = saleRef?.nilIfBlank.map { "\nSale: \($0)" } ?? ""
+        let customerText = customerName?.nilIfBlank.map { "\nCustomer: \($0)" } ?? ""
+        return """
+        Tire Force US Tap to Pay on iPhone
+        Result: \(outcome.status.title)
+        Amount: \(AppFormat.money(outcome.amount))
+        Invoice: \(outcome.invoiceId)\(saleText)\(customerText)
+        Payment intent: \(outcome.paymentIntentId)
+        Time: \(formatter.string(from: outcome.happenedAt))
+        Note: \(outcome.detail)
+        """
+    }
+}
+
+private struct TapToPayOutcomeView: View {
+    let outcome: TapToPayOutcome
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            Image(systemName: outcome.status.systemImage)
+                .font(.title2)
+                .foregroundStyle(outcome.status.tint)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(outcome.status.title)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .foregroundStyle(outcome.status.tint)
+                Text(outcome.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text)
+                Text("Amount \(AppFormat.money(outcome.amount))")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(.vertical, Theme.Space.sm)
+    }
 }
 
 final class TapToPayTerminalController: NSObject, ObservableObject {
@@ -1022,6 +1268,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     @Published private(set) var statusMessage = "Reader ready. Tap Charge, then have the customer hold their card to the phone."
     @Published private(set) var readerMessage: String?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var outcome: TapToPayOutcome?
     @Published private(set) var readerName: String?
     @Published private(set) var connectionStatusText = "Not connected"
     @Published private(set) var paymentStatusText = "Not ready"
@@ -1042,6 +1289,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         currentInvoiceId = invoiceId
         succeeded = false
         errorMessage = nil
+        outcome = nil
         readerMessage = nil
         paymentIntentStatusText = nil
         updateProgress = nil
@@ -1095,6 +1343,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         isBusy = true
         succeeded = false
         errorMessage = nil
+        outcome = nil
         readerMessage = nil
         updateProgress = nil
         paymentIntentStatusText = nil
@@ -1129,12 +1378,47 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
             paymentIntentStatusText = paymentIntentStatusLabel(confirmedIntent.status)
 
             succeeded = confirmedIntent.status == .succeeded || confirmedIntent.status == .requiresCapture
-            statusMessage = confirmedIntent.status == .requiresCapture
-                ? "Charged. The server still needs to capture this payment."
-                : "Payment captured."
+            if succeeded {
+                let detail = confirmedIntent.status == .requiresCapture
+                    ? "Approved. The server is capturing this payment."
+                    : "Approved. Payment captured."
+                outcome = TapToPayOutcome(
+                    status: .approved,
+                    detail: detail,
+                    amount: serverIntent.amount,
+                    invoiceId: invoiceId,
+                    paymentIntentId: serverIntent.paymentIntentId,
+                    happenedAt: Date()
+                )
+                statusMessage = detail
+            } else {
+                let status = confirmedIntent.status == .canceled ? TapToPayOutcomeStatus.timedOut : .declined
+                let detail = status == .timedOut
+                    ? "Timed out before approval. Try again or use Card / manual payment."
+                    : "Declined. Ask the customer for another card or use Card / manual payment."
+                outcome = TapToPayOutcome(
+                    status: status,
+                    detail: detail,
+                    amount: serverIntent.amount,
+                    invoiceId: invoiceId,
+                    paymentIntentId: serverIntent.paymentIntentId,
+                    happenedAt: Date()
+                )
+                statusMessage = detail
+            }
         } catch {
-            errorMessage = paymentErrorMessage(error)
-            statusMessage = "Payment could not be completed."
+            let message = paymentErrorMessage(error)
+            let status = outcomeStatus(for: message)
+            errorMessage = message
+            outcome = TapToPayOutcome(
+                status: status,
+                detail: outcomeDetail(for: status, message: message),
+                amount: serverIntent.amount,
+                invoiceId: invoiceId,
+                paymentIntentId: serverIntent.paymentIntentId,
+                happenedAt: Date()
+            )
+            statusMessage = outcome?.detail ?? "Payment could not be completed."
         }
 
         isBusy = false
@@ -1335,6 +1619,30 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
             return "Something went wrong while taking the payment."
         }
         return fallback
+    }
+
+    private func outcomeStatus(for message: String) -> TapToPayOutcomeStatus {
+        let lowercased = message.lowercased()
+        if lowercased.contains("declined") || lowercased.contains("decline") {
+            return .declined
+        }
+        if lowercased.contains("timed out") || lowercased.contains("timeout") || lowercased.contains("time out") {
+            return .timedOut
+        }
+        return .failed
+    }
+
+    private func outcomeDetail(for status: TapToPayOutcomeStatus, message: String) -> String {
+        switch status {
+        case .approved:
+            return "Approved. Payment captured."
+        case .declined:
+            return "Declined. Ask the customer for another card or use Card / manual payment. Details: \(message)"
+        case .timedOut:
+            return "Timed out before approval. Try again or use Card / manual payment. Details: \(message)"
+        case .failed:
+            return "Not completed. Try again or use Card / manual payment. Details: \(message)"
+        }
     }
 
     private func tapToPayUnsupportedMessage(_ detail: String) -> String {

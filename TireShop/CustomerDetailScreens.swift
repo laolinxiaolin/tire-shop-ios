@@ -93,6 +93,7 @@ struct CustomerDetailNativeView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
+    @State private var hasAppeared = false
 
     @State private var editingProfile = false
     @State private var documentPreview: CustomerDocumentPreview?
@@ -179,6 +180,13 @@ struct CustomerDetailNativeView: View {
         .navigationTitle(customer?.name ?? fallbackName)
         .task {
             if customer == nil { await load() }
+        }
+        .onAppear {
+            if hasAppeared {
+                Task { await loadAccount() }
+            } else {
+                hasAppeared = true
+            }
         }
         .refreshable { await load() }
         .sheet(isPresented: $editingProfile) {
@@ -554,7 +562,13 @@ struct CustomerDetailNativeView: View {
                                 Text(AppFormat.money(invoice.balance))
                                     .fontWeight(.semibold)
                                 if canCollectPayments && invoice.balance > 0 {
-                                    NavigationLink(value: AppRoute.tapToPay(invoiceId: invoice.id, amount: invoice.balance)) {
+                                    NavigationLink(value: AppRoute.tapToPay(
+                                        invoiceId: invoice.id,
+                                        amount: invoice.balance,
+                                        saleId: invoice.sale.id,
+                                        saleRef: invoice.sale.ref,
+                                        customerName: customer.company ?? customer.name
+                                    )) {
                                         Label("Tap to Pay on iPhone", systemImage: "wave.3.right.circle")
                                             .font(.caption)
                                     }
