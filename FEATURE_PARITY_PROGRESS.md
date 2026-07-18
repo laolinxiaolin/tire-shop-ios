@@ -70,6 +70,12 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 - ⬜ **Pay-link** — NEW `POST /invoices/:id/payment-link {email}` → share hosted Checkout URL
 - ⏭️ **Stripe Terminal Tap-to-Pay** — heaviest; needs StripeTerminal SPM dep in `project.yml` + entitlement + on-device collect/confirm. Do LAST.
 
+## Backend follow-up — PR #355 multi-warehouse parity
+- ✅ **Warehouses** — list/create/edit, set default, deactivate/reactivate, permission gating, and user home/storefront warehouse settings.
+- ✅ **Stock transfers** — filterable list, detail, draft create/edit/delete, source availability, freight allocation, approval-aware posting, voiding, and accounting source links.
+- ✅ **Location-aware operations** — sales, inventory, adjustments, containers, inventory counts, orders, returns, and profile defaults carry or display warehouse location.
+- ✅ **Per-warehouse stock and cost** — inventory shows warehouse quantities, reserved-aware availability, and location-specific unit cost; sale/transfer entry prevents selling or moving reserved stock.
+
 ---
 
 ## Verification each phase
@@ -83,6 +89,7 @@ Full plan: `~/.claude/plans/let-s-enrich-the-feature-vectorized-oasis.md`.
 ---
 
 ## Session log
+- 2026-07-18: Closed the native-app gap for backend PR #355: added warehouse administration, stock-transfer workflows, per-location stock/cost, reservation-aware availability, and warehouse propagation across sales, purchasing, inventory counts, users, settings, finance, orders, and returns. Regenerated the Xcode project/localization catalog; verifier, Swift parse, JSON decode smoke tests, and generic iOS Simulator build (arm64 + x86_64) passed.
 - 2026-06-30: Plan + tracker created; explored iOS app + web UI.
 - 2026-06-30: Phase 0 tooling fixed (xcodeproj generator + verifier paths). Built Phase A simple modules: Notifications, Monthly Sales, Brand Info, Tire Attributes (all in new `TireShop/PlaceholderModules.swift` + models in `Models.swift` + APIs in `Services.swift`, wired in `Destinations.swift`/`RootViews.swift`). Plus **Web Orders** (`OrderScreens.swift`). Verifier green: 20 swift files, 26 built destinations. **Not yet compiled in Xcode** (no toolchain on Linux).
 - 2026-06-30: Added **Commissions** native ledger from `employees/commissions/page.tsx`: status filter, paginated list, sale detail navigation, `GET /employees/commissions` API wrapper, and commission models. Verifier green: 20 swift files, 27 built destinations.

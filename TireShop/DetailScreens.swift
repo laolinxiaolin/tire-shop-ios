@@ -15,6 +15,7 @@ struct SaleDetailNativeView: View {
     @State private var reverting = false
     @State private var showDeleteConfirm = false
     @State private var deleting = false
+    @State private var confirming = false
     @State private var reloadToken = UUID()
     @State private var hasAppeared = false
 
@@ -29,6 +30,7 @@ struct SaleDetailNativeView: View {
                 Section {
                     RowLine(title: sale.customer.name, subtitle: sale.ref ?? sale.id, trailing: AppFormat.money(sale.total))
                     RowLine(title: "Status", subtitle: sale.status)
+                    RowLine(title: "Warehouse", subtitle: sale.location)
                     RowLine(title: "Tax", subtitle: AppFormat.money(sale.taxAmount), trailing: sale.taxRate)
                 }
 
@@ -108,6 +110,21 @@ struct SaleDetailNativeView: View {
                 }
 
                 Section {
+                    if canSend && (sale.status == "DRAFT" || sale.status == "QUOTE") {
+                        Button {
+                            Task { await confirmAndInvoice() }
+                        } label: {
+                            HStack {
+                                Label("Confirm & invoice", systemImage: "checkmark.seal")
+                                if confirming {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(confirming)
+                    }
+
                     NavigationLink(value: AppRoute.editSale(sale.id)) {
                         Text("Edit sale")
                     }
@@ -224,6 +241,19 @@ struct SaleDetailNativeView: View {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The sale could not be returned to draft."
         }
         reverting = false
+    }
+
+    @MainActor
+    private func confirmAndInvoice() async {
+        confirming = true
+        actionError = nil
+        do {
+            _ = try await SalesAPI().confirm(id: id)
+            reloadToken = UUID()
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "The draft could not be confirmed and invoiced."
+        }
+        confirming = false
     }
 
     private func loadDetail() async throws -> SaleDetailData {
@@ -934,6 +964,8 @@ struct ContainerDetailNativeView: View {
     @State private var bolNumber = ""
     @State private var isDDP = false
     @State private var costSpread: CostSpreadMethod = "VALUE"
+    @State private var location = "MAIN"
+    @State private var warehouses: [Warehouse] = []
     @State private var etaAt = ""
     @State private var arrivedAt = ""
     @State private var notes = ""
@@ -961,6 +993,10 @@ struct ContainerDetailNativeView: View {
 
     private var canEditDraft: Bool {
         canManage && editable
+    }
+
+    private var locationIsActive: Bool {
+        warehouses.isEmpty || warehouses.contains { $0.code == location }
     }
 
     private var preview: ContainerLocalPreview {
@@ -1045,6 +1081,7 @@ struct ContainerDetailNativeView: View {
                 if let country = container.supplier.country?.nilIfBlank {
                     RowLine(title: "Supplier country", subtitle: country)
                 }
+                RowLine(title: "Destination warehouse", trailing: container.location)
                 StatusTimelineView(status: container.status)
             }
 
@@ -1063,7 +1100,7 @@ struct ContainerDetailNativeView: View {
                     } label: {
                         Label(busy ? "Saving..." : "Save draft", systemImage: "square.and.arrow.down")
                     }
-                    .disabled(busy || !linesAreValid)
+                    .disabled(busy || !linesAreValid || !locationIsActive)
 
                     if let next = ContainerDetailLabels.nextStatus(after: container.status), next != "RECEIVED" {
                         Button {
@@ -1080,7 +1117,7 @@ struct ContainerDetailNativeView: View {
                         } label: {
                             Label("Receive into inventory", systemImage: "shippingbox.and.arrow.backward")
                         }
-                        .disabled(busy || lines.isEmpty || !linesAreValid)
+                        .disabled(busy || lines.isEmpty || !linesAreValid || !locationIsActive)
                     }
 
                     Button(role: .destructive) {
@@ -1119,6 +1156,26 @@ struct ContainerDetailNativeView: View {
                     }
                 }
                 .disabled(!canEditDraft || isDDP)
+                if !warehouses.isEmpty {
+                    Picker("Destination warehouse", selection: $location) {
+                        if !location.isEmpty, !warehouses.contains(where: { $0.code == location }) {
+                            Text("\(location) (inactive)").tag(location)
+                        }
+                        ForEach(warehouses) { warehouse in
+                            Text("\(warehouse.code) — \(warehouse.name)").tag(warehouse.code)
+                        }
+                    }
+                    .disabled(!canEditDraft)
+                } else {
+                    TextField("Destination warehouse", text: $location)
+                        .textInputAutocapitalization(.characters)
+                        .disabled(!canEditDraft)
+                }
+                if !locationIsActive {
+                    Text("Choose an active destination warehouse before saving or receiving.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.danger)
+                }
                 Toggle("DDP pricing", isOn: $isDDP)
                     .disabled(!canEditDraft)
                 TextField("Notes", text: $notes, axis: .vertical)
@@ -1277,7 +1334,10 @@ struct ContainerDetailNativeView: View {
         loading = true
         errorMessage = nil
         do {
-            let loaded = try await ContainersAPI().get(id: id)
+            async let containerTask = ContainersAPI().get(id: id)
+            async let warehousesTask = WarehousesAPI().list(activeOnly: true)
+            let loaded = try await containerTask
+            warehouses = (try? await warehousesTask) ?? []
             seed(loaded)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load container."
@@ -1362,6 +1422,10 @@ struct ContainerDetailNativeView: View {
     }
 
     private func draftBody() -> ContainerPatchInput? {
+        guard locationIsActive else {
+            actionMessage = "Choose an active destination warehouse before saving."
+            return nil
+        }
         guard linesAreValid else {
             actionMessage = "Fix the container lines before saving."
             return nil
@@ -1384,6 +1448,7 @@ struct ContainerDetailNativeView: View {
             bolNumber: bolNumber.nilIfBlank,
             isDDP: isDDP,
             costSpread: costSpread,
+            location: location.nilIfBlank,
             etaAt: etaAt.nilIfBlank,
             arrivedAt: arrivedAt.nilIfBlank,
             notes: notes.nilIfBlank,
@@ -1398,6 +1463,7 @@ struct ContainerDetailNativeView: View {
         bolNumber = value.bolNumber ?? ""
         isDDP = value.isDDP
         costSpread = value.costSpread
+        location = value.location
         etaAt = ContainerDetailLabels.dateField(value.etaAt)
         arrivedAt = ContainerDetailLabels.dateField(value.arrivedAt)
         notes = value.notes ?? ""
@@ -2053,6 +2119,7 @@ struct NewInventoryCountNativeView: View {
     @State private var category = ""
     @State private var position = ""
     @State private var location = "MAIN"
+    @State private var warehouses: [Warehouse] = []
     @State private var notes = ""
     @State private var saving = false
     @State private var errorMessage: String?
@@ -2062,7 +2129,16 @@ struct NewInventoryCountNativeView: View {
             Section("Scope") {
                 TextField("Category", text: $category)
                 TextField("Position", text: $position)
-                TextField("Location", text: $location)
+                if warehouses.isEmpty {
+                    TextField("Warehouse", text: $location)
+                        .textInputAutocapitalization(.characters)
+                } else {
+                    Picker("Warehouse", selection: $location) {
+                        ForEach(warehouses) { warehouse in
+                            Text("\(warehouse.code) — \(warehouse.name)").tag(warehouse.code)
+                        }
+                    }
+                }
                 TextField("Notes", text: $notes, axis: .vertical)
             }
 
@@ -2081,6 +2157,17 @@ struct NewInventoryCountNativeView: View {
             }
         }
         .navigationTitle("New count")
+        .task { await loadWarehouses() }
+    }
+
+    @MainActor
+    private func loadWarehouses() async {
+        guard warehouses.isEmpty else { return }
+        guard let loaded = try? await WarehousesAPI().list(activeOnly: true) else { return }
+        warehouses = loaded
+        if !loaded.contains(where: { $0.code == location }) {
+            location = loaded.first(where: \.isDefault)?.code ?? loaded.first?.code ?? location
+        }
     }
 
     @MainActor

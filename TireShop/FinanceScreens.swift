@@ -869,9 +869,15 @@ private struct PayVendorSheet: View {
                             Text(AppFormat.money(item.remaining))
                                 .font(.subheadline)
                         }
-                        Text("\(item.container.ref ?? item.container.id) · \(item.container.supplier.name)")
-                            .font(.caption)
-                            .foregroundStyle(Theme.muted)
+                        if let container = item.container {
+                            Text("\(container.ref ?? container.id) · \(container.supplier.name)")
+                                .font(.caption)
+                                .foregroundStyle(Theme.muted)
+                        } else if let transfer = item.transfer {
+                            Text("\(transfer.ref ?? transfer.id) · \(transfer.fromLocation) → \(transfer.toLocation)")
+                                .font(.caption)
+                                .foregroundStyle(Theme.muted)
+                        }
                         if let description = item.description?.nilIfBlank {
                             Text(description)
                                 .font(.caption)
@@ -1366,7 +1372,9 @@ private struct SupplierPaymentDetailSheet: View {
                             ForEach(doc.lines) { line in
                                 RowLine(
                                     title: prettyCostCategory(line.category),
-                                    subtitle: line.container.ref ?? line.container.id,
+                                    subtitle: line.container.map { $0.ref ?? $0.id }
+                                        ?? line.transfer.map { $0.ref ?? $0.id }
+                                        ?? "Source document",
                                     trailing: AppFormat.money(line.amount)
                                 )
                             }
@@ -1574,6 +1582,7 @@ private func journalRefRoute(refType: String?, refId: String?) -> AppRoute? {
     if type.hasPrefix("sale") { return .saleDetail(id) }
     if type == "Container" || type.hasPrefix("container") { return .containerDetail(id) }
     if type == "inventory-count" { return .inventoryCountDetail(id) }
+    if type == "stock-transfer" { return .transferDetail(id) }
     return nil
 }
 

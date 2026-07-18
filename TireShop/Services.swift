@@ -52,6 +52,35 @@ struct WorkOrderPatchInput: Codable {
     let notes: String?
 }
 
+struct WarehouseCreateInput: Codable {
+    let code: String
+    let name: String
+    let notes: String?
+}
+
+struct WarehousePatchInput: Codable {
+    let name: String?
+    let notes: String?
+    let active: Bool?
+}
+
+struct StockTransferLineInput: Codable, Equatable {
+    let skuId: String
+    let qty: Int
+}
+
+struct StockTransferInput: Codable, Equatable {
+    let fromLocation: String
+    let toLocation: String
+    let lines: [StockTransferLineInput]
+    let costSpread: CostSpreadMethod?
+    let freightAmount: Double?
+    let freightVendorId: String?
+    let freightVendorName: String?
+    let freightDueAt: String?
+    let notes: String?
+}
+
 struct InventoryCountCreateInput: Codable {
     let scopeCategory: TireCategory?
     let scopePosition: TirePosition?
@@ -142,6 +171,7 @@ struct ContainerPatchInput: Encodable {
     var bolNumber: String?
     var isDDP: Bool
     var costSpread: CostSpreadMethod
+    var location: String? = nil
     var etaAt: String?
     var arrivedAt: String?
     var notes: String?
@@ -152,6 +182,7 @@ struct ContainerPatchInput: Encodable {
         case bolNumber
         case isDDP
         case costSpread
+        case location
         case etaAt
         case arrivedAt
         case notes
@@ -164,6 +195,7 @@ struct ContainerPatchInput: Encodable {
         try encode(bolNumber, forKey: .bolNumber, into: &container)
         try container.encode(isDDP, forKey: .isDDP)
         try container.encode(costSpread, forKey: .costSpread)
+        try container.encodeIfPresent(location, forKey: .location)
         try encode(etaAt, forKey: .etaAt, into: &container)
         try encode(arrivedAt, forKey: .arrivedAt, into: &container)
         try encode(notes, forKey: .notes, into: &container)
@@ -254,6 +286,13 @@ struct PasswordInput: Codable {
 struct GeneralPatchInput: Codable {
     let timezone: String?
     let defaultTaxRate: Double?
+    let storefrontLocation: String?
+
+    init(timezone: String?, defaultTaxRate: Double?, storefrontLocation: String? = nil) {
+        self.timezone = timezone
+        self.defaultTaxRate = defaultTaxRate
+        self.storefrontLocation = storefrontLocation
+    }
 }
 
 struct TestMailInput: Codable {
@@ -373,12 +412,35 @@ struct UserCreateInput: Codable {
     let password: String
     let fullName: String
     let roleId: String
+    let homeWarehouse: String?
+
+    init(
+        email: String,
+        password: String,
+        fullName: String,
+        roleId: String,
+        homeWarehouse: String? = nil
+    ) {
+        self.email = email
+        self.password = password
+        self.fullName = fullName
+        self.roleId = roleId
+        self.homeWarehouse = homeWarehouse
+    }
 }
 
 struct UserPatchInput: Codable {
     let fullName: String?
     let roleId: String?
     let active: Bool?
+    let homeWarehouse: String?
+
+    init(fullName: String?, roleId: String?, active: Bool?, homeWarehouse: String? = nil) {
+        self.fullName = fullName
+        self.roleId = roleId
+        self.active = active
+        self.homeWarehouse = homeWarehouse
+    }
 }
 
 struct RoleCreateInput: Codable {
@@ -805,11 +867,17 @@ struct InventoryAPI {
         try await client.request("/inventory/skus/\(id)", method: "PATCH", body: body)
     }
 
-    func adjust(id: String, delta: Int, reason: StockAdjustReason, note: String? = nil) async throws -> ImmediateOrApproval<InventoryItem> {
+    func adjust(
+        id: String,
+        delta: Int,
+        reason: StockAdjustReason,
+        location: String? = nil,
+        note: String? = nil
+    ) async throws -> ImmediateOrApproval<InventoryItem> {
         try await client.request(
             "/inventory/skus/\(id)/adjust",
             method: "POST",
-            body: StockAdjustmentInput(delta: delta, reason: reason, note: note)
+            body: StockAdjustmentInput(delta: delta, reason: reason, location: location, note: note)
         )
     }
 
@@ -820,6 +888,27 @@ struct InventoryAPI {
             fileName: fileName,
             mimeType: mimeType
         )
+    }
+}
+
+struct WarehousesAPI {
+    var client = APIClient.shared
+
+    func list(activeOnly: Bool = false) async throws -> [Warehouse] {
+        let suffix = activeOnly ? "?active=true" : ""
+        return try await client.request("/warehouses\(suffix)")
+    }
+
+    func create(_ body: WarehouseCreateInput) async throws -> Warehouse {
+        try await client.request("/warehouses", method: "POST", body: body)
+    }
+
+    func update(id: String, body: WarehousePatchInput) async throws -> Warehouse {
+        try await client.request("/warehouses/\(id)", method: "PATCH", body: body)
+    }
+
+    func setDefault(id: String) async throws -> Warehouse {
+        try await client.request("/warehouses/\(id)/set-default", method: "POST", body: EmptyBody())
     }
 }
 
@@ -1246,6 +1335,48 @@ struct MoneyAPI {
 
     func reverseSupplierPayment(id: String) async throws -> SettlementResult {
         try await client.request("/payables/payments/\(id)/reverse", method: "POST", body: EmptyBody())
+    }
+}
+
+struct TransfersAPI {
+    var client = APIClient.shared
+
+    func list(
+        status: StockTransferStatus? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<StockTransfer> {
+        try await client.request(
+            "/transfers\(query(["status": status, "page": page, "pageSize": pageSize]))"
+        )
+    }
+
+    func get(id: String) async throws -> StockTransfer {
+        try await client.request("/transfers/\(id)")
+    }
+
+    func create(_ body: StockTransferInput) async throws -> StockTransfer {
+        try await client.request("/transfers", method: "POST", body: body)
+    }
+
+    func update(id: String, body: StockTransferInput) async throws -> StockTransfer {
+        try await client.request("/transfers/\(id)", method: "PATCH", body: body)
+    }
+
+    func deleteDraft(id: String) async throws -> OkResponse {
+        try await client.request("/transfers/\(id)", method: "DELETE")
+    }
+
+    func post(id: String) async throws -> ImmediateOrApproval<StockTransfer> {
+        try await client.request("/transfers/\(id)/post", method: "POST", body: EmptyBody())
+    }
+
+    func void(id: String, reason: String? = nil) async throws -> StockTransfer {
+        try await client.request(
+            "/transfers/\(id)/void",
+            method: "POST",
+            body: ReasonInput(reason: reason)
+        )
     }
 }
 

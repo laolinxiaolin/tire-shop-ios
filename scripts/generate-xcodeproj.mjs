@@ -41,6 +41,8 @@ const ids = {
   targetRelease: id('targetRelease'),
   assetsFile: id('file:Assets.xcassets'),
   assetsBuild: id('build:Assets.xcassets'),
+  localizableCatalogFile: id('file:Localizable.xcstrings'),
+  localizableCatalogBuild: id('build:Localizable.xcstrings'),
   entitlementsFile: id('file:TireShop.entitlements'),
   testingEntitlementsFile: id('file:TireShopTesting.entitlements'),
   infoPlistFile: id('file:Info.plist'),
@@ -118,7 +120,7 @@ const commonProjectSettings = `
 
 const commonTargetSettings = `
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026071401;
+				CURRENT_PROJECT_VERSION = 2026071801;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -130,7 +132,7 @@ const commonTargetSettings = `
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -150,12 +152,14 @@ ${buildFiles}
 		${ids.stripeBuild} /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripeProduct} /* StripeTerminal */; };
 		${ids.stripePaymentSheetBuild} /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripePaymentSheetProduct} /* StripePaymentSheet */; };
 		${ids.assetsBuild} /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.assetsFile} /* Assets.xcassets */; };
+		${ids.localizableCatalogBuild} /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.localizableCatalogFile} /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 ${fileRefs}
 		${ids.product} /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		${ids.assetsFile} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		${ids.localizableCatalogFile} /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		${ids.entitlementsFile} /* TireShop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShop.entitlements; sourceTree = "<group>"; };
 		${ids.testingEntitlementsFile} /* TireShopTesting.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShopTesting.entitlements; sourceTree = "<group>"; };
 		${ids.infoPlistFile} /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -187,6 +191,7 @@ ${fileRefs}
 			children = (
 ${sourceChildren}
 				${ids.assetsFile} /* Assets.xcassets */,
+				${ids.localizableCatalogFile} /* Localizable.xcstrings */,
 				${ids.entitlementsFile} /* TireShop.entitlements */,
 				${ids.testingEntitlementsFile} /* TireShopTesting.entitlements */,
 				${ids.infoPlistFile} /* Info.plist */,
@@ -247,6 +252,7 @@ ${sourceChildren}
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = ${ids.mainGroup};
@@ -269,6 +275,7 @@ ${sourceChildren}
 			buildActionMask = 2147483647;
 			files = (
 				${ids.assetsBuild} /* Assets.xcassets in Resources */,
+				${ids.localizableCatalogBuild} /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

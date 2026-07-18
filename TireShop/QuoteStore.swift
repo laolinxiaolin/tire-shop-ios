@@ -60,6 +60,7 @@ final class QuoteStore: ObservableObject {
     @Published var taxOverride: Double?
     @Published var taxLookupMessage: String?
     @Published var editingSaleId: String?
+    @Published var location = ""
 
     var subtotal: Double {
         lines.reduce(0) { $0 + $1.lineTotal }
@@ -99,6 +100,10 @@ final class QuoteStore: ObservableObject {
         taxOverride = nil
         taxRate = pct
         taxLookupMessage = nil
+    }
+
+    func setLocation(_ code: String) {
+        location = code
     }
 
     func applyCustomerTaxRate() async {
@@ -199,6 +204,7 @@ final class QuoteStore: ObservableObject {
         taxOverride = nil
         taxLookupMessage = nil
         editingSaleId = sale.id
+        location = sale.location
     }
 
     func clear() {
@@ -208,6 +214,7 @@ final class QuoteStore: ObservableObject {
         taxOverride = nil
         taxLookupMessage = nil
         editingSaleId = nil
+        location = ""
     }
 
     func saleInput() throws -> SaleUpsertInput {
@@ -219,6 +226,7 @@ final class QuoteStore: ObservableObject {
             customerId: customer.id,
             taxRate: customer.taxExempt ? 0 : taxRate / 100,
             taxAmount: customer.taxExempt ? nil : taxOverride,
+            location: location.nilIfBlank,
             lines: lines.map {
                 NewSaleLine(
                     itemType: $0.itemType,

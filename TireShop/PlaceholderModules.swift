@@ -757,7 +757,7 @@ struct EmptyStateView: View {
             Image(systemName: "tray")
                 .font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(Theme.muted)
-            Text(text)
+            Text(LocalizedStringKey(text))
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.muted)

@@ -1,15 +1,17 @@
 import SwiftUI
 
 struct DashboardNativeView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     var body: some View {
         AsyncContentView(load: DashboardAPI().summary) { summary in
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.md) {
                     StatGrid(stats: [
-                        ("Today's sales", AppFormat.money(summary.today.revenue)),
-                        ("Month to date", AppFormat.money(summary.month.revenue)),
-                        ("Open A/R", AppFormat.money(summary.openAR.total)),
-                        ("Low stock", "\(summary.lowStockCount)")
+                        (i18n.t("dashboard.todaySales"), AppFormat.money(summary.today.revenue)),
+                        (i18n.t("dashboard.mtd"), AppFormat.money(summary.month.revenue)),
+                        (i18n.t("dashboard.openAR"), AppFormat.money(summary.openAR.total)),
+                        (i18n.t("dashboard.lowStock"), "\(summary.lowStockCount)")
                     ])
 
                     lowStockSection(summary.lowStock)
@@ -25,17 +27,17 @@ struct DashboardNativeView: View {
 
     private func lowStockSection(_ items: [DashboardSummary.LowStockSku]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            SectionHeader("Low stock")
+            SectionHeader(i18n.t("dashboard.lowStockTitle"))
 
             if items.isEmpty {
-                DashboardEmptyRow(text: "Everything is stocked.")
+                DashboardEmptyRow(text: i18n.t("dashboard.aboveReorder"))
             } else {
                 dashboardCard {
                     ForEach(items) { item in
                         RowLine(
                             title: "\(item.brand) \(item.model)",
                             subtitle: "\(item.size) - \(item.sku)",
-                            trailing: "\(item.onHand) on hand"
+                            trailing: "\(item.onHand) \(i18n.t("inventory.onHand"))"
                         )
                     }
                 }
@@ -45,17 +47,17 @@ struct DashboardNativeView: View {
 
     private func topSellerSection(_ items: [DashboardSummary.TopSku]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            SectionHeader("Top sellers this month")
+            SectionHeader(i18n.t("dashboard.topSellers"))
 
             if items.isEmpty {
-                DashboardEmptyRow(text: "No sales yet this month.")
+                DashboardEmptyRow(text: i18n.t("dashboard.noSalesMonth"))
             } else {
                 dashboardCard {
                     ForEach(items) { item in
                         RowLine(
                             title: "\(item.brand) \(item.model)",
                             subtitle: "\(item.size) - \(item.sku)",
-                            trailing: "\(item.qty) sold"
+                            trailing: i18n.t("dashboard.sold", ["n": item.qty])
                         )
                     }
                 }
@@ -83,7 +85,7 @@ private struct DashboardEmptyRow: View {
     let text: String
 
     var body: some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.subheadline)
             .foregroundStyle(Theme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -160,6 +162,11 @@ struct InventoryListNativeView: View {
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
     @State private var hideZeroStock = false
+    @State private var warehouses: [Warehouse] = []
+    @State private var location = ""
+    @State private var didChooseInitialLocation = false
+    @State private var loadingWarehouses = false
+    @State private var warehouseError: String?
     @State private var items: [TireSku] = []
     @State private var total = 0
     @State private var loadedPage = 0
@@ -170,8 +177,14 @@ struct InventoryListNativeView: View {
     @State private var loadMoreError: String?
     @State private var searchTask: Task<Void, Never>?
 
+    private var selectedLocation: String {
+        selectForQuote ? quote.location : location
+    }
+
     private var visibleItems: [TireSku] {
-        return hideZeroStock ? items.filter { Self.onHand($0) > 0 } : items
+        return hideZeroStock
+            ? items.filter { Self.onHand($0, location: selectedLocation.nilIfBlank) > 0 }
+            : items
     }
 
     private var hasMorePages: Bool {
@@ -216,8 +229,14 @@ struct InventoryListNativeView: View {
         }
         .background(Theme.background)
         .task {
+            if warehouses.isEmpty { await loadWarehouses() }
             if brands.isEmpty { await loadBrands() }
             if !hasLoaded { await reload() }
+        }
+        .onChange(of: quote.location) { _, _ in
+            if selectForQuote {
+                Task { await reload() }
+            }
         }
         .onDisappear {
             searchTask?.cancel()
@@ -247,14 +266,20 @@ struct InventoryListNativeView: View {
             Button {
                 addToQuote(sku)
             } label: {
-                InventorySkuRow(sku: sku)
+                InventorySkuRow(
+                    sku: sku,
+                    location: selectedLocation.nilIfBlank,
+                    showsUnitCost: false,
+                    showsAvailableQuantity: true
+                )
             }
             .tint(Theme.text)
+            .disabled(Self.available(sku, location: selectedLocation.nilIfBlank) <= 0)
         } else {
             NavigationLink {
-                SkuDetailNativeView(sku: sku)
+                SkuDetailNativeView(sku: sku, initialLocation: selectedLocation.nilIfBlank)
             } label: {
-                InventorySkuRow(sku: sku)
+                InventorySkuRow(sku: sku, location: selectedLocation.nilIfBlank)
             }
         }
     }
@@ -311,6 +336,8 @@ struct InventoryListNativeView: View {
 
     private var filters: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            warehouseFilter
+
             HStack(spacing: Theme.Space.sm) {
                 compactSearchField
                 hideZeroButton
@@ -341,6 +368,58 @@ struct InventoryListNativeView: View {
         .padding(.vertical, Theme.Space.sm)
         .background(Theme.background)
         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    @ViewBuilder
+    private var warehouseFilter: some View {
+        if loadingWarehouses {
+            HStack(spacing: Theme.Space.sm) {
+                ProgressView()
+                Text("Loading warehouses...")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            .frame(height: 36)
+        } else if warehouses.isEmpty {
+            if let warehouseError {
+                Text(warehouseError)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+            }
+        } else if selectForQuote {
+            HStack(spacing: Theme.Space.sm) {
+                Label("Availability", systemImage: "building.2")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                Spacer()
+                Text(warehouseLabel(selectedLocation))
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+            }
+            .frame(height: 36)
+        } else {
+            HStack(spacing: Theme.Space.sm) {
+                Label("Warehouse", systemImage: "building.2")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+
+                Spacer()
+
+                Picker("Warehouse", selection: $location) {
+                    Text("All warehouses").tag("")
+                    ForEach(warehouses) { warehouse in
+                        Text("\(warehouse.code) — \(warehouse.name)")
+                            .tag(warehouse.code)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: location) { _, _ in
+                    Task { await reload() }
+                }
+            }
+            .frame(height: 36)
+        }
     }
 
     private var compactSearchField: some View {
@@ -563,6 +642,7 @@ struct InventoryListNativeView: View {
     }
 
     private func addToQuote(_ sku: TireSku) {
+        guard Self.available(sku, location: selectedLocation.nilIfBlank) > 0 else { return }
         quote.addLine(
             itemType: "SKU",
             itemId: sku.id,
@@ -572,8 +652,21 @@ struct InventoryListNativeView: View {
         dismiss()
     }
 
-    private static func onHand(_ sku: TireSku) -> Int {
-        sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+    private static func onHand(_ sku: TireSku, location: String?) -> Int {
+        guard let location else {
+            return sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+        }
+        return sku.inventory.first { $0.location == location }?.qtyOnHand ?? 0
+    }
+
+    private static func available(_ sku: TireSku, location: String?) -> Int {
+        guard let location else {
+            return sku.inventory.reduce(0) { total, inventory in
+                total + max(0, inventory.qtyOnHand - inventory.qtyReserved)
+            }
+        }
+        guard let inventory = sku.inventory.first(where: { $0.location == location }) else { return 0 }
+        return max(0, inventory.qtyOnHand - inventory.qtyReserved)
     }
 
     @MainActor
@@ -685,6 +778,43 @@ struct InventoryListNativeView: View {
         }
     }
 
+    @MainActor
+    private func loadWarehouses() async {
+        loadingWarehouses = true
+        warehouseError = nil
+        defer { loadingWarehouses = false }
+
+        do {
+            warehouses = try await WarehousesAPI().list(activeOnly: true)
+
+            if selectForQuote {
+                if quote.location.nilIfBlank == nil {
+                    quote.setLocation(defaultInventoryLocation())
+                }
+            } else if !didChooseInitialLocation {
+                location = defaultInventoryLocation()
+                didChooseInitialLocation = true
+            }
+        } catch {
+            warehouses = []
+            warehouseError = (error as? LocalizedError)?.errorDescription ?? "Could not load warehouses."
+        }
+    }
+
+    private func defaultInventoryLocation() -> String {
+        warehouses.first(where: { $0.code == "MAIN" })?.code
+            ?? warehouses.first(where: \.isDefault)?.code
+            ?? warehouses.first?.code
+            ?? ""
+    }
+
+    private func warehouseLabel(_ code: String) -> String {
+        guard let warehouse = warehouses.first(where: { $0.code == code }) else {
+            return code.isEmpty ? "All warehouses" : code
+        }
+        return "\(warehouse.code) — \(warehouse.name)"
+    }
+
     private func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError {
             return true
@@ -700,9 +830,60 @@ struct InventoryListNativeView: View {
 
 private struct InventorySkuRow: View {
     let sku: TireSku
+    var location: String? = nil
+    var showsUnitCost = true
+    var showsAvailableQuantity = false
+
+    private var selectedInventory: TireSkuInventory? {
+        guard let location else { return nil }
+        return sku.inventory.first { $0.location == location }
+    }
 
     private var onHand: Int {
-        sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+        if location != nil {
+            return selectedInventory?.qtyOnHand ?? 0
+        }
+        return sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+    }
+
+    private var available: Int {
+        if location != nil {
+            guard let selectedInventory else { return 0 }
+            return max(0, selectedInventory.qtyOnHand - selectedInventory.qtyReserved)
+        }
+        return sku.inventory.reduce(0) { total, inventory in
+            total + max(0, inventory.qtyOnHand - inventory.qtyReserved)
+        }
+    }
+
+    private var displayedQuantity: Int {
+        showsAvailableQuantity ? available : onHand
+    }
+
+    private var inventoryDetail: String {
+        if showsAvailableQuantity {
+            if let location {
+                let reserved = selectedInventory?.qtyReserved ?? 0
+                return "\(available) available at \(location) · \(reserved) reserved"
+            }
+            return "\(available) available across all warehouses"
+        }
+
+        if let location {
+            let cost = selectedInventory.map { AppFormat.money($0.unitCost) } ?? "—"
+            return showsUnitCost
+                ? "\(location) · \(onHand) on hand · \(cost) cost"
+                : "\(onHand) on hand at \(location)"
+        }
+
+        let rows = sku.inventory
+            .sorted { $0.location < $1.location }
+            .map { row in
+                showsUnitCost
+                    ? "\(row.location) \(row.qtyOnHand) @ \(AppFormat.money(row.unitCost))"
+                    : "\(row.location) \(row.qtyOnHand)"
+            }
+        return rows.isEmpty ? "No warehouse stock" : rows.joined(separator: " · ")
     }
 
     var body: some View {
@@ -728,10 +909,17 @@ private struct InventorySkuRow: View {
             HStack {
                 Text("\(InventoryLabels.category(sku.category)) / \(InventoryLabels.position(sku.position))")
                 Spacer()
-                Text("\(onHand) on hand")
+                if location == nil {
+                    Text(showsAvailableQuantity ? "\(available) available" : "\(onHand) total")
+                }
             }
             .font(.caption)
-            .foregroundStyle(onHand <= sku.reorderPoint ? Theme.danger : Theme.muted)
+            .foregroundStyle(displayedQuantity <= sku.reorderPoint ? Theme.danger : Theme.muted)
+
+            Text(inventoryDetail)
+                .font(.caption2)
+                .foregroundStyle(displayedQuantity <= sku.reorderPoint ? Theme.danger : Theme.muted)
+                .lineLimit(2)
         }
         .padding(.vertical, Theme.Space.xs)
     }
@@ -1138,6 +1326,7 @@ struct SalesListNativeView: View {
     private func saleSubtitle(_ sale: SaleListItem) -> String {
         var parts = [
             SalesLabels.status(sale.status),
+            sale.location,
             AppFormat.dateTime(sale.createdAt)
         ]
 
@@ -1592,6 +1781,7 @@ struct ReturnDetailNativeView: View {
         List {
             Section {
                 RowLine(title: record.ref ?? "Return", subtitle: ReturnLabels.type(record.type), trailing: ReturnLabels.status(record.status))
+                RowLine(title: "Warehouse", subtitle: record.location)
 
                 if let sale = record.sale {
                     NavigationLink(value: AppRoute.saleDetail(sale.id)) {
@@ -1993,7 +2183,7 @@ private struct PurchasingContainersListView: View {
     }
 
     private func subtitle(_ container: ContainerListItem) -> String {
-        var parts = [ContainerLabels.status(container.status), container.supplier.name]
+        var parts = [ContainerLabels.status(container.status), container.location, container.supplier.name]
         if let country = container.supplier.country?.nilIfBlank {
             parts.append(country)
         }

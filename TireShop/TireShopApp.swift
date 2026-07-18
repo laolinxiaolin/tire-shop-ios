@@ -16,6 +16,7 @@ struct TireShopApp: App {
                 .environmentObject(tabs)
                 .environmentObject(quote)
                 .environmentObject(i18n)
+                .environment(\.locale, i18n.language.locale)
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
                         Task { await TapToPayTerminalController.shared.warmUpForForeground() }

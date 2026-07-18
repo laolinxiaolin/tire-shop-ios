@@ -34,9 +34,11 @@
 		AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E48A97CA0BFC00EA327436 /* TireShopApp.swift */; };
 		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
 		E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4464773F8E49D240BCB0CF91 /* VendorScreens.swift */; };
+		76965329492EC3C1629A7998 /* WarehouseTransferScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B904E12E6F894156ED7B9E74 /* WarehouseTransferScreens.swift */; };
 		9EF30F5D48ACFBB6C1DAEDF5 /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 861E4BCC7361F5BA4FD4E259 /* StripeTerminal */; };
 		A6DA2354BC96D7241DD366C5 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = EE2423EE6B9A6599B9A70A15 /* StripePaymentSheet */; };
 		222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */; };
+		1ABB0BD182343F4D3D34C97F /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FC311F94EB5115990BAC4BE8 /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,8 +69,10 @@
 		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TireShopApp.swift"; sourceTree = "<group>"; };
 		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TransactionScreens.swift"; sourceTree = "<group>"; };
 		4464773F8E49D240BCB0CF91 /* VendorScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VendorScreens.swift"; sourceTree = "<group>"; };
+		B904E12E6F894156ED7B9E74 /* WarehouseTransferScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WarehouseTransferScreens.swift"; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FC311F94EB5115990BAC4BE8 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		5A196A8CFC93D32A79E7C96E /* TireShop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShop.entitlements; sourceTree = "<group>"; };
 		5F72FDE880D5F4261E28E803 /* TireShopTesting.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShopTesting.entitlements; sourceTree = "<group>"; };
 		68E77A9D7BC78A97D4F4E27B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -125,7 +129,9 @@
 				72E48A97CA0BFC00EA327436 /* TireShopApp.swift */,
 				A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */,
 				4464773F8E49D240BCB0CF91 /* VendorScreens.swift */,
+				B904E12E6F894156ED7B9E74 /* WarehouseTransferScreens.swift */,
 				6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */,
+				FC311F94EB5115990BAC4BE8 /* Localizable.xcstrings */,
 				5A196A8CFC93D32A79E7C96E /* TireShop.entitlements */,
 				5F72FDE880D5F4261E28E803 /* TireShopTesting.entitlements */,
 				68E77A9D7BC78A97D4F4E27B /* Info.plist */,
@@ -186,6 +192,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = E50290A24C49A459B43487C5;
@@ -208,6 +215,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */,
+				1ABB0BD182343F4D3D34C97F /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -245,6 +253,7 @@
 				AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */,
 				E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */,
 				E48702237D5555AAAB9298D1 /* VendorScreens.swift in Sources */,
+				76965329492EC3C1629A7998 /* WarehouseTransferScreens.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -369,7 +378,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026071401;
+				CURRENT_PROJECT_VERSION = 2026071801;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -381,7 +390,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -396,7 +405,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026071401;
+				CURRENT_PROJECT_VERSION = 2026071801;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -408,7 +417,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

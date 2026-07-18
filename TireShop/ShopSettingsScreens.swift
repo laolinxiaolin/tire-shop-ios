@@ -22,6 +22,7 @@ struct ShopSettingsNativeView: View {
     @State private var statusMessage: String?
 
     @State private var general: GeneralSettings?
+    @State private var warehouses: [Warehouse] = []
     @State private var branding: BrandingSettings?
     @State private var mail: MailConfig?
     @State private var invoiceTemplate: InvoiceEmailTemplate?
@@ -33,6 +34,7 @@ struct ShopSettingsNativeView: View {
 
     @State private var timezone = ""
     @State private var taxRatePercent = ""
+    @State private var storefrontLocation = ""
 
     @State private var mailProvider = "smtp"
     @State private var mailHost = ""
@@ -154,6 +156,18 @@ struct ShopSettingsNativeView: View {
                 Text("%").foregroundStyle(Theme.muted)
             }
 
+            if !warehouses.isEmpty {
+                Picker("Storefront warehouse", selection: $storefrontLocation) {
+                    if !storefrontLocation.isEmpty, !warehouses.contains(where: { $0.code == storefrontLocation }) {
+                        Text("\(storefrontLocation) (inactive)").tag(storefrontLocation)
+                    }
+                    ForEach(warehouses) { warehouse in
+                        Text("\(warehouse.code) — \(warehouse.name)").tag(warehouse.code)
+                    }
+                }
+                .disabled(!canManage || savingGeneral)
+            }
+
             Button {
                 Task { await saveGeneral() }
             } label: {
@@ -163,7 +177,7 @@ struct ShopSettingsNativeView: View {
         } header: {
             Text("General")
         } footer: {
-            Text("Tax is stored as a fraction on the server and pre-fills new sales.")
+            Text("Tax pre-fills new sales. Storefront stock, reservations, and fulfillment use the selected warehouse.")
         }
     }
 
@@ -331,11 +345,15 @@ struct ShopSettingsNativeView: View {
             async let brandingTask = SettingsAPI().branding()
             async let mailTask = SettingsAPI().mail()
             async let templateTask = SettingsAPI().invoiceTemplate()
+            async let warehousesTask = WarehousesAPI().list(activeOnly: true)
 
             let loadedGeneral = try await generalTask
             let loadedBranding = try await brandingTask
             let loadedMail = try await mailTask
             let loadedTemplate = try await templateTask
+            let loadedWarehouses = (try? await warehousesTask) ?? []
+
+            warehouses = loadedWarehouses
 
             apply(
                 general: loadedGeneral,
@@ -377,6 +395,7 @@ struct ShopSettingsNativeView: View {
 
         timezone = general.timezone
         taxRatePercent = Self.taxPercentText(general.defaultTaxRate)
+        storefrontLocation = general.storefrontLocation
 
         mailProvider = mail.provider ?? "smtp"
         mailHost = mail.host
@@ -427,11 +446,13 @@ struct ShopSettingsNativeView: View {
             let fraction = ((percent / 100) * 10000).rounded() / 10000
             let updated = try await SettingsAPI().updateGeneral(GeneralPatchInput(
                 timezone: timezone,
-                defaultTaxRate: fraction
+                defaultTaxRate: fraction,
+                storefrontLocation: storefrontLocation.nilIfBlank
             ))
             general = updated
             timezone = updated.timezone
             taxRatePercent = Self.taxPercentText(updated.defaultTaxRate)
+            storefrontLocation = updated.storefrontLocation
             statusMessage = "General settings saved."
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save general settings."

@@ -20,6 +20,13 @@ enum AppLanguage: String, CaseIterable, Identifiable, Codable {
         case .zh: return "中"
         }
     }
+
+    var locale: Locale {
+        switch self {
+        case .en: return Locale(identifier: "en")
+        case .zh: return Locale(identifier: "zh-Hans")
+        }
+    }
 }
 
 @MainActor

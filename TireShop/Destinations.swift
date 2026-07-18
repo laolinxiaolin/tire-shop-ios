@@ -19,6 +19,12 @@ enum DestinationGroup: String, CaseIterable, Identifiable {
         case .admin: return "Admin"
         }
     }
+
+    @MainActor
+    func localizedTitle(using i18n: I18nStore) -> String {
+        guard self != .main else { return "" }
+        return i18n.t("nav.group.\(rawValue)")
+    }
 }
 
 struct Destination: Identifiable, Hashable {
@@ -31,6 +37,11 @@ struct Destination: Identifiable, Hashable {
     let blurb: String?
 
     var id: String { key }
+
+    @MainActor
+    func localizedTitle(using i18n: I18nStore) -> String {
+        i18n.t("nav.\(key)")
+    }
 }
 
 enum DestinationRegistry {
@@ -41,6 +52,7 @@ enum DestinationRegistry {
         Destination(key: "sales", title: "Sales", systemImage: "creditcard", group: .operations, permission: "sales.view", isBuilt: true, blurb: nil),
         Destination(key: "orders", title: "Web Orders", systemImage: "cart", group: .operations, permission: "orders.manage", isBuilt: true, blurb: nil),
         Destination(key: "inventory", title: "Inventory", systemImage: "circle.grid.3x3", group: .operations, permission: "inventory.view", isBuilt: true, blurb: nil),
+        Destination(key: "transfers", title: "Transfers", systemImage: "arrow.left.arrow.right", group: .operations, permission: "transfers.view", isBuilt: true, blurb: nil),
         Destination(key: "skuManagement", title: "SKU Management", systemImage: "tag", group: .operations, permission: "inventory.manage", isBuilt: true, blurb: nil),
         Destination(key: "tireAttributes", title: "Tire Attributes", systemImage: "gearshape", group: .operations, permission: "inventory.config", isBuilt: true, blurb: nil),
         Destination(key: "brandInfo", title: "Brand Info", systemImage: "book", group: .operations, permission: "brands.manage", isBuilt: true, blurb: nil),
@@ -65,6 +77,7 @@ enum DestinationRegistry {
         Destination(key: "users", title: "Users", systemImage: "person.crop.circle", group: .admin, permission: "users.manage", isBuilt: true, blurb: nil),
         Destination(key: "roles", title: "Roles", systemImage: "shield", group: .admin, permission: "users.manage", isBuilt: true, blurb: nil),
         Destination(key: "apiKeys", title: "API Keys", systemImage: "key", group: .admin, permission: "apikeys.manage", isBuilt: true, blurb: nil),
+        Destination(key: "warehouses", title: "Warehouses", systemImage: "building.2", group: .admin, permission: "warehouses.manage", isBuilt: true, blurb: nil),
         Destination(key: "shopSettings", title: "Shop Settings", systemImage: "gear", group: .admin, permission: "settings.manage", isBuilt: true, blurb: nil)
     ]
 

@@ -97,6 +97,7 @@ typealias RefundMethod = String
 typealias InventoryDisposition = String
 typealias WarrantyDisposition = String
 typealias InventoryCountStatus = String
+typealias StockTransferStatus = String
 typealias ContainerStatus = String
 typealias CostSpreadMethod = String
 typealias ContainerCostCategory = String
@@ -127,6 +128,7 @@ struct TireSkuInventory: Codable, Identifiable, Equatable {
     let location: String
     let qtyOnHand: Int
     let qtyReserved: Int
+    let unitCost: String
 }
 
 struct TireSku: Codable, Identifiable, Equatable {
@@ -176,12 +178,105 @@ struct InventoryItem: Codable, Identifiable, Equatable {
     let location: String
     let qtyOnHand: Int
     let qtyReserved: Int
+    let unitCost: String
 }
 
 struct StockAdjustmentInput: Codable {
     let delta: Int
     let reason: StockAdjustReason
+    let location: String?
     let note: String?
+}
+
+struct Warehouse: Codable, Identifiable, Equatable {
+    let id: String
+    let code: String
+    let name: String
+    let active: Bool
+    let isDefault: Bool
+    let notes: String?
+    let createdAt: String
+    let updatedAt: String
+    let qtyOnHand: Int
+    let qtyReserved: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case code
+        case name
+        case active
+        case isDefault
+        case notes
+        case createdAt
+        case updatedAt
+        case qtyOnHand
+        case qtyReserved
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        code = try container.decode(String.self, forKey: .code)
+        name = try container.decode(String.self, forKey: .name)
+        active = try container.decode(Bool.self, forKey: .active)
+        isDefault = try container.decode(Bool.self, forKey: .isDefault)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
+        qtyOnHand = try container.decodeIfPresent(Int.self, forKey: .qtyOnHand) ?? 0
+        qtyReserved = try container.decodeIfPresent(Int.self, forKey: .qtyReserved) ?? 0
+    }
+}
+
+struct StockTransferSku: Codable, Identifiable, Equatable {
+    let id: String
+    let sku: String
+    let brand: String
+    let model: String
+    let size: String
+}
+
+struct StockTransferLine: Codable, Identifiable, Equatable {
+    let id: String
+    let skuId: String
+    let sku: StockTransferSku
+    let qty: Int
+    let unitCostFrom: String?
+    let freightPerUnit: String?
+    let landedUnitCost: String?
+}
+
+struct StockTransferVendor: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
+struct StockTransferCost: Codable, Identifiable, Equatable {
+    let id: String
+    let status: ContainerCostStatus
+    let amount: String
+    let amountPaid: String
+}
+
+struct StockTransfer: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String?
+    let status: StockTransferStatus
+    let fromLocation: String
+    let toLocation: String
+    let costSpread: CostSpreadMethod
+    let freightAmount: String
+    let freightVendorId: String?
+    let freightVendorName: String?
+    let freightVendor: StockTransferVendor?
+    let freightDueAt: String?
+    let notes: String?
+    let postedAt: String?
+    let voidedAt: String?
+    let createdAt: String
+    let updatedAt: String?
+    let lines: [StockTransferLine]
+    let costs: [StockTransferCost]
 }
 
 struct ImportSummary: Codable, Equatable {
@@ -377,6 +472,7 @@ struct Sale: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
     let status: SaleStatus
+    let location: String
     let customer: CustomerSummary
     let customerId: String
     let subtotal: String
@@ -392,6 +488,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
     let status: SaleStatus
+    let location: String
     let customer: CustomerSummary
     let customerId: String
     let subtotal: String
@@ -812,7 +909,22 @@ struct SaleUpsertInput: Codable {
     let customerId: String
     let taxRate: Double?
     let taxAmount: Double?
+    let location: String?
     let lines: [NewSaleLine]
+
+    init(
+        customerId: String,
+        taxRate: Double?,
+        taxAmount: Double?,
+        location: String? = nil,
+        lines: [NewSaleLine]
+    ) {
+        self.customerId = customerId
+        self.taxRate = taxRate
+        self.taxAmount = taxAmount
+        self.location = location
+        self.lines = lines
+    }
 }
 
 struct DashboardSummary: Codable, Equatable {
@@ -1039,6 +1151,7 @@ struct ReturnRecord: Codable, Identifiable, Equatable {
     let saleId: String
     let type: ReturnType
     let status: ReturnStatus
+    let location: String
     let reason: String?
     let notes: String?
     let restockingFee: String
@@ -1196,6 +1309,14 @@ struct PayableVendorDetail: Codable, Equatable {
             let supplier: SupplierRef
         }
 
+        struct TransferRef: Codable, Equatable {
+            let id: String
+            let ref: String?
+            let status: StockTransferStatus
+            let fromLocation: String
+            let toLocation: String
+        }
+
         let id: String
         let category: String
         let amount: Double
@@ -1205,7 +1326,8 @@ struct PayableVendorDetail: Codable, Equatable {
         let reference: String?
         let createdAt: String
         let ageDays: Int
-        let container: ContainerRef
+        let container: ContainerRef?
+        let transfer: TransferRef?
     }
 
     let vendor: String?
@@ -1277,11 +1399,17 @@ struct SupplierPaymentDetail: Codable, Identifiable, Equatable {
             let ref: String?
         }
 
+        struct TransferRef: Codable, Equatable {
+            let id: String
+            let ref: String?
+        }
+
         let id: String
         let costId: String
         let category: String
         let description: String?
-        let container: ContainerRef
+        let container: ContainerRef?
+        let transfer: TransferRef?
         let amount: Double
     }
 
@@ -1558,6 +1686,7 @@ struct ContainerListItem: Codable, Identifiable, Equatable {
     let supplier: SupplierInfo
     let status: ContainerStatus
     let isDDP: Bool
+    let location: String
     let costSpread: String
     let etaAt: String?
     let arrivedAt: String?
@@ -1576,6 +1705,7 @@ struct ContainerListItem: Codable, Identifiable, Equatable {
         case supplier
         case status
         case isDDP
+        case location
         case costSpread
         case etaAt
         case arrivedAt
@@ -1609,6 +1739,7 @@ struct Container: Codable, Identifiable, Equatable {
     let supplier: SupplierInfo
     let status: ContainerStatus
     let isDDP: Bool
+    let location: String
     let costSpread: CostSpreadMethod
     let etaAt: String?
     let arrivedAt: String?
@@ -1630,6 +1761,7 @@ struct Container: Codable, Identifiable, Equatable {
         case supplier
         case status
         case isDDP
+        case location
         case costSpread
         case etaAt
         case arrivedAt
@@ -1976,6 +2108,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
     let roleId: String
     let roleName: String
     let active: Bool
+    let homeWarehouse: String?
     let mfaMethod: String?
     let createdAt: String
 
@@ -1992,6 +2125,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         case roleName
         case role
         case active
+        case homeWarehouse
         case mfaMethod
         case createdAt
     }
@@ -2004,7 +2138,8 @@ struct UserAccount: Codable, Identifiable, Equatable {
         roleName: String,
         active: Bool,
         mfaMethod: String?,
-        createdAt: String
+        createdAt: String,
+        homeWarehouse: String? = nil
     ) {
         self.id = id
         self.email = email
@@ -2012,6 +2147,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         self.roleId = roleId
         self.roleName = roleName
         self.active = active
+        self.homeWarehouse = homeWarehouse
         self.mfaMethod = mfaMethod
         self.createdAt = createdAt
     }
@@ -2025,6 +2161,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         roleId = try container.decodeIfPresent(String.self, forKey: .roleId) ?? role?.id ?? ""
         roleName = try container.decodeIfPresent(String.self, forKey: .roleName) ?? role?.name ?? "Unassigned"
         active = try container.decode(Bool.self, forKey: .active)
+        homeWarehouse = try container.decodeIfPresent(String.self, forKey: .homeWarehouse)
         mfaMethod = try container.decodeIfPresent(String.self, forKey: .mfaMethod)
         createdAt = try container.decode(String.self, forKey: .createdAt)
     }
@@ -2037,6 +2174,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         try container.encode(roleId, forKey: .roleId)
         try container.encode(roleName, forKey: .roleName)
         try container.encode(active, forKey: .active)
+        try container.encodeIfPresent(homeWarehouse, forKey: .homeWarehouse)
         try container.encodeIfPresent(mfaMethod, forKey: .mfaMethod)
         try container.encode(createdAt, forKey: .createdAt)
     }
@@ -2146,6 +2284,7 @@ struct AiScopeGroup: Codable, Equatable {
 struct GeneralSettings: Codable, Equatable {
     let timezone: String
     let defaultTaxRate: Double
+    let storefrontLocation: String
 }
 
 struct BrandingSettings: Codable, Equatable {
@@ -2267,6 +2406,7 @@ struct Order: Codable, Identifiable, Equatable {
     let customer: OrderCustomerRef
     let customerUser: OrderUserRef?
     let status: OrderStatus
+    let location: String
     let fulfillment: OrderFulfillment
     let deliveryAddress: String?
     let notes: String?

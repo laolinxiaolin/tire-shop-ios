@@ -69,6 +69,7 @@ struct SessionUser: Codable, Identifiable, Equatable {
     var fullName: String
     let roleId: String
     let roleName: String
+    let homeWarehouse: String?
     let isAdmin: Bool
     let permissions: [String]
     let approvalPermissions: [String]?

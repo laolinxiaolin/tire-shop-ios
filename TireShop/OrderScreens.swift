@@ -84,6 +84,7 @@ struct OrderDetailNativeView: View {
             Section {
                 RowLine(title: "Status", subtitle: nil, trailing: order.status.capitalized)
                 RowLine(title: "Customer", subtitle: order.customer.company, trailing: order.customer.name)
+                RowLine(title: "Warehouse", subtitle: nil, trailing: order.location)
                 if let email = order.customerUser?.email {
                     RowLine(title: "Placed by", subtitle: nil, trailing: email)
                 }

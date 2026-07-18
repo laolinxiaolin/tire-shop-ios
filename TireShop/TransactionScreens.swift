@@ -7,6 +7,7 @@ import UIKit
 struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
+    @Environment(\.dismiss) private var dismiss
 
     private enum FocusField: Hashable {
         case price(String)
@@ -17,6 +18,13 @@ struct NewQuoteNativeView: View {
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var roundTarget = ""
+    @State private var warehouses: [Warehouse] = []
+    @State private var loadingWarehouses = true
+    @State private var warehouseError: String?
+    @State private var availabilityBySku: [String: Int] = [:]
+    @State private var availabilityLocation = ""
+    @State private var loadingAvailability = false
+    @State private var availabilityRequestID = UUID()
     @FocusState private var focusedField: FocusField?
 
     var body: some View {
@@ -28,6 +36,7 @@ struct NewQuoteNativeView: View {
                 }
             } else {
                 customerSection
+                warehouseSection
                 linesSection
                 totalsSection
 
@@ -63,10 +72,18 @@ struct NewQuoteNativeView: View {
             }
         }
         .task {
+            await loadWarehouses()
             await quote.restoreDefaultTaxRate()
+            await loadAvailability()
         }
         .onChange(of: quote.customer) { _, _ in
             Task { await quote.applyCustomerTaxRate() }
+        }
+        .onChange(of: quote.location) { _, _ in
+            Task { await loadAvailability() }
+        }
+        .onChange(of: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId)) { _, _ in
+            Task { await loadAvailability() }
         }
     }
 
@@ -89,6 +106,51 @@ struct NewQuoteNativeView: View {
         }
     }
 
+    private var warehouseSection: some View {
+        Section("Warehouse") {
+            if loadingWarehouses {
+                HStack(spacing: Theme.Space.sm) {
+                    ProgressView()
+                    Text("Loading warehouses...")
+                        .foregroundStyle(Theme.muted)
+                }
+            } else if warehouses.isEmpty {
+                Text(warehouseError ?? "No active warehouses are available.")
+                    .foregroundStyle(Theme.danger)
+            } else {
+                Picker("Sell from", selection: Binding(
+                    get: { quote.location },
+                    set: { quote.setLocation($0) }
+                )) {
+                    if quote.location.nilIfBlank != nil,
+                       !warehouses.contains(where: { $0.code == quote.location }) {
+                        Text("\(quote.location) (inactive)")
+                            .tag(quote.location)
+                    }
+                    ForEach(warehouses) { warehouse in
+                        Text("\(warehouse.code) — \(warehouse.name)")
+                            .tag(warehouse.code)
+                    }
+                }
+
+                Text("Tire availability and stock relief use this warehouse.")
+                    .font(.footnote)
+                    .foregroundStyle(
+                        warehouses.contains(where: { $0.code == quote.location }) ? Theme.muted : Theme.danger
+                    )
+
+                if loadingAvailability && quote.lines.contains(where: { $0.itemType == "SKU" }) {
+                    HStack(spacing: Theme.Space.sm) {
+                        ProgressView()
+                        Text("Checking tire availability...")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+            }
+        }
+    }
+
     private var linesSection: some View {
         Section("Items") {
             if quote.lines.isEmpty {
@@ -104,10 +166,16 @@ struct NewQuoteNativeView: View {
                         trailing: AppFormat.money(line.lineTotal)
                     )
 
+                    if let available = availableQuantity(for: line) {
+                        Text("\(available) available at \(quote.location)")
+                            .font(.caption)
+                            .foregroundStyle(line.qty > available ? Theme.danger : Theme.muted)
+                    }
+
                     Stepper("Qty \(line.qty)", value: Binding(
                         get: { line.qty },
                         set: { quote.updateQty(line.id, qty: $0) }
-                    ), in: 1...999)
+                    ), in: 1...maximumQuantity(for: line))
 
                     TextField("Unit price", value: Binding(
                         get: { line.unitPrice },
@@ -125,8 +193,10 @@ struct NewQuoteNativeView: View {
             }
 
             NavigationLink("Add tire") {
-                SkuPickerNativeView(selectForQuote: true)
+                InventoryListNativeView(selectForQuote: true)
+                    .navigationTitle("Add a tire")
             }
+            .disabled(quote.location.nilIfBlank == nil)
 
             NavigationLink("Add service") {
                 ServicePickerNativeView()
@@ -181,7 +251,21 @@ struct NewQuoteNativeView: View {
     }
 
     private var canSubmit: Bool {
-        auth.has("sales.manage") && quote.customer != nil && !quote.lines.isEmpty && !saving
+        auth.has("sales.manage")
+            && quote.customer != nil
+            && quote.location.nilIfBlank != nil
+            && warehouses.contains(where: { $0.code == quote.location })
+            && !quote.lines.isEmpty
+            && !(loadingAvailability && quote.lines.contains(where: { $0.itemType == "SKU" }))
+            && !hasStockShortage
+            && !saving
+    }
+
+    private var hasStockShortage: Bool {
+        guard availabilityLocation == quote.location else { return false }
+        return quote.lines.contains { line in
+            line.itemType == "SKU" && line.qty > (availabilityBySku[line.itemId] ?? 0)
+        }
     }
 
     private var buttonTitle: String {
@@ -199,16 +283,114 @@ struct NewQuoteNativeView: View {
             if let editingId = quote.editingSaleId {
                 _ = try await SalesAPI().update(id: editingId, body: input)
                 quote.clear()
+                dismiss()
             } else {
                 let sale = try await SalesAPI().create(input)
                 _ = try await SalesAPI().confirm(id: sale.id)
                 quote.clear()
+                applyDefaultWarehouse()
             }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
         }
 
         saving = false
+    }
+
+    private func availableQuantity(for line: QuoteLine) -> Int? {
+        guard line.itemType == "SKU", availabilityLocation == quote.location else { return nil }
+        return availabilityBySku[line.itemId] ?? 0
+    }
+
+    private func maximumQuantity(for line: QuoteLine) -> Int {
+        guard let available = availableQuantity(for: line) else { return 999 }
+        return max(line.qty, max(available, 1))
+    }
+
+    @MainActor
+    private func loadWarehouses() async {
+        loadingWarehouses = true
+        warehouseError = nil
+        defer { loadingWarehouses = false }
+
+        do {
+            warehouses = try await WarehousesAPI().list(activeOnly: true)
+            applyDefaultWarehouse()
+        } catch {
+            warehouses = []
+            warehouseError = (error as? LocalizedError)?.errorDescription ?? "Could not load warehouses."
+        }
+    }
+
+    private func applyDefaultWarehouse() {
+        guard quote.location.nilIfBlank == nil else { return }
+        let home = auth.user?.homeWarehouse?.nilIfBlank
+        let selected = home.flatMap { code in warehouses.first { $0.code == code }?.code }
+            ?? warehouses.first(where: \.isDefault)?.code
+            ?? warehouses.first?.code
+        if let selected {
+            quote.setLocation(selected)
+        }
+    }
+
+    @MainActor
+    private func loadAvailability() async {
+        let requestID = UUID()
+        availabilityRequestID = requestID
+
+        guard let location = quote.location.nilIfBlank else {
+            availabilityBySku = [:]
+            availabilityLocation = ""
+            loadingAvailability = false
+            return
+        }
+
+        let skuIds = Set(quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId))
+        guard !skuIds.isEmpty else {
+            availabilityBySku = [:]
+            availabilityLocation = location
+            loadingAvailability = false
+            return
+        }
+
+        loadingAvailability = true
+        availabilityLocation = ""
+        defer {
+            if quote.location == location && availabilityRequestID == requestID {
+                loadingAvailability = false
+            }
+        }
+
+        do {
+            var pageNumber = 1
+            var matching: [String: TireSku] = [:]
+
+            while true {
+                let page = try await InventoryAPI().listSkus(
+                    page: pageNumber,
+                    pageSize: 1000
+                )
+                for sku in page.items where skuIds.contains(sku.id) {
+                    matching[sku.id] = sku
+                }
+                guard matching.count < skuIds.count,
+                      page.page * page.pageSize < page.total,
+                      !page.items.isEmpty else { break }
+                pageNumber = page.page + 1
+            }
+
+            guard quote.location == location, availabilityRequestID == requestID else { return }
+            availabilityBySku = Dictionary(uniqueKeysWithValues: skuIds.map { id in
+                let inventory = matching[id]?.inventory.first { $0.location == location }
+                let quantity = max(0, (inventory?.qtyOnHand ?? 0) - (inventory?.qtyReserved ?? 0))
+                return (id, quantity)
+            })
+            availabilityLocation = location
+        } catch {
+            guard quote.location == location, availabilityRequestID == requestID else { return }
+            availabilityBySku = [:]
+            availabilityLocation = ""
+        }
     }
 }
 
@@ -259,6 +441,7 @@ struct ServicePickerNativeView: View {
 
 struct SkuDetailNativeView: View {
     let sku: TireSku
+    var initialLocation: String? = nil
 
     private var onHand: Int {
         sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
@@ -275,7 +458,11 @@ struct SkuDetailNativeView: View {
 
             Section("Inventory") {
                 ForEach(sku.inventory) { item in
-                    RowLine(title: item.location, subtitle: "\(item.qtyReserved) reserved", trailing: "\(item.qtyOnHand)")
+                    RowLine(
+                        title: item.location,
+                        subtitle: "\(item.qtyReserved) reserved · \(AppFormat.money(item.unitCost)) cost",
+                        trailing: "\(item.qtyOnHand)"
+                    )
                 }
             }
 
@@ -297,7 +484,7 @@ struct SkuDetailNativeView: View {
                     SkuFormNativeView(editing: sku)
                 }
                 NavigationLink("Adjust stock") {
-                    AdjustStockNativeView(sku: sku)
+                    AdjustStockNativeView(sku: sku, initialLocation: initialLocation)
                 }
                 NavigationLink("Add to sale") {
                     SkuAddToQuoteView(sku: sku)
@@ -352,8 +539,25 @@ struct SkuLookupEditNativeView: View {
 
 struct SkuAddToQuoteView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
     let sku: TireSku
+
+    @State private var loadingWarehouse = false
+    @State private var warehouseError: String?
+
+    private var available: Int {
+        guard let location = quote.location.nilIfBlank else { return 0 }
+        guard let inventory = sku.inventory.first(where: { $0.location == location }) else { return 0 }
+        return max(0, inventory.qtyOnHand - inventory.qtyReserved)
+    }
+
+    private var availabilityText: String {
+        guard let location = quote.location.nilIfBlank else {
+            return loadingWarehouse ? "Loading sale warehouse..." : "Select a sale warehouse first."
+        }
+        return "\(available) available at \(location)"
+    }
 
     var body: some View {
         VStack(spacing: Theme.Space.lg) {
@@ -362,7 +566,13 @@ struct SkuAddToQuoteView: View {
                 .fontWeight(.bold)
             Text("\(sku.size) - \(sku.sku)")
                 .foregroundStyle(Theme.muted)
-            PrimaryButton(title: "Add to sale") {
+            Text(warehouseError ?? availabilityText)
+                .font(.subheadline)
+                .foregroundStyle(available > 0 && warehouseError == nil ? Theme.muted : Theme.danger)
+            PrimaryButton(
+                title: "Add to sale",
+                disabled: quote.location.nilIfBlank == nil || available <= 0 || loadingWarehouse
+            ) {
                 quote.addLine(
                     itemType: "SKU",
                     itemId: sku.id,
@@ -375,6 +585,33 @@ struct SkuAddToQuoteView: View {
         .padding(Theme.Space.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
+        .task {
+            await ensureSaleWarehouse()
+        }
+    }
+
+    @MainActor
+    private func ensureSaleWarehouse() async {
+        loadingWarehouse = true
+        warehouseError = nil
+        defer { loadingWarehouse = false }
+
+        do {
+            let warehouses = try await WarehousesAPI().list(activeOnly: true)
+            guard !warehouses.isEmpty else {
+                warehouseError = "No active warehouses are available."
+                return
+            }
+            if !warehouses.contains(where: { $0.code == quote.location }) {
+                let home = auth.user?.homeWarehouse?.nilIfBlank
+                let selected = home.flatMap { code in warehouses.first { $0.code == code }?.code }
+                    ?? warehouses.first(where: \.isDefault)?.code
+                    ?? warehouses[0].code
+                quote.setLocation(selected)
+            }
+        } catch {
+            warehouseError = (error as? LocalizedError)?.errorDescription ?? "Could not load warehouses."
+        }
     }
 }
 
@@ -540,16 +777,39 @@ struct SkuFormNativeView: View {
 struct AdjustStockNativeView: View {
     @Environment(\.dismiss) private var dismiss
     let sku: TireSku
+    let initialLocation: String?
 
     @State private var sign = 1
     @State private var quantity = ""
     @State private var reason = "PURCHASE"
     @State private var note = ""
+    @State private var warehouses: [Warehouse] = []
+    @State private var location: String
+    @State private var loadingWarehouses = true
+    @State private var warehouseError: String?
     @State private var saving = false
     @State private var errorMessage: String?
 
+    init(sku: TireSku, initialLocation: String? = nil) {
+        self.sku = sku
+        self.initialLocation = initialLocation
+        let seedLocation = initialLocation?.nilIfBlank
+            ?? sku.inventory.first(where: { $0.qtyOnHand > 0 })?.location
+            ?? sku.inventory.first?.location
+            ?? ""
+        _location = State(initialValue: seedLocation)
+    }
+
+    private var currentInventory: TireSkuInventory? {
+        sku.inventory.first { $0.location == location }
+    }
+
     private var current: Int {
-        sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+        currentInventory?.qtyOnHand ?? 0
+    }
+
+    private var reserved: Int {
+        currentInventory?.qtyReserved ?? 0
     }
 
     private var delta: Int {
@@ -566,8 +826,35 @@ struct AdjustStockNativeView: View {
             Section {
                 RowLine(title: "\(sku.brand) \(sku.model)", subtitle: "\(sku.size) - \(sku.sku)")
                 RowLine(title: "On hand", trailing: "\(current)")
+                RowLine(title: "Reserved", trailing: "\(reserved)")
+                RowLine(title: "Unit cost", trailing: currentInventory.map { AppFormat.money($0.unitCost) } ?? "—")
                 RowLine(title: "Change", trailing: delta > 0 ? "+\(delta)" : "\(delta)")
                 RowLine(title: "Resulting", trailing: "\(resulting)")
+                if resulting < reserved {
+                    Text("\(reserved) reserved units must remain at this warehouse.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.danger)
+                }
+            }
+
+            Section("Warehouse") {
+                if loadingWarehouses {
+                    HStack(spacing: Theme.Space.sm) {
+                        ProgressView()
+                        Text("Loading warehouses...")
+                            .foregroundStyle(Theme.muted)
+                    }
+                } else if warehouses.isEmpty {
+                    Text(warehouseError ?? "No active warehouses are available.")
+                        .foregroundStyle(Theme.danger)
+                } else {
+                    Picker("Location", selection: $location) {
+                        ForEach(warehouses) { warehouse in
+                            Text("\(warehouse.code) — \(warehouse.name)")
+                                .tag(warehouse.code)
+                        }
+                    }
+                }
             }
 
             Section("Adjustment") {
@@ -600,10 +887,18 @@ struct AdjustStockNativeView: View {
                 Button(saving ? "Applying..." : "Apply") {
                     Task { await apply() }
                 }
-                .disabled(delta == 0 || resulting < 0 || saving)
+                .disabled(
+                    delta == 0
+                        || resulting < reserved
+                        || !warehouses.contains(where: { $0.code == location })
+                        || saving
+                )
             }
         }
         .navigationTitle("Adjust stock")
+        .task {
+            await loadWarehouses()
+        }
     }
 
     @MainActor
@@ -612,13 +907,52 @@ struct AdjustStockNativeView: View {
         errorMessage = nil
 
         do {
-            _ = try await InventoryAPI().adjust(id: sku.id, delta: delta, reason: reason, note: note.nilIfBlank)
+            guard let location = location.nilIfBlank else {
+                throw APIError(status: 0, message: "Select a warehouse first.")
+            }
+            guard warehouses.contains(where: { $0.code == location }) else {
+                throw APIError(status: 0, message: "Select an active warehouse first.")
+            }
+            guard resulting >= reserved else {
+                throw APIError(status: 0, message: "Reserved units cannot be removed.")
+            }
+            _ = try await InventoryAPI().adjust(
+                id: sku.id,
+                delta: delta,
+                reason: reason,
+                location: location,
+                note: note.nilIfBlank
+            )
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
         }
 
         saving = false
+    }
+
+    @MainActor
+    private func loadWarehouses() async {
+        loadingWarehouses = true
+        warehouseError = nil
+        defer { loadingWarehouses = false }
+
+        do {
+            warehouses = try await WarehousesAPI().list(activeOnly: true)
+            if !warehouses.contains(where: { $0.code == location }) {
+                location = initialLocation.flatMap { preferred in
+                    warehouses.first { $0.code == preferred }?.code
+                } ?? sku.inventory.first(where: { inventory in
+                    inventory.qtyOnHand > 0 && warehouses.contains { $0.code == inventory.location }
+                })?.location
+                    ?? warehouses.first(where: \.isDefault)?.code
+                    ?? warehouses.first?.code
+                    ?? ""
+            }
+        } catch {
+            warehouses = []
+            warehouseError = (error as? LocalizedError)?.errorDescription ?? "Could not load warehouses."
+        }
     }
 }
 

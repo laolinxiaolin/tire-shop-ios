@@ -13,6 +13,7 @@ struct UsersNativeView: View {
 
     @State private var users: [UserAccount] = []
     @State private var roles: [Role] = []
+    @State private var warehouses: [Warehouse] = []
     @State private var loaded = false
     @State private var errorMessage: String?
     @State private var search = ""
@@ -62,7 +63,7 @@ struct UsersNativeView: View {
             }
         }
         .sheet(item: $editing) { target in
-            UserEditorView(user: target.user, roles: roles) {
+            UserEditorView(user: target.user, roles: roles, warehouses: warehouses) {
                 editing = nil
                 Task { await load() }
             }
@@ -112,8 +113,10 @@ struct UsersNativeView: View {
         do {
             async let usersTask = UsersAPI().list()
             async let rolesTask = RolesAPI().list()
+            async let warehousesTask = WarehousesAPI().list(activeOnly: true)
             users = try await usersTask
             roles = try await rolesTask
+            warehouses = (try? await warehousesTask) ?? []
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load users."
@@ -124,7 +127,10 @@ struct UsersNativeView: View {
     @MainActor
     private func setActive(_ user: UserAccount, active: Bool) async {
         do {
-            _ = try await UsersAPI().update(id: user.id, body: UserPatchInput(fullName: nil, roleId: nil, active: active))
+            _ = try await UsersAPI().update(
+                id: user.id,
+                body: UserPatchInput(fullName: nil, roleId: nil, active: active, homeWarehouse: nil)
+            )
             await load()
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "Could not update the user."
@@ -158,6 +164,9 @@ private struct UserRow: View {
                     .lineLimit(1)
                 HStack(spacing: Theme.Space.sm) {
                     Text(user.roleName)
+                    if let warehouse = user.homeWarehouse?.nilIfBlank {
+                        Label(warehouse, systemImage: "building.2")
+                    }
                     if user.mfaMethod != nil {
                         Label("MFA", systemImage: "lock.fill")
                     }
@@ -177,6 +186,7 @@ private struct UserRow: View {
 private struct UserEditorView: View {
     let user: UserAccount?
     let roles: [Role]
+    let warehouses: [Warehouse]
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -184,6 +194,7 @@ private struct UserEditorView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var roleId = ""
+    @State private var homeWarehouse = ""
     @State private var active = true
     @State private var saving = false
     @State private var errorMessage: String?
@@ -233,6 +244,18 @@ private struct UserEditorView: View {
                             Text(role.name).tag(role.id)
                         }
                     }
+
+                    if !warehouses.isEmpty {
+                        Picker("Home warehouse", selection: $homeWarehouse) {
+                            Text("System default").tag("")
+                            if !homeWarehouse.isEmpty, !warehouses.contains(where: { $0.code == homeWarehouse }) {
+                                Text("\(homeWarehouse) (inactive)").tag(homeWarehouse)
+                            }
+                            ForEach(warehouses) { warehouse in
+                                Text("\(warehouse.code) — \(warehouse.name)").tag(warehouse.code)
+                            }
+                        }
+                    }
                 }
 
                 if !isNew {
@@ -270,6 +293,7 @@ private struct UserEditorView: View {
         fullName = user.fullName
         email = user.email
         roleId = user.roleId
+        homeWarehouse = user.homeWarehouse ?? ""
         active = user.active
     }
 
@@ -281,7 +305,12 @@ private struct UserEditorView: View {
             if let user {
                 _ = try await UsersAPI().update(
                     id: user.id,
-                    body: UserPatchInput(fullName: fullName.nilIfBlank, roleId: roleId.nilIfBlank, active: active)
+                    body: UserPatchInput(
+                        fullName: fullName.nilIfBlank,
+                        roleId: roleId.nilIfBlank,
+                        active: active,
+                        homeWarehouse: homeWarehouse
+                    )
                 )
             } else {
                 guard let email = email.nilIfBlank, let name = fullName.nilIfBlank else {
@@ -289,7 +318,13 @@ private struct UserEditorView: View {
                     return
                 }
                 _ = try await UsersAPI().create(
-                    UserCreateInput(email: email, password: password, fullName: name, roleId: roleId)
+                    UserCreateInput(
+                        email: email,
+                        password: password,
+                        fullName: name,
+                        roleId: roleId,
+                        homeWarehouse: homeWarehouse.nilIfBlank
+                    )
                 )
             }
             onSaved()

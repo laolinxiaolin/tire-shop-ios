@@ -16,6 +16,8 @@ enum AppRoute: Hashable {
     case workOrderDetail(String)
     case inventoryCountDetail(String)
     case newInventoryCount
+    case transferDetail(String)
+    case newTransfer
     case containerDetail(String)
     case vendorDetail(String)
     case tapToPay(invoiceId: String, amount: Double, saleId: String?, saleRef: String?, customerName: String?)
@@ -28,11 +30,12 @@ enum AppRoute: Hashable {
 
 struct RootGateView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     var body: some View {
         Group {
             if !auth.ready {
-                LoadingView(label: "Loading...")
+                LoadingView(label: i18n.t("common.loading"))
             } else if auth.user != nil {
                 RootNavigatorView()
             } else {
@@ -50,6 +53,7 @@ struct RootGateView: View {
 struct RootNavigatorView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var tabs: TabsStore
+    @EnvironmentObject private var i18n: I18nStore
     @State private var selectedTab = DestinationRegistry.defaultPinned.first ?? "dashboard"
     @State private var showTapToPayAnnouncement = false
 
@@ -64,24 +68,24 @@ struct RootNavigatorView: View {
 
     var body: some View {
         if !tabs.ready {
-            LoadingView(label: "Loading...")
+            LoadingView(label: i18n.t("common.loading"))
         } else {
             TabView(selection: $selectedTab) {
                 ForEach(visiblePinned) { destination in
-                    NavigationShell(title: destination.title) {
+                    NavigationShell(title: destination.localizedTitle(using: i18n)) {
                         DestinationView(destination: destination)
                     }
                     .tabItem {
-                        Label(destination.title, systemImage: destination.systemImage)
+                        Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
                     }
                     .tag(destination.key)
                 }
 
-                NavigationShell(title: "More") {
+                NavigationShell(title: i18n.t("nav.more")) {
                     MoreMenuView()
                 }
                 .tabItem {
-                    Label("More", systemImage: "line.3.horizontal")
+                    Label(i18n.t("nav.more"), systemImage: "line.3.horizontal")
                 }
                 .tag("more")
             }
@@ -120,6 +124,7 @@ struct RootNavigatorView: View {
 
 struct NavigationShell<Content: View>: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @State private var path: [AppRoute] = []
 
     let title: String
@@ -158,14 +163,16 @@ struct NavigationShell<Content: View>: View {
         case .module(let key):
             if let destination = DestinationRegistry.destination(for: key) {
                 DestinationView(destination: destination)
-                    .navigationTitle(destination.title)
+                    .navigationTitle(destination.localizedTitle(using: i18n))
             } else {
-                PlaceholderScreen(title: "Tire Force US")
+                PlaceholderScreen(title: i18n.t("screen.fallbackTitle"))
             }
         case .tapToPayEducation:
             TapToPayEducationView()
         case .newInventoryCount:
             NewInventoryCountNativeView()
+        case .newTransfer:
+            NewStockTransferNativeView()
         case .skuPicker:
             SkuPickerNativeView()
         case .customerPicker:
@@ -196,6 +203,8 @@ struct NavigationShell<Content: View>: View {
             WorkOrderDetailNativeView(id: id)
         case .inventoryCountDetail(let id):
             InventoryCountDetailNativeView(id: id)
+        case .transferDetail(let id):
+            StockTransferDetailNativeView(id: id)
         case .containerDetail(let id):
             ContainerDetailNativeView(id: id)
         case .vendorDetail(let id):
@@ -211,6 +220,8 @@ struct NavigationShell<Content: View>: View {
 }
 
 struct DestinationView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     let destination: Destination
 
     var body: some View {
@@ -227,6 +238,8 @@ struct DestinationView: View {
             OrdersListNativeView()
         case "inventory":
             InventoryListNativeView()
+        case "transfers":
+            StockTransfersListNativeView()
         case "skuManagement":
             SkuManagementNativeView()
         case "tireAttributes":
@@ -275,16 +288,22 @@ struct DestinationView: View {
             RolesNativeView()
         case "apiKeys":
             ApiKeysNativeView()
+        case "warehouses":
+            WarehousesNativeView()
         case "shopSettings":
             ShopSettingsNativeView()
         default:
-            PlaceholderScreen(title: destination.title, blurb: destination.blurb)
+            PlaceholderScreen(
+                title: destination.localizedTitle(using: i18n),
+                blurb: destination.blurb ?? i18n.t("placeholder.comingSoon")
+            )
         }
     }
 }
 
 struct MoreMenuView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     private var groupedDestinations: [(DestinationGroup, [Destination])] {
         let byGroup = Dictionary(grouping: DestinationRegistry.visibleDestinations(auth: auth), by: \.group)
@@ -298,15 +317,15 @@ struct MoreMenuView: View {
         List {
             Section {
                 NavigationLink(value: AppRoute.customizeTabs) {
-                    Label("Customize tabs", systemImage: "slider.horizontal.3")
+                    Label(i18n.t("more.customizeTabs"), systemImage: "slider.horizontal.3")
                 }
             }
 
             ForEach(groupedDestinations, id: \.0) { group, destinations in
-                Section(group.title) {
+                Section(group.localizedTitle(using: i18n)) {
                     ForEach(destinations) { destination in
                         NavigationLink(value: AppRoute.module(destination.key)) {
-                            Label(destination.title, systemImage: destination.systemImage)
+                            Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
                         }
                     }
                 }
@@ -319,6 +338,7 @@ struct MoreMenuView: View {
 struct CustomizeTabsView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var tabs: TabsStore
+    @EnvironmentObject private var i18n: I18nStore
 
     private var destinations: [Destination] {
         DestinationRegistry.visibleDestinations(auth: auth)
@@ -327,7 +347,10 @@ struct CustomizeTabsView: View {
     var body: some View {
         List {
             Section {
-                Text("Pick up to \(DestinationRegistry.maxPinned) screens to keep on the bottom tab bar. A More tab always holds the rest. (\(tabs.pinned.count)/\(DestinationRegistry.maxPinned) pinned)")
+                Text(i18n.t("customize.intro", [
+                    "max": DestinationRegistry.maxPinned,
+                    "count": tabs.pinned.count
+                ]))
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
             }
@@ -337,7 +360,7 @@ struct CustomizeTabsView: View {
                     toggle(destination)
                 } label: {
                     HStack {
-                        Label(destination.title, systemImage: destination.systemImage)
+                        Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
                             .foregroundStyle(Theme.text)
 
                         Spacer()
@@ -350,7 +373,7 @@ struct CustomizeTabsView: View {
                 }
             }
         }
-        .navigationTitle("Customize tabs")
+        .navigationTitle(i18n.t("screen.customizeTabs"))
     }
 
     private func toggle(_ destination: Destination) {
@@ -371,19 +394,22 @@ struct ProfileView: View {
     var body: some View {
         List {
             if let user = auth.user {
-                Section("Your account") {
-                    LabeledContent("Display name", value: user.fullName)
-                    LabeledContent("Email", value: user.email)
-                    LabeledContent("Role", value: user.roleName)
+                Section(i18n.t("profile.account")) {
+                    LabeledContent(i18n.t("profile.displayName"), value: user.fullName)
+                    LabeledContent(i18n.t("profile.email"), value: user.email)
+                    LabeledContent(i18n.t("profile.role"), value: user.roleName)
+                    if let homeWarehouse = user.homeWarehouse?.nilIfBlank {
+                        LabeledContent("Home warehouse", value: homeWarehouse)
+                    }
                 }
 
-                Section("Two-step verification") {
-                    LabeledContent("Status", value: mfaStatus(user.mfaMethod))
+                Section(i18n.t("profile.mfaTitle")) {
+                    LabeledContent(i18n.t("profile.mfaStatus"), value: mfaStatus(user.mfaMethod))
                 }
             }
 
-            Section("Language") {
-                Picker("Language", selection: Binding(
+            Section {
+                Picker(i18n.t("profile.language"), selection: Binding(
                     get: { i18n.language },
                     set: { i18n.setLanguage($0) }
                 )) {
@@ -391,24 +417,28 @@ struct ProfileView: View {
                         Text(language.label).tag(language)
                     }
                 }
+            } header: {
+                Text(i18n.t("profile.language"))
+            } footer: {
+                Text(i18n.t("profile.languageNote"))
             }
 
             Section {
                 Button(role: .destructive) {
                     auth.signOut()
                 } label: {
-                    Text("Sign out")
+                    Text(i18n.t("profile.signOut"))
                 }
             }
         }
-        .navigationTitle("Profile")
+        .navigationTitle(i18n.t("screen.profile"))
     }
 
     private func mfaStatus(_ method: String?) -> String {
         switch method {
-        case "TOTP": return "On - Authenticator app"
-        case "EMAIL": return "On - Email codes"
-        default: return "Off"
+        case "TOTP": return i18n.t("profile.mfaOnTotp")
+        case "EMAIL": return i18n.t("profile.mfaOnEmail")
+        default: return i18n.t("profile.mfaOff")
         }
     }
 }

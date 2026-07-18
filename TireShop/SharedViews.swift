@@ -60,7 +60,7 @@ struct LoadingView: View {
     var body: some View {
         VStack(spacing: Theme.Space.md) {
             ProgressView()
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,7 +82,7 @@ struct PrimaryButton: View {
                         .tint(Theme.primaryText)
                 }
 
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
@@ -102,7 +102,7 @@ struct SecondaryButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 13)
@@ -117,6 +117,45 @@ struct SecondaryButton: View {
     }
 }
 
+struct LanguageMenuButton: View {
+    @EnvironmentObject private var i18n: I18nStore
+
+    var body: some View {
+        Menu {
+            ForEach(AppLanguage.allCases) { language in
+                Button {
+                    i18n.setLanguage(language)
+                } label: {
+                    HStack {
+                        Text(language.label)
+                        if language == i18n.language {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: Theme.Space.xs) {
+                Image(systemName: "globe")
+                Text(i18n.language.shortLabel)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, Theme.Space.md)
+            .frame(height: 38)
+            .background(Theme.card)
+            .overlay {
+                Capsule().stroke(Theme.border)
+            }
+            .clipShape(Capsule())
+        }
+        .accessibilityLabel(i18n.t("profile.language"))
+        .accessibilityValue(i18n.language.label)
+    }
+}
+
 struct AppTextField: View {
     let label: String
     @Binding var text: String
@@ -128,19 +167,19 @@ struct AppTextField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.footnote)
                 .fontWeight(.semibold)
                 .foregroundStyle(Theme.text)
 
             if secure {
-                SecureField(placeholder, text: $text)
+                SecureField(LocalizedStringKey(placeholder), text: $text)
                     .textContentType(textContentType)
                     .disabled(disabled)
                     .textFieldStyle(.plain)
                     .fieldChrome()
             } else {
-                TextField(placeholder, text: $text)
+                TextField(LocalizedStringKey(placeholder), text: $text)
                     .keyboardType(keyboardType)
                     .textContentType(textContentType)
                     .textInputAutocapitalization(.never)
@@ -291,12 +330,12 @@ struct PlaceholderScreen: View {
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(Theme.primary)
 
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.title3)
                 .fontWeight(.bold)
                 .foregroundStyle(Theme.text)
 
-            Text(blurb ?? "Coming soon to mobile. This module is available on the web app today.")
+            Text(LocalizedStringKey(blurb ?? "Coming soon to mobile. This module is available on the web app today."))
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.muted)
@@ -308,11 +347,13 @@ struct PlaceholderScreen: View {
 }
 
 struct ModuleScreen: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     let destination: Destination
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            Label(destination.title, systemImage: destination.systemImage)
+            Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundStyle(Theme.text)
@@ -402,7 +443,7 @@ struct StatGrid: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: Theme.Space.md)], spacing: Theme.Space.md) {
             ForEach(stats, id: \.0) { title, value in
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
                     Text(value)
@@ -431,7 +472,7 @@ struct SectionHeader: View {
     }
 
     var body: some View {
-        Text(title)
+        Text(LocalizedStringKey(title))
             .font(.headline)
             .foregroundStyle(Theme.text)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -452,14 +493,14 @@ struct RowLine: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.md) {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.body)
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
 
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(.subheadline)
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
@@ -469,7 +510,7 @@ struct RowLine: View {
             Spacer()
 
             if let trailing, !trailing.isEmpty {
-                Text(trailing)
+                Text(LocalizedStringKey(trailing))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.muted)

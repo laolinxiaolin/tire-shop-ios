@@ -19,6 +19,11 @@ struct LoginView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: Theme.Space.lg) {
+                    HStack {
+                        Spacer()
+                        LanguageMenuButton()
+                    }
+
                     VStack(spacing: Theme.Space.xs) {
                         Text(i18n.t("app.name"))
                             .font(.system(size: 32, weight: .heavy))
@@ -56,14 +61,18 @@ struct LoginView: View {
         }
         .background(Theme.background)
         .alert(item: $alert) { state in
-            Alert(title: Text(state.title), message: Text(state.message), dismissButton: .default(Text("OK")))
+            Alert(
+                title: Text(state.title),
+                message: Text(state.message),
+                dismissButton: .default(Text(i18n.t("common.ok")))
+            )
         }
     }
 
     private var serverConfigSection: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             AppTextField(
-                label: "Server",
+                label: i18n.t("login.serverField"),
                 text: $serverURL,
                 placeholder: Server.defaultBaseURLString,
                 keyboardType: .URL,
@@ -71,7 +80,7 @@ struct LoginView: View {
             )
             .focused($serverFieldFocused)
 
-            Text("Leave as \(Server.defaultBaseURLString) unless your shop runs its own server.")
+            Text(i18n.t("login.serverNote", ["url": Server.defaultBaseURLString]))
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
         }
@@ -93,7 +102,7 @@ struct LoginView: View {
             AppTextField(
                 label: i18n.t("login.password"),
                 text: $password,
-                placeholder: "Password",
+                placeholder: i18n.t("login.password"),
                 textContentType: .password,
                 secure: true,
                 disabled: busy
@@ -110,10 +119,7 @@ struct LoginView: View {
 
     private func mfaForm(_ challenge: Challenge) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
-            Text(challenge.method == "EMAIL"
-                ? "Enter the 6-digit code we emailed you. You can also use a backup code."
-                : "Enter the 6-digit code from your authenticator app. You can also use a backup code."
-            )
+            Text(mfaInstructions(for: challenge))
             .font(.subheadline)
             .foregroundStyle(Theme.muted)
 
@@ -133,7 +139,7 @@ struct LoginView: View {
                 action: submitCode
             )
 
-            SecondaryButton(title: "Back", disabled: busy) {
+            SecondaryButton(title: i18n.t("common.back"), disabled: busy) {
                 self.challenge = nil
                 self.code = ""
             }
@@ -146,8 +152,8 @@ struct LoginView: View {
 
         guard Server.setBaseURL(serverURL) else {
             alert = AlertState(
-                title: "Invalid server",
-                message: "Enter a server like \(Server.defaultBaseURLString), or leave it blank for the default."
+                title: i18n.t("login.invalidServerTitle"),
+                message: i18n.t("login.invalidServerBody", ["url": Server.defaultBaseURLString])
             )
             return
         }
@@ -182,8 +188,10 @@ struct LoginView: View {
                 let result = try await auth.completeMFA(challengeToken: challenge.token, code: trimmedCode)
                 if result.usedBackupCode == true {
                     alert = AlertState(
-                        title: "Backup code used",
-                        message: "You have \(result.backupCodesRemaining ?? 0) backup codes left. Regenerate them in the web app soon."
+                        title: i18n.t("login.backupUsedTitle"),
+                        message: i18n.t("login.backupUsedBody", [
+                            "count": result.backupCodesRemaining ?? 0
+                        ])
                     )
                 }
             } catch {
@@ -194,9 +202,14 @@ struct LoginView: View {
 
     private func showFailure(_ error: Error) {
         alert = AlertState(
-            title: "Sign-in failed",
-            message: (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
+            title: i18n.t("login.failedTitle"),
+            message: (error as? LocalizedError)?.errorDescription ?? i18n.t("login.failedBody")
         )
+    }
+
+    private func mfaInstructions(for challenge: Challenge) -> String {
+        let methodKey = challenge.method == "EMAIL" ? "login.mfaEmailHint" : "login.mfaTotpHint"
+        return "\(i18n.t(methodKey)) \(i18n.t("login.mfaBackupHint"))"
     }
 
     private struct Challenge: Equatable {
