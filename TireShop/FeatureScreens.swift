@@ -1118,6 +1118,59 @@ private enum SalesLabels {
     }
 }
 
+private struct SalesStatusBadge: View {
+    let status: SaleStatus
+
+    private var label: String {
+        SalesLabels.status(status)
+    }
+
+    private var systemImage: String {
+        switch status {
+        case "PAID": return "checkmark.circle.fill"
+        case "INVOICED": return "doc.text.fill"
+        default: return "circle.fill"
+        }
+    }
+
+    private var foreground: Color {
+        switch status {
+        case "PAID": return Color(lightHex: 0x0757b7, darkHex: 0x8fc5ff)
+        case "INVOICED": return Color(lightHex: 0x8a4b00, darkHex: 0xffc266)
+        default: return Theme.muted
+        }
+    }
+
+    private var background: Color {
+        switch status {
+        case "PAID": return Color(lightHex: 0xdcecff, darkHex: 0x12345a)
+        case "INVOICED": return Color(lightHex: 0xffedcc, darkHex: 0x4b310d)
+        default: return Theme.background
+        }
+    }
+
+    private var border: Color {
+        switch status {
+        case "PAID": return Color(lightHex: 0x78afea, darkHex: 0x4389d0)
+        case "INVOICED": return Color(lightHex: 0xd69a3d, darkHex: 0xc9821e)
+        default: return Theme.border
+        }
+    }
+
+    var body: some View {
+        Label(label, systemImage: systemImage)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(background)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(border, lineWidth: status == "INVOICED" ? 2 : 1))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Status: \(label)")
+    }
+}
+
 struct SalesListNativeView: View {
     private let pageSize = 50
 
@@ -1182,11 +1235,7 @@ struct SalesListNativeView: View {
         VStack(spacing: 0) {
             List(data.items) { sale in
                 NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                    RowLine(
-                        title: "\(sale.ref ?? "Sale") - \(sale.customer.company ?? sale.customer.name)",
-                        subtitle: saleSubtitle(sale),
-                        trailing: AppFormat.money(sale.total)
-                    )
+                    saleRow(sale)
                 }
             }
             .listStyle(.plain)
@@ -1196,6 +1245,33 @@ struct SalesListNativeView: View {
                 summaryFooter(data.summary)
             }
         }
+    }
+
+    private func saleRow(_ sale: SaleListItem) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.md) {
+                Text("\(sale.ref ?? "Sale") - \(sale.customer.company ?? sale.customer.name)")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+
+                Spacer(minLength: Theme.Space.sm)
+
+                Text(AppFormat.money(sale.total))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+            }
+
+            HStack(spacing: Theme.Space.sm) {
+                SalesStatusBadge(status: sale.status)
+
+                Text(saleSubtitle(sale))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, Theme.Space.xs)
     }
 
     private var salesHeader: some View {
@@ -1413,7 +1489,6 @@ struct SalesListNativeView: View {
 
     private func saleSubtitle(_ sale: SaleListItem) -> String {
         var parts = [
-            SalesLabels.status(sale.status),
             sale.location,
             AppFormat.dateTime(sale.createdAt)
         ]
