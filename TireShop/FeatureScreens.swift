@@ -373,127 +373,54 @@ struct InventoryListNativeView: View {
     @ViewBuilder
     private var warehouseFilter: some View {
         if loadingWarehouses {
-            warehouseSelectorChrome {
-                HStack(spacing: Theme.Space.sm) {
-                    ProgressView()
-                        .tint(Theme.primary)
-                    Text("Loading warehouses...")
-                        .font(.caption)
-                        .foregroundStyle(Theme.muted)
-                }
+            HStack(spacing: Theme.Space.sm) {
+                ProgressView()
+                    .tint(Theme.primary)
+                Text("Loading warehouses...")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
             }
+            .frame(height: 32)
         } else if warehouses.isEmpty {
-            warehouseSelectorChrome {
-                Label(
-                    warehouseError ?? "No active warehouses are available.",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .font(.caption)
-                .foregroundStyle(warehouseError == nil ? Theme.muted : Theme.danger)
-            }
-        } else if selectForQuote {
-            warehouseSelectorLabel(
-                eyebrow: "Availability",
-                title: warehouseName(selectedLocation),
-                code: selectedLocation.nilIfBlank,
-                interactive: false
+            Label(
+                warehouseError ?? "No active warehouses are available.",
+                systemImage: "exclamationmark.triangle.fill"
             )
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Inventory availability warehouse")
-            .accessibilityValue(warehouseLabel(selectedLocation))
+            .font(.caption)
+            .foregroundStyle(warehouseError == nil ? Theme.muted : Theme.danger)
+            .frame(height: 32)
+        } else if selectForQuote {
+            HStack {
+                CompactFilterChip(
+                    title: selectedLocation.isEmpty ? "All warehouses" : selectedLocation,
+                    selected: true,
+                    accessibilityLabel: warehouseLabel(selectedLocation)
+                )
+                Spacer(minLength: 0)
+            }
         } else {
-            Menu {
-                Button {
-                    selectWarehouse("")
-                } label: {
-                    menuLabel("All warehouses", selected: location.isEmpty)
-                }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.sm) {
+                    CompactFilterChip(
+                        title: "All warehouses",
+                        selected: location.isEmpty,
+                        accessibilityLabel: "All warehouses"
+                    ) {
+                        selectWarehouse("")
+                    }
 
-                Section("Warehouses") {
                     ForEach(warehouses) { warehouse in
-                        Button {
+                        CompactFilterChip(
+                            title: warehouse.code,
+                            selected: location == warehouse.code,
+                            accessibilityLabel: "\(warehouse.code) — \(warehouse.name)"
+                        ) {
                             selectWarehouse(warehouse.code)
-                        } label: {
-                            menuLabel(
-                                "\(warehouse.code) — \(warehouse.name)",
-                                selected: location == warehouse.code
-                            )
                         }
                     }
                 }
-            } label: {
-                warehouseSelectorLabel(
-                    eyebrow: "Warehouse",
-                    title: warehouseName(location),
-                    code: location.nilIfBlank,
-                    interactive: true
-                )
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Inventory warehouse")
-            .accessibilityValue(warehouseLabel(location))
-        }
-    }
-
-    private func warehouseSelectorChrome<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        content()
-            .padding(.horizontal, Theme.Space.md)
-            .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .stroke(Theme.border)
-            )
-    }
-
-    private func warehouseSelectorLabel(
-        eyebrow: String,
-        title: String,
-        code: String?,
-        interactive: Bool
-    ) -> some View {
-        warehouseSelectorChrome {
-            HStack(spacing: Theme.Space.sm) {
-                Image(systemName: code == nil ? "square.grid.2x2" : "building.2.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(code == nil ? Theme.muted : Theme.primary)
-                    .frame(width: 28, height: 28)
-                    .background((code == nil ? Theme.muted : Theme.primary).opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(eyebrow)
-                        .font(.caption2)
-                        .foregroundStyle(Theme.muted)
-
-                    Text(title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: Theme.Space.sm)
-
-                if let code {
-                    Text(code)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .tracking(0.6)
-                        .foregroundStyle(Theme.primary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(Theme.primary.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-                }
-
-                if interactive {
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Theme.muted)
-                }
-            }
+            .frame(height: 32)
         }
     }
 
@@ -894,13 +821,6 @@ struct InventoryListNativeView: View {
             return code.isEmpty ? "All warehouses" : code
         }
         return "\(warehouse.code) — \(warehouse.name)"
-    }
-
-    private func warehouseName(_ code: String) -> String {
-        guard let warehouse = warehouses.first(where: { $0.code == code }) else {
-            return code.isEmpty ? "All warehouses" : code
-        }
-        return warehouse.name
     }
 
     private func isCancellation(_ error: Error) -> Bool {

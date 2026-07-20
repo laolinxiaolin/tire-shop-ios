@@ -25,6 +25,7 @@ struct NewQuoteNativeView: View {
     @State private var availabilityLocation = ""
     @State private var loadingAvailability = false
     @State private var availabilityRequestID = UUID()
+    @State private var priceDrafts: [String: String] = [:]
     @FocusState private var focusedField: FocusField?
 
     var body: some View {
@@ -85,6 +86,16 @@ struct NewQuoteNativeView: View {
         .onChange(of: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId)) { _, _ in
             Task { await loadAvailability() }
         }
+        .onChange(of: focusedField) { oldField, newField in
+            if case let .price(lineID)? = oldField {
+                finishPriceEditing(lineID)
+            }
+
+            if case let .price(lineID)? = newField,
+               let line = quote.lines.first(where: { $0.id == lineID }) {
+                priceDrafts[lineID] = editablePriceText(line.unitPrice)
+            }
+        }
     }
 
     private var customerSection: some View {
@@ -118,20 +129,30 @@ struct NewQuoteNativeView: View {
                 Text(warehouseError ?? "No active warehouses are available.")
                     .foregroundStyle(Theme.danger)
             } else {
-                Picker("Sell from", selection: Binding(
-                    get: { quote.location },
-                    set: { quote.setLocation($0) }
-                )) {
-                    if quote.location.nilIfBlank != nil,
-                       !warehouses.contains(where: { $0.code == quote.location }) {
-                        Text("\(quote.location) (inactive)")
-                            .tag(quote.location)
-                    }
-                    ForEach(warehouses) { warehouse in
-                        Text("\(warehouse.code) — \(warehouse.name)")
-                            .tag(warehouse.code)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Theme.Space.sm) {
+                        if quote.location.nilIfBlank != nil,
+                           !warehouses.contains(where: { $0.code == quote.location }) {
+                            CompactFilterChip(
+                                title: quote.location,
+                                selected: true,
+                                invalid: true,
+                                accessibilityLabel: "\(quote.location) — inactive"
+                            )
+                        }
+
+                        ForEach(warehouses) { warehouse in
+                            CompactFilterChip(
+                                title: warehouse.code,
+                                selected: quote.location == warehouse.code,
+                                accessibilityLabel: "\(warehouse.code) — \(warehouse.name)"
+                            ) {
+                                quote.setLocation(warehouse.code)
+                            }
+                        }
                     }
                 }
+                .frame(height: 32)
 
                 Text("Tire availability and stock relief use this warehouse.")
                     .font(.footnote)
@@ -160,11 +181,43 @@ struct NewQuoteNativeView: View {
 
             ForEach(quote.lines) { line in
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                    RowLine(
-                        title: line.description,
-                        subtitle: line.itemType == "SERVICE" ? "Service" : "Tire",
-                        trailing: AppFormat.money(line.lineTotal)
-                    )
+                    HStack(alignment: .top, spacing: Theme.Space.md) {
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                            Text(line.description)
+                                .font(.body)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.text)
+                                .lineLimit(2)
+
+                            Text(line.itemType == "SERVICE" ? "Service" : "Tire")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.muted)
+                        }
+
+                        Spacer(minLength: Theme.Space.sm)
+
+                        HStack(spacing: 2) {
+                            Text("$")
+                                .foregroundStyle(Theme.muted)
+
+                            TextField("0", text: priceBinding(for: line))
+                                .keyboardType(.decimalPad)
+                                .focused($focusedField, equals: .price(line.id))
+                                .multilineTextAlignment(.trailing)
+                                .font(.body.monospacedDigit().weight(.semibold))
+                                .accessibilityLabel("Unit price for \(line.description)")
+                        }
+                        .padding(.horizontal, Theme.Space.sm)
+                        .frame(width: 120, height: 44)
+                        .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.Radius.md))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Radius.md)
+                                .stroke(
+                                    focusedField == .price(line.id) ? Theme.primary : Theme.border,
+                                    lineWidth: focusedField == .price(line.id) ? 2 : 1
+                                )
+                        }
+                    }
 
                     if let available = availableQuantity(for: line) {
                         Text("\(available) available at \(quote.location)")
@@ -172,24 +225,31 @@ struct NewQuoteNativeView: View {
                             .foregroundStyle(line.qty > available ? Theme.danger : Theme.muted)
                     }
 
-                    Stepper("Qty \(line.qty)", value: Binding(
-                        get: { line.qty },
-                        set: { quote.updateQty(line.id, qty: $0) }
-                    ), in: 1...maximumQuantity(for: line))
+                    HStack(spacing: Theme.Space.md) {
+                        Stepper("Qty \(line.qty)", value: Binding(
+                            get: { line.qty },
+                            set: { quote.updateQty(line.id, qty: $0) }
+                        ), in: 1...maximumQuantity(for: line))
 
-                    TextField("Unit price", value: Binding(
-                        get: { line.unitPrice },
-                        set: { quote.updatePrice(line.id, unitPrice: $0) }
-                    ), format: .number)
-                    .keyboardType(.decimalPad)
-                    .focused($focusedField, equals: .price(line.id))
+                        Divider()
+                            .frame(height: 28)
 
-                    Button(role: .destructive) {
-                        quote.removeLine(line.id)
-                    } label: {
-                        Text("Remove")
+                        Button(role: .destructive) {
+                            priceDrafts.removeValue(forKey: line.id)
+                            quote.removeLine(line.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.body.weight(.semibold))
+                                .frame(width: 44, height: 44)
+                                .background(Theme.danger.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.md))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.danger)
+                        .accessibilityLabel("Remove \(line.description)")
                     }
+
                 }
+                .padding(.vertical, Theme.Space.xs)
             }
 
             NavigationLink("Add tire") {
@@ -242,12 +302,74 @@ struct NewQuoteNativeView: View {
                 Button("Apply") {
                     if let target = Double(roundTarget) {
                         quote.roundTotal(to: target)
+                        priceDrafts.removeAll()
                         roundTarget = ""
                     }
                 }
                 .disabled(Double(roundTarget) == nil)
             }
         }
+    }
+
+    private func priceBinding(for line: QuoteLine) -> Binding<String> {
+        Binding(
+            get: {
+                priceDrafts[line.id] ?? formattedPriceText(line.unitPrice)
+            },
+            set: { input in
+                let sanitized = sanitizePriceInput(input)
+                priceDrafts[line.id] = sanitized
+
+                if let value = Double(sanitized) {
+                    quote.updatePrice(line.id, unitPrice: value)
+                }
+            }
+        )
+    }
+
+    private func finishPriceEditing(_ lineID: String) {
+        guard let line = quote.lines.first(where: { $0.id == lineID }) else {
+            priceDrafts.removeValue(forKey: lineID)
+            return
+        }
+
+        if let draft = priceDrafts[lineID], let value = Double(draft) {
+            quote.updatePrice(lineID, unitPrice: value)
+            priceDrafts[lineID] = formattedPriceText(value)
+        } else {
+            priceDrafts[lineID] = formattedPriceText(line.unitPrice)
+        }
+    }
+
+    private func sanitizePriceInput(_ input: String) -> String {
+        var result = ""
+        var hasDecimal = false
+        var fractionalDigits = 0
+
+        for character in input {
+            if character.isNumber {
+                if !hasDecimal || fractionalDigits < 2 {
+                    result.append(character)
+                    if hasDecimal { fractionalDigits += 1 }
+                }
+            } else if (character == "." || character == ",") && !hasDecimal {
+                result.append(".")
+                hasDecimal = true
+            }
+        }
+
+        return result
+    }
+
+    private func editablePriceText(_ value: Double) -> String {
+        var result = formattedPriceText(value)
+        while result.last == "0" { result.removeLast() }
+        if result.last == "." { result.removeLast() }
+        return result
+    }
+
+    private func formattedPriceText(_ value: Double) -> String {
+        String(format: "%.2f", value)
     }
 
     private var canSubmit: Bool {

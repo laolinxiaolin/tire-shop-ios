@@ -36,27 +36,68 @@ struct FilterChips: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Theme.Space.sm) {
                 ForEach(options) { option in
-                    Button {
+                    CompactFilterChip(
+                        title: i18n.t(option.labelKey),
+                        selected: value == option.value
+                    ) {
                         value = option.value
-                    } label: {
-                        Text(i18n.t(option.labelKey))
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, Theme.Space.md)
-                            .padding(.vertical, 6)
-                            .background(value == option.value ? Theme.primary : Theme.card)
-                            .foregroundStyle(value == option.value ? Theme.primaryText : Theme.text)
-                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                                    .stroke(value == option.value ? Theme.primary : Theme.border)
-                            )
                     }
                 }
             }
             .padding(.horizontal, Theme.Space.lg)
             .padding(.vertical, Theme.Space.xs)
         }
+    }
+}
+
+struct CompactFilterChip: View {
+    let title: String
+    let selected: Bool
+    var invalid = false
+    var accessibilityLabel: String?
+    var action: (() -> Void)?
+
+    var body: some View {
+        Group {
+            if let action {
+                Button(action: action) {
+                    label
+                }
+                .buttonStyle(.plain)
+            } else {
+                label
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel ?? title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var label: some View {
+        Text(title)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .padding(.horizontal, Theme.Space.md)
+            .frame(height: 30)
+            .background(selected ? accentColor : Theme.card)
+            .foregroundStyle(selected ? Theme.primaryText : foregroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                    .stroke(selected ? accentColor : borderColor)
+            )
+    }
+
+    private var accentColor: Color {
+        invalid ? Theme.danger : Theme.primary
+    }
+
+    private var foregroundColor: Color {
+        invalid ? Theme.danger : Theme.text
+    }
+
+    private var borderColor: Color {
+        invalid ? Theme.danger : Theme.border
     }
 }
 
