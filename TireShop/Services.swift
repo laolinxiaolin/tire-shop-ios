@@ -835,6 +835,8 @@ struct InventoryAPI {
         brand: String? = nil,
         sortBy: String? = nil,
         sortOrder: String? = nil,
+        inStock: Bool? = nil,
+        location: String? = nil,
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> Paged<TireSku> {
@@ -845,6 +847,8 @@ struct InventoryAPI {
             "brand": brand,
             "sortBy": sortBy,
             "sortOrder": sortOrder,
+            "inStock": inStock == true ? "1" : nil,
+            "location": location,
             "page": page,
             "pageSize": pageSize
         ])

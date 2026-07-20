@@ -161,7 +161,8 @@ struct InventoryListNativeView: View {
     @State private var brands: [String] = []
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
-    @State private var hideZeroStock = false
+    // Out-of-stock rows are hidden by default; this opts back into them.
+    @State private var showZeroStock = false
     @State private var warehouses: [Warehouse] = []
     @State private var location = ""
     @State private var didChooseInitialLocation = false
@@ -179,12 +180,6 @@ struct InventoryListNativeView: View {
 
     private var selectedLocation: String {
         selectForQuote ? quote.location : location
-    }
-
-    private var visibleItems: [TireSku] {
-        return hideZeroStock
-            ? items.filter { Self.onHand($0, location: selectedLocation.nilIfBlank) > 0 }
-            : items
     }
 
     private var hasMorePages: Bool {
@@ -205,7 +200,7 @@ struct InventoryListNativeView: View {
         if !position.isEmpty { parts.append(InventoryLabels.position(position)) }
         if !brand.isEmpty { parts.append(brand) }
         if !sortBy.isEmpty { parts.append("\(InventoryLabels.sort(sortBy)) \(sortOrder.uppercased())") }
-        if hideZeroStock { parts.append("In stock only") }
+        if showZeroStock { parts.append("Including 0 stock") }
         return parts.isEmpty ? nil : parts.joined(separator: " - ")
     }
 
@@ -218,7 +213,7 @@ struct InventoryListNativeView: View {
                     LoadingView(label: "Loading...")
                 } else if let errorMessage, !hasLoaded {
                     RetryView(message: errorMessage) { Task { await reload() } }
-                } else if hasLoaded && visibleItems.isEmpty && !hasMorePages {
+                } else if hasLoaded && items.isEmpty && !hasMorePages {
                     EmptyStateView(text: emptyMessage)
                 } else if hasLoaded {
                     inventoryList
@@ -245,10 +240,10 @@ struct InventoryListNativeView: View {
 
     private var inventoryList: some View {
         List {
-            ForEach(visibleItems) { sku in
+            ForEach(items) { sku in
                 skuRow(sku)
                     .onAppear {
-                        if sku.id == visibleItems.last?.id {
+                        if sku.id == items.last?.id {
                             Task { await loadMoreIfNeeded() }
                         }
                     }
@@ -326,7 +321,7 @@ struct InventoryListNativeView: View {
                 Task { await loadMoreIfNeeded() }
             }
         } else if hasLoaded && !items.isEmpty {
-            Text("\(visibleItems.count) shown")
+            Text("\(items.count) shown")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
                 .frame(maxWidth: .infinity)
@@ -340,7 +335,7 @@ struct InventoryListNativeView: View {
 
             HStack(spacing: Theme.Space.sm) {
                 compactSearchField
-                hideZeroButton
+                showZeroButton
                 filterMenu
             }
 
@@ -464,26 +459,27 @@ struct InventoryListNativeView: View {
         )
     }
 
-    private var hideZeroButton: some View {
+    private var showZeroButton: some View {
         Button {
-            hideZeroStock.toggle()
+            showZeroStock.toggle()
+            Task { await reload() }
         } label: {
-            Label("Hide 0", systemImage: hideZeroStock ? "eye.slash.fill" : "eye.slash")
+            Label("Show 0", systemImage: showZeroStock ? "eye.fill" : "eye")
                 .font(.caption)
                 .fontWeight(.semibold)
                 .labelStyle(.titleAndIcon)
                 .frame(width: 78, height: 42)
-                .background(hideZeroStock ? Theme.primary : Theme.card)
-                .foregroundStyle(hideZeroStock ? Theme.primaryText : Theme.text)
+                .background(showZeroStock ? Theme.primary : Theme.card)
+                .foregroundStyle(showZeroStock ? Theme.primaryText : Theme.text)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                        .stroke(hideZeroStock ? Theme.primary : Theme.border)
+                        .stroke(showZeroStock ? Theme.primary : Theme.border)
                 )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Hide zero stock items")
-        .accessibilityValue(hideZeroStock ? "On" : "Off")
+        .accessibilityLabel("Show zero stock items")
+        .accessibilityValue(showZeroStock ? "On" : "Off")
     }
 
     private var filterMenu: some View {
@@ -555,7 +551,7 @@ struct InventoryListNativeView: View {
             Button("Reset filters") {
                 resetFilters(includeSearch: false)
             }
-            .disabled(!hasActiveFilters && !hideZeroStock)
+            .disabled(!hasActiveFilters && !showZeroStock)
         } label: {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
@@ -594,8 +590,8 @@ struct InventoryListNativeView: View {
     }
 
     private var emptyMessage: String {
-        if hideZeroStock, !items.isEmpty {
-            return "No in-stock items found."
+        if !showZeroStock {
+            return "No in-stock items found. Turn on Show 0 to include them."
         }
         return "No inventory found."
     }
@@ -636,7 +632,7 @@ struct InventoryListNativeView: View {
         brand = ""
         sortBy = ""
         sortOrder = "asc"
-        hideZeroStock = false
+        showZeroStock = false
         Task { await reload() }
     }
 
@@ -658,13 +654,6 @@ struct InventoryListNativeView: View {
             unitPrice: Double(sku.priceRetail) ?? 0
         )
         dismiss()
-    }
-
-    private static func onHand(_ sku: TireSku, location: String?) -> Int {
-        guard let location else {
-            return sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
-        }
-        return sku.inventory.first { $0.location == location }?.qtyOnHand ?? 0
     }
 
     private static func available(_ sku: TireSku, location: String?) -> Int {
@@ -772,6 +761,8 @@ struct InventoryListNativeView: View {
             brand: brand.nilIfBlank,
             sortBy: sortBy.nilIfBlank,
             sortOrder: sortBy.isEmpty ? nil : sortOrder,
+            inStock: showZeroStock ? nil : true,
+            location: selectedLocation.nilIfBlank,
             page: page,
             pageSize: pageSize
         )
