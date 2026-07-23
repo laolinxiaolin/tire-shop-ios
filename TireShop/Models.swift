@@ -957,6 +957,21 @@ struct DashboardSummary: Codable, Equatable {
         let qty: Int
     }
 
+    struct PurchaseContracts: Codable, Equatable {
+        struct Sku: Codable, Identifiable, Equatable {
+            let id: String
+            let sku: String
+            let brand: String
+            let model: String
+            let size: String
+            let qty: Int
+        }
+
+        let contractCount: Int
+        let totalQty: Int
+        let skus: [Sku]
+    }
+
     let today: Metric
     let month: Metric
     let openAR: OpenAR
@@ -965,6 +980,10 @@ struct DashboardSummary: Codable, Equatable {
     let lowStockCount: Int
     let lowStock: [LowStockSku]
     let topSkus: [TopSku]
+    let mostOrderedSkus: [TopSku]
+    let purchaseContracts: PurchaseContracts
+    let followUpsDue: Int
+    let atRiskCount: Int
 }
 
 struct GatewayStatus: Codable, Equatable {
@@ -1688,6 +1707,7 @@ struct ContainerListItem: Codable, Identifiable, Equatable {
     let isDDP: Bool
     let location: String
     let costSpread: String
+    let orderedAt: String?
     let etaAt: String?
     let arrivedAt: String?
     let receivedAt: String?
@@ -1707,6 +1727,7 @@ struct ContainerListItem: Codable, Identifiable, Equatable {
         case isDDP
         case location
         case costSpread
+        case orderedAt
         case etaAt
         case arrivedAt
         case receivedAt
@@ -1741,6 +1762,7 @@ struct Container: Codable, Identifiable, Equatable {
     let isDDP: Bool
     let location: String
     let costSpread: CostSpreadMethod
+    let orderedAt: String?
     let etaAt: String?
     let arrivedAt: String?
     let receivedAt: String?
@@ -1763,6 +1785,7 @@ struct Container: Codable, Identifiable, Equatable {
         case isDDP
         case location
         case costSpread
+        case orderedAt
         case etaAt
         case arrivedAt
         case receivedAt
@@ -1774,6 +1797,55 @@ struct Container: Codable, Identifiable, Equatable {
         case updatedAt
         case count = "_count"
     }
+}
+
+struct IncomingInventoryLine: Codable, Identifiable, Equatable {
+    struct Sku: Codable, Identifiable, Equatable {
+        let id: String
+        let sku: String
+        let brand: String
+        let model: String
+        let size: String
+    }
+
+    struct ContainerInfo: Codable, Identifiable, Equatable {
+        struct Supplier: Codable, Identifiable, Equatable {
+            let id: String
+            let name: String
+        }
+
+        let id: String
+        let ref: String?
+        let reference: String?
+        let status: ContainerStatus
+        let etaAt: String?
+        let location: String
+        let supplier: Supplier
+    }
+
+    let id: String
+    let qty: Int
+    let sku: Sku
+    let container: ContainerInfo
+}
+
+struct IncomingInventoryCombined: Codable, Identifiable, Equatable {
+    struct Sku: Codable, Identifiable, Equatable {
+        let id: String
+        let sku: String
+        let brand: String
+        let model: String
+        let size: String
+    }
+
+    let sku: Sku
+    let totalQty: Int
+    let purchaseOrderCount: Int
+    let orderedQty: Int
+    let inTransitQty: Int
+    let arrivedQty: Int
+
+    var id: String { sku.id }
 }
 
 struct Account: Codable, Identifiable, Equatable {

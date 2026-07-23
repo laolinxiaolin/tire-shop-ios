@@ -1,5 +1,8 @@
+import ImageIO
+import PhotosUI
 import QuickLook
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 private enum CustomerDetailTab: String, CaseIterable, Identifiable {
@@ -67,6 +70,78 @@ private struct CustomerDocumentDeleteTarget: Identifiable {
     var id: String { document.id }
 }
 
+private struct CustomerDocumentCameraCapture {
+    let data: Data
+    let filename: String
+    let mimeType: String
+}
+
+private struct CustomerDocumentCameraPicker: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    let onCapture: (CustomerDocumentCameraCapture) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.mediaTypes = [UTType.image.identifier]
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        private let parent: CustomerDocumentCameraPicker
+
+        init(parent: CustomerDocumentCameraPicker) {
+            self.parent = parent
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            defer { parent.dismiss() }
+
+            if
+                let url = info[.imageURL] as? URL,
+                let data = try? Data(contentsOf: url)
+            {
+                let type = UTType(filenameExtension: url.pathExtension)
+                parent.onCapture(CustomerDocumentCameraCapture(
+                    data: data,
+                    filename: url.lastPathComponent,
+                    mimeType: type?.preferredMIMEType ?? "application/octet-stream"
+                ))
+                return
+            }
+
+            guard
+                let image = info[.originalImage] as? UIImage,
+                let data = image.jpegData(compressionQuality: 0.92)
+            else { return }
+
+            let timestamp = Int(Date().timeIntervalSince1970)
+            parent.onCapture(CustomerDocumentCameraCapture(
+                data: data,
+                filename: "Customer document \(timestamp).jpg",
+                mimeType: "image/jpeg"
+            ))
+        }
+    }
+}
+
 private struct CustomerPasswordResetTarget: Identifiable {
     let user: CustomerUser
     var id: String { user.id }
@@ -98,7 +173,11 @@ struct CustomerDetailNativeView: View {
     @State private var editingProfile = false
     @State private var documentPreview: CustomerDocumentPreview?
     @State private var deleteDocumentTarget: CustomerDocumentDeleteTarget?
+    @State private var choosingDocumentSource = false
     @State private var importingDocument = false
+    @State private var selectingDocumentPhoto = false
+    @State private var documentPhotoSelection: PhotosPickerItem?
+    @State private var capturingDocumentPhoto = false
     @State private var uploadKind: CustomerDocumentKind = "ST5_EXEMPTION"
     @State private var uploadingDocument = false
     @State private var deletingCustomer = false
@@ -220,20 +299,63 @@ struct CustomerDetailNativeView: View {
         }
         .fileImporter(
             isPresented: $importingDocument,
-            allowedContentTypes: [.pdf, .jpeg, .png],
+            allowedContentTypes: [.pdf, .jpeg, .png, .heic, .heif],
             allowsMultipleSelection: false
         ) { result in
             Task { await handleDocumentImport(result) }
         }
+        .photosPicker(
+            isPresented: $selectingDocumentPhoto,
+            selection: $documentPhotoSelection,
+            matching: .images,
+            preferredItemEncoding: .current
+        )
+        .onChange(of: documentPhotoSelection) { _, item in
+            guard let item else { return }
+            Task { await handleDocumentPhoto(item) }
+        }
+        .fullScreenCover(isPresented: $capturingDocumentPhoto) {
+            CustomerDocumentCameraPicker { capture in
+                Task { await handleDocumentCameraCapture(capture) }
+            }
+            .ignoresSafeArea()
+        }
+        .confirmationDialog(
+            "Add customer document",
+            isPresented: $choosingDocumentSource,
+            titleVisibility: .visible
+        ) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    capturingDocumentPhoto = true
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+            }
+
+            Button {
+                selectingDocumentPhoto = true
+            } label: {
+                Label("Choose from Photos", systemImage: "photo.on.rectangle")
+            }
+
+            Button {
+                importingDocument = true
+            } label: {
+                Label("Browse Files", systemImage: "folder")
+            }
+        } message: {
+            Text("Choose where to get the document.")
+        }
         .alert("Delete document?", isPresented: Binding(
             get: { deleteDocumentTarget != nil },
             set: { if !$0 { deleteDocumentTarget = nil } }
-        )) {
+        ), presenting: deleteDocumentTarget) { target in
             Button("Cancel", role: .cancel) { deleteDocumentTarget = nil }
             Button("Delete", role: .destructive) {
-                Task { await deleteDocument() }
+                Task { await deleteDocument(target) }
             }
-        } message: {
+        } message: { _ in
             Text("This removes the file from the customer profile.")
         }
         .alert("Delete customer?", isPresented: $deleteCustomerPending) {
@@ -401,7 +523,7 @@ struct CustomerDetailNativeView: View {
 
             if canManageCustomers {
                 Button {
-                    importingDocument = true
+                    choosingDocumentSource = true
                 } label: {
                     Label(uploadingDocument ? "Uploading..." : "Upload document", systemImage: "doc.badge.plus")
                 }
@@ -442,7 +564,7 @@ struct CustomerDetailNativeView: View {
         } header: {
             Text("Documents")
         } footer: {
-            Text("PDF, JPEG or PNG.")
+            Text("Take a photo or choose a PDF, JPEG, PNG, HEIC or HEIF file.")
         }
     }
 
@@ -1062,32 +1184,106 @@ struct CustomerDetailNativeView: View {
         uploadingDocument = true
         clearMessages()
         var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            uploadingDocument = false
+        }
+
         do {
             let source = try result.get().first
             guard let source else { return }
             let copied = try copyImportedDocument(source)
             tempURL = copied
-            _ = try await CustomersAPI().uploadDocument(
-                id: id,
+            try await uploadCustomerDocument(
                 fileURL: copied,
                 fileName: source.lastPathComponent,
-                mimeType: mimeType(for: source),
-                kind: uploadKind
+                mimeType: mimeType(for: source)
             )
-            await reloadCustomer()
-            statusMessage = "Document uploaded."
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload document."
         }
-        if let tempURL {
-            try? FileManager.default.removeItem(at: tempURL)
-        }
-        uploadingDocument = false
     }
 
     @MainActor
-    private func deleteDocument() async {
-        guard let target = deleteDocumentTarget else { return }
+    private func handleDocumentPhoto(_ item: PhotosPickerItem) async {
+        guard canManageCustomers else { return }
+        uploadingDocument = true
+        clearMessages()
+        var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            documentPhotoSelection = nil
+            uploadingDocument = false
+        }
+
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw APIError(status: 0, message: "Could not read the selected photo.")
+            }
+
+            let contentType = Self.imageContentType(for: data)
+                ?? item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+                ?? .jpeg
+            let fileExtension = contentType.preferredFilenameExtension ?? "jpg"
+            let filename = Self.capturedDocumentFilename(fileExtension: fileExtension)
+            let url = try writeTemporaryDocument(data, filename: filename)
+            tempURL = url
+
+            try await uploadCustomerDocument(
+                fileURL: url,
+                fileName: filename,
+                mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
+            )
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload photo."
+        }
+    }
+
+    @MainActor
+    private func handleDocumentCameraCapture(_ capture: CustomerDocumentCameraCapture) async {
+        guard canManageCustomers else { return }
+        uploadingDocument = true
+        clearMessages()
+        var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            uploadingDocument = false
+        }
+
+        do {
+            let url = try writeTemporaryDocument(capture.data, filename: capture.filename)
+            tempURL = url
+            try await uploadCustomerDocument(
+                fileURL: url,
+                fileName: capture.filename,
+                mimeType: capture.mimeType
+            )
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload photo."
+        }
+    }
+
+    @MainActor
+    private func uploadCustomerDocument(fileURL: URL, fileName: String, mimeType: String) async throws {
+        _ = try await CustomersAPI().uploadDocument(
+            id: id,
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType,
+            kind: uploadKind
+        )
+        await reloadCustomer()
+        statusMessage = "Document uploaded."
+    }
+
+    @MainActor
+    private func deleteDocument(_ target: CustomerDocumentDeleteTarget) async {
         clearMessages()
         do {
             _ = try await CustomersAPI().deleteDocument(id: id, documentId: target.document.id)
@@ -1350,8 +1546,38 @@ struct CustomerDetailNativeView: View {
         case "pdf": return "application/pdf"
         case "png": return "image/png"
         case "jpg", "jpeg": return "image/jpeg"
+        case "heic": return "image/heic"
+        case "heif": return "image/heif"
         default: return "application/octet-stream"
         }
+    }
+
+    private func writeTemporaryDocument(_ data: Data, filename: String) throws -> URL {
+        let safeFilename = filename
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: ".")
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("customer-doc-\(UUID().uuidString)-\(safeFilename)")
+        try? FileManager.default.removeItem(at: destination)
+        try data.write(to: destination, options: .atomic)
+        return destination
+    }
+
+    private static func imageContentType(for data: Data) -> UTType? {
+        guard
+            let source = CGImageSourceCreateWithData(data as CFData, nil),
+            let identifier = CGImageSourceGetType(source)
+        else { return nil }
+
+        return UTType(identifier as String)
+    }
+
+    private static func capturedDocumentFilename(fileExtension: String) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm"
+        return "Customer document \(formatter.string(from: Date())).\(fileExtension)"
     }
 
     private static let isoFormatter = ISO8601DateFormatter()

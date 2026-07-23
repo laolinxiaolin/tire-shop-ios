@@ -1,27 +1,128 @@
+import Foundation
 import SwiftUI
 
+private func isCancelledRequest(_ error: Error) -> Bool {
+    if error is CancellationError {
+        return true
+    }
+
+    return (error as? URLError)?.code == .cancelled
+}
+
 struct DashboardNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @State private var summary: DashboardSummary?
+    @State private var months = 1
+    @State private var loadedMonths: Int?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    private let periods = [1, 3, 6, 12]
+
+    private var rankingsAreCurrent: Bool {
+        loadedMonths == months
+    }
 
     var body: some View {
-        AsyncContentView(load: DashboardAPI().summary) { summary in
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.md) {
-                    StatGrid(stats: [
-                        (i18n.t("dashboard.todaySales"), AppFormat.money(summary.today.revenue)),
-                        (i18n.t("dashboard.mtd"), AppFormat.money(summary.month.revenue)),
-                        (i18n.t("dashboard.openAR"), AppFormat.money(summary.openAR.total)),
-                        (i18n.t("dashboard.lowStock"), "\(summary.lowStockCount)")
-                    ])
-
-                    lowStockSection(summary.lowStock)
-                    topSellerSection(summary.topSkus)
+        Group {
+            if let summary {
+                ScrollView {
+                    dashboard(summary)
                 }
-                .padding(.horizontal, Theme.Space.lg)
-                .padding(.top, Theme.Space.sm)
-                .padding(.bottom, Theme.Space.xl)
+                .refreshable { await load() }
+            } else if isLoading {
+                LoadingView(label: i18n.t("common.loading"))
+            } else {
+                VStack(spacing: Theme.Space.md) {
+                    Text(errorMessage ?? i18n.t("dashboard.loadFailed"))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Theme.muted)
+                    Button(i18n.t("common.retry")) { Task { await load() } }
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(Theme.Space.xl)
             }
-            .background(Theme.background)
+        }
+        .background(Theme.background)
+        .task(id: months) {
+            await load()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { break }
+                await load(showSpinner: false)
+            }
+        }
+    }
+
+    private func dashboard(_ summary: DashboardSummary) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Theme.Space.md)
+                    .background(Theme.danger.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Theme.Space.md) {
+                metricLink("sales", label: i18n.t("dashboard.todaySales"), value: AppFormat.money(summary.today.revenue), detail: invoiceText(summary.today.saleCount))
+                metricLink("accounting", label: i18n.t("dashboard.mtd"), value: AppFormat.money(summary.month.revenue), detail: invoiceText(summary.month.saleCount))
+                metricLink("money", label: i18n.t("dashboard.openAR"), value: AppFormat.money(summary.openAR.total), detail: i18n.t("dashboard.unpaid", ["n": summary.openAR.invoiceCount]), tone: summary.openAR.total > 0 ? .warning : .normal)
+                metricLink("inventory", label: i18n.t("dashboard.lowStock"), value: "\(summary.lowStockCount)", detail: i18n.t("dashboard.reorderSub"), tone: summary.lowStockCount > 0 ? .danger : .normal)
+                metricLink("sales", label: i18n.t("dashboard.openQuotes"), value: "\(summary.openQuotes)", detail: i18n.t("dashboard.awaitingConfirm"))
+                metricLink("sales", label: i18n.t("dashboard.paidInvoices"), value: "\(summary.paidInvoiceCount)", detail: i18n.t("dashboard.lifetime"))
+                metricLink("customerRelations", label: i18n.t("dashboard.followUpsDue"), value: "\(summary.followUpsDue)", detail: i18n.t("dashboard.followUpsDueSub"), tone: summary.followUpsDue > 0 ? .warning : .normal)
+                metricLink("customerRelations", label: i18n.t("dashboard.atRisk"), value: "\(summary.atRiskCount)", detail: i18n.t("dashboard.atRiskSub"), tone: summary.atRiskCount > 0 ? .danger : .normal)
+            }
+
+            purchaseContractsSection(summary.purchaseContracts)
+            lowStockSection(summary.lowStock)
+            topSellerSection(summary.topSkus)
+            mostOrderedSection(summary.mostOrderedSkus)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.top, Theme.Space.sm)
+        .padding(.bottom, Theme.Space.xl)
+    }
+
+    private func metricLink(_ destination: String, label: String, value: String, detail: String, tone: DashboardMetricTone = .normal) -> some View {
+        NavigationLink(value: AppRoute.module(destination)) {
+            DashboardMetricCard(label: label, value: value, detail: detail, tone: tone)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func purchaseContractsSection(_ contracts: DashboardSummary.PurchaseContracts) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionHeader(i18n.t("dashboard.purchaseContracts"))
+                Spacer()
+                if auth.has("purchasing.view") {
+                    NavigationLink(value: AppRoute.module("purchasing")) {
+                        Text(i18n.t("dashboard.viewPurchasing"))
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+            }
+
+            dashboardCard {
+                if contracts.skus.isEmpty {
+                    DashboardEmptyRow(text: i18n.t("dashboard.noPurchaseContracts"), embedded: true)
+                } else {
+                    HStack(spacing: Theme.Space.sm) {
+                        DashboardBadge(text: i18n.t(contracts.contractCount == 1 ? "dashboard.activeContract" : "dashboard.activeContracts", ["n": contracts.contractCount]), color: Theme.primary)
+                        DashboardBadge(text: i18n.t(contracts.totalQty == 1 ? "dashboard.tireInbound" : "dashboard.tiresInbound", ["n": contracts.totalQty]), color: Theme.muted)
+                    }
+                    .padding(.vertical, Theme.Space.sm)
+
+                    ForEach(contracts.skus.prefix(8)) { item in
+                        RowLine(title: "\(item.brand) \(item.model)", subtitle: "\(item.size) · \(item.sku)", trailing: i18n.t("dashboard.onOrder", ["n": item.qty]))
+                    }
+                }
+            }
         }
     }
 
@@ -34,11 +135,10 @@ struct DashboardNativeView: View {
             } else {
                 dashboardCard {
                     ForEach(items) { item in
-                        RowLine(
-                            title: "\(item.brand) \(item.model)",
-                            subtitle: "\(item.size) - \(item.sku)",
-                            trailing: "\(item.onHand) \(i18n.t("inventory.onHand"))"
-                        )
+                        NavigationLink(value: AppRoute.module("inventory")) {
+                            RowLine(title: "\(item.brand) \(item.model)", subtitle: "\(item.size) · \(item.sku)", trailing: "\(item.onHand) / \(item.reorderPoint)")
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -47,10 +147,24 @@ struct DashboardNativeView: View {
 
     private func topSellerSection(_ items: [DashboardSummary.TopSku]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            SectionHeader(i18n.t("dashboard.topSellers"))
+            HStack {
+                SectionHeader(i18n.t("dashboard.topSellers"))
+                Spacer()
+                Picker(i18n.t("dashboard.topSellerPeriod"), selection: $months) {
+                    ForEach(periods, id: \.self) { period in
+                        Text(i18n.t(period == 12 ? "dashboard.period.1y" : "dashboard.period.\(period)m")).tag(period)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 210)
+            }
 
-            if items.isEmpty {
-                DashboardEmptyRow(text: i18n.t("dashboard.noSalesMonth"))
+            if !rankingsAreCurrent && isLoading {
+                DashboardLoadingRow(text: i18n.t("dashboard.loadingRankings"))
+            } else if !rankingsAreCurrent {
+                DashboardEmptyRow(text: i18n.t("dashboard.rankingsUnavailable"))
+            } else if items.isEmpty {
+                DashboardEmptyRow(text: i18n.t("dashboard.noTopSellers"))
             } else {
                 dashboardCard {
                     ForEach(items) { item in
@@ -63,6 +177,52 @@ struct DashboardNativeView: View {
                 }
             }
         }
+    }
+
+    private func mostOrderedSection(_ items: [DashboardSummary.TopSku]) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            SectionHeader(i18n.t("dashboard.mostOrdered"))
+
+            if !rankingsAreCurrent && isLoading {
+                DashboardLoadingRow(text: i18n.t("dashboard.loadingRankings"))
+            } else if !rankingsAreCurrent {
+                DashboardEmptyRow(text: i18n.t("dashboard.rankingsUnavailable"))
+            } else if items.isEmpty {
+                DashboardEmptyRow(text: i18n.t("dashboard.noMostOrdered"))
+            } else {
+                dashboardCard {
+                    ForEach(items) { item in
+                        RowLine(
+                            title: "\(item.brand) \(item.model)",
+                            subtitle: "\(item.size) · \(item.sku)",
+                            trailing: i18n.t("dashboard.ordered", ["n": item.qty])
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func invoiceText(_ count: Int) -> String {
+        i18n.t(count == 1 ? "dashboard.invoice" : "dashboard.invoices", ["n": count])
+    }
+
+    @MainActor
+    private func load(showSpinner: Bool = true) async {
+        let requestedMonths = months
+        if showSpinner { isLoading = true }
+        do {
+            let response = try await DashboardAPI().summary(months: requestedMonths)
+            guard requestedMonths == months else { return }
+            summary = response
+            loadedMonths = requestedMonths
+            errorMessage = nil
+        } catch {
+            guard requestedMonths == months, !Task.isCancelled, !isCancelledRequest(error) else { return }
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        guard requestedMonths == months, !Task.isCancelled else { return }
+        isLoading = false
     }
 
     private func dashboardCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -81,8 +241,27 @@ struct DashboardNativeView: View {
     }
 }
 
+private struct DashboardLoadingRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: Theme.Space.sm) {
+            ProgressView()
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(Theme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Space.md)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.sm).stroke(Theme.border))
+    }
+}
+
 private struct DashboardEmptyRow: View {
     let text: String
+    var embedded = false
 
     var body: some View {
         Text(LocalizedStringKey(text))
@@ -90,12 +269,65 @@ private struct DashboardEmptyRow: View {
             .foregroundStyle(Theme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.md)
-            .background(Theme.card)
+            .background(embedded ? Color.clear : Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .stroke(Theme.border)
+                    .stroke(embedded ? Color.clear : Theme.border)
             )
+    }
+}
+
+private enum DashboardMetricTone {
+    case normal
+    case warning
+    case danger
+
+    var color: Color {
+        switch self {
+        case .normal: Theme.primary
+        case .warning: Color.orange
+        case .danger: Theme.danger
+        }
+    }
+}
+
+private struct DashboardMetricCard: View {
+    let label: String
+    let value: String
+    let detail: String
+    let tone: DashboardMetricTone
+
+    var body: some View {
+        HStack(spacing: 0) {
+            tone.color.frame(width: 4)
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(label).font(.caption.weight(.semibold)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(value).font(.title2.weight(.bold)).foregroundStyle(tone == .normal ? Theme.text : tone.color).lineLimit(1).minimumScaleFactor(0.75)
+                Text(detail).font(.caption2).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.md)
+        }
+        .frame(minHeight: 104)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.border))
+    }
+}
+
+private struct DashboardBadge: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, Theme.Space.sm)
+            .padding(.vertical, Theme.Space.xs)
+            .background(color.opacity(0.1))
+            .clipShape(Capsule())
     }
 }
 
@@ -186,6 +418,16 @@ struct InventoryListNativeView: View {
         hasLoaded && items.count < total
     }
 
+    private var totalQuantity: Int {
+        items.reduce(0) { result, sku in
+            let location = selectedLocation.nilIfBlank
+            let quantity = selectForQuote
+                ? Self.available(sku, location: location)
+                : Self.onHand(sku, location: location)
+            return result + quantity
+        }
+    }
+
     private var hasActiveFilters: Bool {
         !category.isEmpty || !position.isEmpty || !brand.isEmpty || !sortBy.isEmpty
     }
@@ -207,6 +449,10 @@ struct InventoryListNativeView: View {
     var body: some View {
         VStack(spacing: 0) {
             filters
+
+            if hasLoaded {
+                inventoryTotal
+            }
 
             Group {
                 if loading && !hasLoaded {
@@ -236,6 +482,33 @@ struct InventoryListNativeView: View {
         .onDisappear {
             searchTask?.cancel()
         }
+    }
+
+    private var inventoryTotal: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Label(selectForQuote ? "Available inventory" : "Total inventory", systemImage: "shippingbox.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.text)
+
+            Spacer(minLength: Theme.Space.sm)
+
+            Text("\(totalQuantity.formatted()) \(totalQuantity == 1 ? "tire" : "tires")")
+                .font(.subheadline.monospacedDigit())
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.primary)
+
+            Text("·")
+                .foregroundStyle(Theme.muted)
+
+            Text("\(items.count.formatted()) \(items.count == 1 ? "SKU" : "SKUs")")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Theme.muted)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Theme.card)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+        .accessibilityElement(children: .combine)
     }
 
     private var inventoryList: some View {
@@ -664,6 +937,13 @@ struct InventoryListNativeView: View {
         }
         guard let inventory = sku.inventory.first(where: { $0.location == location }) else { return 0 }
         return max(0, inventory.qtyOnHand - inventory.qtyReserved)
+    }
+
+    private static func onHand(_ sku: TireSku, location: String?) -> Int {
+        guard let location else {
+            return sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
+        }
+        return sku.inventory.first(where: { $0.location == location })?.qtyOnHand ?? 0
     }
 
     @MainActor
@@ -1982,17 +2262,11 @@ struct InventoryCountsListNativeView: View {
 }
 
 private enum PurchasingTab: String, CaseIterable, Identifiable {
-    case containers
+    case purchaseOrders
+    case incoming
     case suppliers
 
     var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .containers: return "Containers"
-        case .suppliers: return "Suppliers"
-        }
-    }
 }
 
 private enum ContainerLabels {
@@ -2019,13 +2293,14 @@ private struct SupplierEditorTarget: Identifiable {
 }
 
 struct PurchasingNativeView: View {
-    @State private var tab: PurchasingTab = .containers
+    @EnvironmentObject private var i18n: I18nStore
+    @State private var tab: PurchasingTab = .purchaseOrders
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Purchasing", selection: $tab) {
+            Picker(i18n.t("nav.purchasing"), selection: $tab) {
                 ForEach(PurchasingTab.allCases) { tab in
-                    Text(tab.title).tag(tab)
+                    Text(tabTitle(tab)).tag(tab)
                 }
             }
             .pickerStyle(.segmented)
@@ -2034,13 +2309,279 @@ struct PurchasingNativeView: View {
             .background(Theme.background)
 
             switch tab {
-            case .containers:
+            case .purchaseOrders:
                 PurchasingContainersListView()
+            case .incoming:
+                PurchasingIncomingInventoryView()
             case .suppliers:
                 PurchasingSuppliersListView()
             }
         }
         .background(Theme.background)
+    }
+
+    private func tabTitle(_ tab: PurchasingTab) -> String {
+        switch tab {
+        case .purchaseOrders: i18n.t("purchasing.purchaseOrders")
+        case .incoming: i18n.t("purchasing.incoming")
+        case .suppliers: i18n.t("purchasing.suppliers")
+        }
+    }
+}
+
+private enum IncomingInventoryViewMode: String, CaseIterable, Identifiable {
+    case purchaseOrder
+    case combined
+
+    var id: String { rawValue }
+}
+
+private struct PurchasingIncomingInventoryView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
+    private let pageSize = 100
+
+    @State private var mode: IncomingInventoryViewMode = .purchaseOrder
+    @State private var purchaseOrderItems: [IncomingInventoryLine] = []
+    @State private var combinedItems: [IncomingInventoryCombined] = []
+    @State private var nextPage = 1
+    @State private var total = 0
+    @State private var loading = false
+    @State private var loadingMore = false
+    @State private var errorMessage: String?
+    @State private var requestGeneration = 0
+
+    private var itemCount: Int {
+        mode == .purchaseOrder ? purchaseOrderItems.count : combinedItems.count
+    }
+
+    private var canLoadMore: Bool {
+        itemCount < total
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker(i18n.t("purchasing.incomingView"), selection: $mode) {
+                Text(i18n.t("purchasing.viewByPurchaseOrder")).tag(IncomingInventoryViewMode.purchaseOrder)
+                Text(i18n.t("purchasing.viewCombined")).tag(IncomingInventoryViewMode.combined)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.bottom, Theme.Space.sm)
+            .background(Theme.background)
+
+            Group {
+                if loading && itemCount == 0 {
+                    LoadingView(label: i18n.t("common.loading"))
+                } else if let errorMessage, itemCount == 0 {
+                    RetryView(message: errorMessage) { Task { await reload() } }
+                } else if itemCount == 0 {
+                    EmptyStateView(text: i18n.t("purchasing.noIncoming"))
+                } else if mode == .purchaseOrder {
+                    purchaseOrderList
+                } else {
+                    combinedList
+                }
+            }
+        }
+        .task(id: mode) {
+            await reload()
+        }
+    }
+
+    private var purchaseOrderList: some View {
+        List(purchaseOrderItems) { item in
+            NavigationLink(value: AppRoute.containerDetail(item.container.id)) {
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("\(item.sku.brand) \(item.sku.model) · \(item.sku.size)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                        Spacer(minLength: Theme.Space.sm)
+                        Text(i18n.t("purchasing.incomingQty", ["n": item.qty]))
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Theme.primary)
+                    }
+
+                    Text(purchaseOrderSubtitle(item))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(2)
+
+                    HStack {
+                        DashboardBadge(text: i18n.t("container.status.\(item.container.status)"), color: incomingStatusColor(item.container.status))
+                        Spacer()
+                        Text(item.container.etaAt.map { i18n.t("purchasing.etaValue", ["date": AppFormat.shortDate($0)]) } ?? i18n.t("purchasing.etaUnknown"))
+                            .font(.caption2)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+                .padding(.vertical, Theme.Space.xs)
+            }
+            .onAppear { loadMoreIfNeeded(currentId: item.id) }
+        }
+        .listStyle(.plain)
+        .refreshable { await reload() }
+        .safeAreaInset(edge: .bottom) { loadMoreFooter }
+    }
+
+    private var combinedList: some View {
+        List(combinedItems) { item in
+            VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(item.sku.brand) \(item.sku.model) · \(item.sku.size)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                        Text(item.sku.sku)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Theme.muted)
+                    }
+                    Spacer(minLength: Theme.Space.sm)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(i18n.t("purchasing.totalIncomingQty", ["n": item.totalQty]))
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Theme.primary)
+                        Text(i18n.t("purchasing.purchaseOrderCount", ["n": item.purchaseOrderCount]))
+                            .font(.caption2)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
+
+                HStack(spacing: Theme.Space.sm) {
+                    incomingCountBadge("ORDERED", count: item.orderedQty)
+                    incomingCountBadge("IN_TRANSIT", count: item.inTransitQty)
+                    incomingCountBadge("ARRIVED", count: item.arrivedQty)
+                }
+            }
+            .padding(.vertical, Theme.Space.xs)
+            .onAppear { loadMoreIfNeeded(currentId: item.id) }
+        }
+        .listStyle(.plain)
+        .refreshable { await reload() }
+        .safeAreaInset(edge: .bottom) { loadMoreFooter }
+    }
+
+    @ViewBuilder
+    private var loadMoreFooter: some View {
+        if loadingMore {
+            HStack(spacing: Theme.Space.sm) {
+                ProgressView()
+                Text(i18n.t("purchasing.loadingMore"))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(Theme.Space.sm)
+            .background(.bar)
+        } else if let errorMessage, itemCount > 0 {
+            HStack(spacing: Theme.Space.sm) {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+                    .lineLimit(2)
+                Spacer(minLength: Theme.Space.sm)
+                Button(i18n.t("common.retry")) {
+                    Task { await loadNextPage() }
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(Theme.Space.sm)
+            .background(.bar)
+        }
+    }
+
+    private func incomingCountBadge(_ status: ContainerStatus, count: Int) -> some View {
+        Text("\(i18n.t("container.status.\(status)")): \(count)")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(incomingStatusColor(status))
+            .padding(.horizontal, Theme.Space.sm)
+            .padding(.vertical, Theme.Space.xs)
+            .background(incomingStatusColor(status).opacity(0.1))
+            .clipShape(Capsule())
+    }
+
+    private func purchaseOrderSubtitle(_ item: IncomingInventoryLine) -> String {
+        let reference = item.container.ref ?? item.container.reference ?? i18n.t("container.noRef")
+        return [item.sku.sku, item.container.supplier.name, reference, item.container.location].joined(separator: " · ")
+    }
+
+    private func incomingStatusColor(_ status: ContainerStatus) -> Color {
+        switch status {
+        case "ORDERED": return Theme.primary
+        case "IN_TRANSIT": return Color.orange
+        case "ARRIVED": return Color.orange
+        default: return Theme.muted
+        }
+    }
+
+    private func loadMoreIfNeeded(currentId: String) {
+        let lastId = mode == .purchaseOrder ? purchaseOrderItems.last?.id : combinedItems.last?.id
+        guard currentId == lastId, canLoadMore, !loading, !loadingMore, errorMessage == nil else { return }
+        Task { await loadNextPage() }
+    }
+
+    @MainActor
+    private func reload() async {
+        requestGeneration += 1
+        let generation = requestGeneration
+        let requestedMode = mode
+
+        loading = true
+        loadingMore = false
+        errorMessage = nil
+        nextPage = 1
+        total = 0
+        purchaseOrderItems = []
+        combinedItems = []
+        await requestPage(mode: requestedMode, page: 1, generation: generation, reset: true)
+        guard generation == requestGeneration, requestedMode == mode, !Task.isCancelled else { return }
+        loading = false
+    }
+
+    @MainActor
+    private func loadNextPage() async {
+        guard canLoadMore, !loading, !loadingMore else { return }
+        let generation = requestGeneration
+        let requestedMode = mode
+        let requestedPage = nextPage
+
+        loadingMore = true
+        errorMessage = nil
+        await requestPage(mode: requestedMode, page: requestedPage, generation: generation, reset: false)
+        guard generation == requestGeneration, requestedMode == mode, !Task.isCancelled else { return }
+        loadingMore = false
+    }
+
+    @MainActor
+    private func requestPage(
+        mode requestedMode: IncomingInventoryViewMode,
+        page requestedPage: Int,
+        generation: Int,
+        reset: Bool
+    ) async {
+        do {
+            if requestedMode == .purchaseOrder {
+                let response = try await ContainersAPI().incoming(page: requestedPage, pageSize: pageSize)
+                guard generation == requestGeneration, requestedMode == mode, !Task.isCancelled else { return }
+                purchaseOrderItems = reset ? response.items : purchaseOrderItems + response.items
+                total = response.total
+            } else {
+                let response = try await ContainersAPI().incomingCombined(page: requestedPage, pageSize: pageSize)
+                guard generation == requestGeneration, requestedMode == mode, !Task.isCancelled else { return }
+                combinedItems = reset ? response.items : combinedItems + response.items
+                total = response.total
+            }
+            nextPage = requestedPage + 1
+            errorMessage = nil
+        } catch {
+            guard generation == requestGeneration, requestedMode == mode, !Task.isCancelled, !isCancelledRequest(error) else { return }
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 }
 

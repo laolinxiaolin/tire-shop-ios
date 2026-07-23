@@ -16,12 +16,18 @@ enum Server {
     }
 
     static var baseURLString: String {
-        UserDefaults.standard.string(forKey: storageKey) ?? defaultBaseURLString
+        guard
+            let stored = UserDefaults.standard.string(forKey: storageKey),
+            let url = normalized(stored)
+        else { return defaultBaseURLString }
+
+        return url.absoluteString
     }
 
     /// Persist a new server URL. Accepts a bare host ("laolin.net") and adds
     /// https. Returns false without saving when the value is not a usable
-    /// http(s) URL; an empty value resets to the default.
+    /// HTTPS URL; Debug builds also accept HTTP for local development. An empty
+    /// value resets to the default.
     @discardableResult
     static func setBaseURL(_ raw: String) -> Bool {
         guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -45,12 +51,15 @@ enum Server {
             trimmed.removeLast()
         }
 
-        guard
-            let url = URL(string: trimmed),
-            let scheme = url.scheme?.lowercased(),
-            scheme == "https" || scheme == "http",
-            url.host != nil
-        else { return nil }
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), url.host != nil else {
+            return nil
+        }
+
+#if DEBUG
+        guard scheme == "https" || scheme == "http" else { return nil }
+#else
+        guard scheme == "https" else { return nil }
+#endif
 
         return url
     }

@@ -233,7 +233,7 @@ private struct UserEditorView: View {
                     } header: {
                         Text("Password")
                     } footer: {
-                        Text("At least 8 characters. The user can change it after signing in.")
+                        Text("At least 8 characters. An administrator can reset it later.")
                     }
                 }
 

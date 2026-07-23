@@ -43,6 +43,8 @@ const ids = {
   assetsBuild: id('build:Assets.xcassets'),
   localizableCatalogFile: id('file:Localizable.xcstrings'),
   localizableCatalogBuild: id('build:Localizable.xcstrings'),
+  privacyManifestFile: id('file:PrivacyInfo.xcprivacy'),
+  privacyManifestBuild: id('build:PrivacyInfo.xcprivacy'),
   entitlementsFile: id('file:TireShop.entitlements'),
   testingEntitlementsFile: id('file:TireShopTesting.entitlements'),
   infoPlistFile: id('file:Info.plist'),
@@ -120,7 +122,7 @@ const commonProjectSettings = `
 
 const commonTargetSettings = `
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026072002;
+				CURRENT_PROJECT_VERSION = 2026072301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -153,6 +155,7 @@ ${buildFiles}
 		${ids.stripePaymentSheetBuild} /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripePaymentSheetProduct} /* StripePaymentSheet */; };
 		${ids.assetsBuild} /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.assetsFile} /* Assets.xcassets */; };
 		${ids.localizableCatalogBuild} /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.localizableCatalogFile} /* Localizable.xcstrings */; };
+		${ids.privacyManifestBuild} /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.privacyManifestFile} /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -160,6 +163,7 @@ ${fileRefs}
 		${ids.product} /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		${ids.assetsFile} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		${ids.localizableCatalogFile} /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		${ids.privacyManifestFile} /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		${ids.entitlementsFile} /* TireShop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShop.entitlements; sourceTree = "<group>"; };
 		${ids.testingEntitlementsFile} /* TireShopTesting.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShopTesting.entitlements; sourceTree = "<group>"; };
 		${ids.infoPlistFile} /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -192,6 +196,7 @@ ${fileRefs}
 ${sourceChildren}
 				${ids.assetsFile} /* Assets.xcassets */,
 				${ids.localizableCatalogFile} /* Localizable.xcstrings */,
+				${ids.privacyManifestFile} /* PrivacyInfo.xcprivacy */,
 				${ids.entitlementsFile} /* TireShop.entitlements */,
 				${ids.testingEntitlementsFile} /* TireShopTesting.entitlements */,
 				${ids.infoPlistFile} /* Info.plist */,
@@ -276,6 +281,7 @@ ${sourceChildren}
 			files = (
 				${ids.assetsBuild} /* Assets.xcassets in Resources */,
 				${ids.localizableCatalogBuild} /* Localizable.xcstrings in Resources */,
+				${ids.privacyManifestBuild} /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

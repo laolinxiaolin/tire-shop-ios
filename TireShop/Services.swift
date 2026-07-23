@@ -522,8 +522,8 @@ struct InvoiceTemplatePatchInput: Codable {
 struct DashboardAPI {
     var client = APIClient.shared
 
-    func summary() async throws -> DashboardSummary {
-        try await client.request("/dashboard/summary")
+    func summary(months: Int = 1) async throws -> DashboardSummary {
+        try await client.request("/dashboard/summary?months=\(months)")
     }
 }
 
@@ -1425,6 +1425,14 @@ struct ContainersAPI {
 
     func get(id: String) async throws -> Container {
         try await client.request("/containers/\(id)")
+    }
+
+    func incoming(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<IncomingInventoryLine> {
+        try await client.request("/containers/incoming\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func incomingCombined(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<IncomingInventoryCombined> {
+        try await client.request("/containers/incoming/combined\(query(["page": page, "pageSize": pageSize]))")
     }
 
     func create(_ body: ContainerCreateInput) async throws -> Container {

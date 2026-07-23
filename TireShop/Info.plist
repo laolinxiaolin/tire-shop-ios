@@ -27,13 +27,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Tire Force uses Face ID to confirm cashier identity before accepting a Tap to Pay on iPhone payment.</string>
+	<string>Tire Force US uses Face ID to confirm cashier identity before accepting a Tap to Pay on iPhone payment.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Tire Force uses Bluetooth to connect to supported card readers for in-person payments.</string>
+	<string>Tire Force US uses Bluetooth to connect to supported card readers for in-person payments.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Tire Force uses the camera to scan inventory, customer, and payment-related codes.</string>
+	<string>Tire Force US uses the camera when you choose to photograph a customer document or scan a payment card during checkout.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Tire Force uses your location while accepting in-person card payments so Stripe Terminal can connect this device to the store.</string>
+	<string>Tire Force US uses your location while accepting in-person card payments so Stripe Terminal can connect this device to the store.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

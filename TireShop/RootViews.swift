@@ -423,6 +423,20 @@ struct ProfileView: View {
                 Text(i18n.t("profile.languageNote"))
             }
 
+            Section(i18n.t("profile.helpLegal")) {
+                if let privacyURL = URL(string: "https://laolin.net/privacy") {
+                    Link(destination: privacyURL) {
+                        Label(i18n.t("profile.privacyPolicy"), systemImage: "hand.raised")
+                    }
+                }
+
+                if let supportURL = URL(string: "https://laolin.net/support") {
+                    Link(destination: supportURL) {
+                        Label(i18n.t("profile.support"), systemImage: "questionmark.circle")
+                    }
+                }
+            }
+
             Section {
                 Button(role: .destructive) {
                     auth.signOut()

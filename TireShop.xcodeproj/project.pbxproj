@@ -39,6 +39,7 @@
 		A6DA2354BC96D7241DD366C5 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = EE2423EE6B9A6599B9A70A15 /* StripePaymentSheet */; };
 		222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */; };
 		1ABB0BD182343F4D3D34C97F /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FC311F94EB5115990BAC4BE8 /* Localizable.xcstrings */; };
+		ECEEA0346EA710E5EAA22643 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0BDFC2392C4F9A401DB5348F /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -73,6 +74,7 @@
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FC311F94EB5115990BAC4BE8 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		0BDFC2392C4F9A401DB5348F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		5A196A8CFC93D32A79E7C96E /* TireShop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShop.entitlements; sourceTree = "<group>"; };
 		5F72FDE880D5F4261E28E803 /* TireShopTesting.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TireShopTesting.entitlements; sourceTree = "<group>"; };
 		68E77A9D7BC78A97D4F4E27B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 				B904E12E6F894156ED7B9E74 /* WarehouseTransferScreens.swift */,
 				6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */,
 				FC311F94EB5115990BAC4BE8 /* Localizable.xcstrings */,
+				0BDFC2392C4F9A401DB5348F /* PrivacyInfo.xcprivacy */,
 				5A196A8CFC93D32A79E7C96E /* TireShop.entitlements */,
 				5F72FDE880D5F4261E28E803 /* TireShopTesting.entitlements */,
 				68E77A9D7BC78A97D4F4E27B /* Info.plist */,
@@ -216,6 +219,7 @@
 			files = (
 				222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */,
 				1ABB0BD182343F4D3D34C97F /* Localizable.xcstrings in Resources */,
+				ECEEA0346EA710E5EAA22643 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -378,7 +382,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026072002;
+				CURRENT_PROJECT_VERSION = 2026072301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -405,7 +409,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026072002;
+				CURRENT_PROJECT_VERSION = 2026072301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
