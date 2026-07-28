@@ -839,7 +839,7 @@ struct InventoryAPI {
         location: String? = nil,
         page: Int? = nil,
         pageSize: Int? = nil
-    ) async throws -> Paged<TireSku> {
+    ) async throws -> InventorySkuPage {
         let qs = query([
             "q": q,
             "category": category,
@@ -853,6 +853,28 @@ struct InventoryAPI {
             "pageSize": pageSize
         ])
         return try await client.request("/inventory/skus\(qs)")
+    }
+
+    func exportSkus(
+        ids: [String]? = nil,
+        q: String? = nil,
+        category: TireCategory? = nil,
+        position: TirePosition? = nil,
+        brand: String? = nil,
+        inStock: Bool = false,
+        location: String? = nil
+    ) async throws -> URL {
+        let qs = query([
+            "ids": ids?.joined(separator: ","),
+            "q": q,
+            "category": category,
+            "position": position,
+            "brand": brand,
+            "inStock": inStock ? "1" : nil,
+            "location": location
+        ])
+        let fileName = location.map { "inventory-\($0).xlsx" } ?? "inventory.xlsx"
+        return try await client.download("/inventory/skus/export\(qs)", fileName: fileName)
     }
 
     func listBrands() async throws -> [String] {
@@ -941,6 +963,45 @@ struct SalesAPI {
         ])
         let response: SalesListResponse = try await client.request("/sales\(qs)")
         return response
+    }
+
+    func bestSellers(
+        months: Int? = nil,
+        from: String? = nil,
+        to: String? = nil,
+        sortBy: String? = nil,
+        sortOrder: String? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> BestSellersResponse {
+        let qs = query([
+            "months": months,
+            "from": from,
+            "to": to,
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/sales/best-sellers\(qs)")
+    }
+
+    func exportBestSellers(
+        months: Int? = nil,
+        from: String? = nil,
+        to: String? = nil,
+        sortBy: String? = nil,
+        sortOrder: String? = nil,
+        fileName: String = "best-sellers.xlsx"
+    ) async throws -> URL {
+        let qs = query([
+            "months": months,
+            "from": from,
+            "to": to,
+            "sortBy": sortBy,
+            "sortOrder": sortOrder
+        ])
+        return try await client.download("/sales/best-sellers/export\(qs)", fileName: fileName)
     }
 
     func get(id: String) async throws -> Sale {
@@ -1419,8 +1480,23 @@ struct InventoryCountsAPI {
 struct ContainersAPI {
     var client = APIClient.shared
 
-    func list(status: ContainerStatus? = nil, q: String? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<ContainerListItem> {
-        try await client.request("/containers\(query(["status": status, "q": q, "page": page, "pageSize": pageSize]))")
+    func list(
+        status: ContainerStatus? = nil,
+        q: String? = nil,
+        sortBy: String? = nil,
+        sortOrder: String? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<ContainerListItem> {
+        let qs = query([
+            "status": status,
+            "q": q,
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/containers\(qs)")
     }
 
     func get(id: String) async throws -> Container {
@@ -1469,6 +1545,39 @@ struct ContainersAPI {
 
     func deleteCost(id: String, costId: String) async throws -> OkResponse {
         try await client.request("/containers/\(id)/costs/\(costId)", method: "DELETE")
+    }
+
+    func uploadAttachment(
+        id: String,
+        fileURL: URL,
+        fileName: String,
+        mimeType: String,
+        kind: ContainerAttachmentKind,
+        note: String? = nil
+    ) async throws -> ContainerAttachment {
+        var fields = ["kind": kind]
+        if let note {
+            fields["note"] = note
+        }
+        return try await client.uploadMultipart(
+            "/containers/\(id)/attachments",
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType,
+            fields: fields
+        )
+    }
+
+    func downloadAttachment(id: String, attachment: ContainerAttachment) async throws -> URL {
+        let safeName = attachment.filename.replacingOccurrences(of: "/", with: "-")
+        return try await client.download(
+            "/containers/\(id)/attachments/\(attachment.id)/download",
+            fileName: safeName
+        )
+    }
+
+    func deleteAttachment(id: String, attachmentId: String) async throws -> OkResponse {
+        try await client.request("/containers/\(id)/attachments/\(attachmentId)", method: "DELETE")
     }
 }
 

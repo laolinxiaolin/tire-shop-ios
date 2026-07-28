@@ -153,6 +153,24 @@ struct TireSku: Codable, Identifiable, Equatable {
     let inventory: [TireSkuInventory]
 }
 
+struct InventoryTotals: Codable, Equatable {
+    let skus: Int
+    let units: Int
+    let reserved: Int
+    let available: Int
+    let costValue: Double
+    let retailValue: Double
+    let location: String?
+}
+
+struct InventorySkuPage: Codable {
+    let items: [TireSku]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let totals: InventoryTotals?
+}
+
 struct SkuInput: Codable {
     var sku: String
     var brand: String
@@ -518,6 +536,47 @@ struct SalesListResponse: Codable, Equatable {
     let page: Int
     let pageSize: Int
     let summary: SalesSummary
+}
+
+struct BestSellerRow: Codable, Identifiable, Equatable {
+    let id: String
+    let sku: String
+    let brand: String
+    let model: String
+    let size: String
+    let category: String
+    let position: String
+    let qty: Int
+    let saleCount: Int
+    let revenue: String
+    let grossProfit: String
+    let margin: Double?
+    let lastSoldAt: String?
+    let onHand: Int
+}
+
+struct BestSellersSummary: Codable, Equatable {
+    let skuCount: Int
+    let qty: Int
+    let saleCount: Int
+    let revenue: String
+    let grossProfit: String
+}
+
+struct BestSellersPeriod: Codable, Equatable {
+    let months: Int?
+    let from: String?
+    let to: String
+    let timezone: String
+}
+
+struct BestSellersResponse: Codable, Equatable {
+    let items: [BestSellerRow]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let summary: BestSellersSummary
+    let period: BestSellersPeriod
 }
 
 struct CustomerSaleSummary: Codable, Identifiable, Equatable {

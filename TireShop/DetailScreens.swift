@@ -1,4 +1,80 @@
+import ImageIO
+import PhotosUI
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+private struct ContainerDocumentCameraCapture {
+    let data: Data
+    let filename: String
+    let mimeType: String
+}
+
+private struct ContainerDocumentCameraPicker: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    let onCapture: (ContainerDocumentCameraCapture) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.mediaTypes = [UTType.image.identifier]
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        private let parent: ContainerDocumentCameraPicker
+
+        init(parent: ContainerDocumentCameraPicker) {
+            self.parent = parent
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            defer { parent.dismiss() }
+
+            if
+                let url = info[.imageURL] as? URL,
+                let data = try? Data(contentsOf: url)
+            {
+                let type = UTType(filenameExtension: url.pathExtension)
+                parent.onCapture(ContainerDocumentCameraCapture(
+                    data: data,
+                    filename: url.lastPathComponent,
+                    mimeType: type?.preferredMIMEType ?? "application/octet-stream"
+                ))
+                return
+            }
+
+            guard
+                let image = info[.originalImage] as? UIImage,
+                let data = image.jpegData(compressionQuality: 0.92)
+            else { return }
+
+            let timestamp = Int(Date().timeIntervalSince1970)
+            parent.onCapture(ContainerDocumentCameraCapture(
+                data: data,
+                filename: "Purchase document \(timestamp).jpg",
+                mimeType: "image/jpeg"
+            ))
+        }
+    }
+}
 
 struct SaleDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
@@ -977,6 +1053,17 @@ struct ContainerDetailNativeView: View {
     @State private var showingCancelConfirm = false
     @State private var showingUnreceiveConfirm = false
     @State private var unreceiveReason = ""
+    @State private var attachmentPreview: PreviewFile?
+    @State private var deleteAttachmentTarget: ContainerAttachment?
+    @State private var choosingAttachmentSource = false
+    @State private var importingAttachment = false
+    @State private var selectingAttachmentPhoto = false
+    @State private var attachmentPhotoSelection: PhotosPickerItem?
+    @State private var capturingAttachmentPhoto = false
+    @State private var attachmentKind: ContainerAttachmentKind = "BOL"
+    @State private var attachmentNote = ""
+    @State private var uploadingAttachment = false
+    @State private var deletingAttachmentId: String?
 
     private var canManage: Bool {
         auth.has("purchasing.manage")
@@ -1029,6 +1116,9 @@ struct ContainerDetailNativeView: View {
                 Task { await load() }
             }
         }
+        .sheet(item: $attachmentPreview) { preview in
+            QuickLookSheet(url: preview.url)
+        }
         .sheet(isPresented: Binding(
             get: { skuSearchLineId != nil },
             set: { if !$0 { skuSearchLineId = nil } }
@@ -1040,6 +1130,56 @@ struct ContainerDetailNativeView: View {
                 skuSearchLineId = nil
             }
         }
+        .fileImporter(
+            isPresented: $importingAttachment,
+            allowedContentTypes: [.pdf, .jpeg, .png, .heic, .heif],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { await handleAttachmentImport(result) }
+        }
+        .photosPicker(
+            isPresented: $selectingAttachmentPhoto,
+            selection: $attachmentPhotoSelection,
+            matching: .images,
+            preferredItemEncoding: .current
+        )
+        .onChange(of: attachmentPhotoSelection) { _, item in
+            guard let item else { return }
+            Task { await handleAttachmentPhoto(item) }
+        }
+        .fullScreenCover(isPresented: $capturingAttachmentPhoto) {
+            ContainerDocumentCameraPicker { capture in
+                Task { await handleAttachmentCameraCapture(capture) }
+            }
+            .ignoresSafeArea()
+        }
+        .confirmationDialog(
+            "Add purchase document",
+            isPresented: $choosingAttachmentSource,
+            titleVisibility: .visible
+        ) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    capturingAttachmentPhoto = true
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+            }
+
+            Button {
+                selectingAttachmentPhoto = true
+            } label: {
+                Label("Choose from Photos", systemImage: "photo.on.rectangle")
+            }
+
+            Button {
+                importingAttachment = true
+            } label: {
+                Label("Browse Files", systemImage: "folder")
+            }
+        } message: {
+            Text("Choose where to get the document.")
+        }
         .alert("Delete cost?", isPresented: Binding(
             get: { deleteCostTarget != nil },
             set: { if !$0 { deleteCostTarget = nil } }
@@ -1050,6 +1190,17 @@ struct ContainerDetailNativeView: View {
             }
         } message: {
             Text("This removes the cost from the container.")
+        }
+        .alert("Delete document?", isPresented: Binding(
+            get: { deleteAttachmentTarget != nil },
+            set: { if !$0 { deleteAttachmentTarget = nil } }
+        ), presenting: deleteAttachmentTarget) { attachment in
+            Button("Cancel", role: .cancel) { deleteAttachmentTarget = nil }
+            Button("Delete", role: .destructive) {
+                Task { await deleteAttachment(attachment) }
+            }
+        } message: { _ in
+            Text("This removes the file from the purchase order.")
         }
         .alert("Cancel container?", isPresented: $showingCancelConfirm) {
             Button("Keep", role: .cancel) {}
@@ -1089,7 +1240,7 @@ struct ContainerDetailNativeView: View {
                 Section {
                     Text(actionMessage)
                         .font(.subheadline)
-                        .foregroundStyle(actionMessage == "Saved" ? Theme.success : Theme.danger)
+                        .foregroundStyle(actionMessageIsError(actionMessage) ? Theme.danger : Theme.success)
                 }
             }
 
@@ -1218,16 +1369,68 @@ struct ContainerDetailNativeView: View {
                 }
             }
 
-            if let attachments = container.attachments, !attachments.isEmpty {
-                Section("Documents") {
+            Section {
+                if canManage {
+                    Picker("Document type", selection: $attachmentKind) {
+                        ForEach(ContainerDetailLabels.attachmentKinds, id: \.0) { kind, label in
+                            Text(label).tag(kind)
+                        }
+                    }
+                    .disabled(uploadingAttachment)
+
+                    TextField("Note (optional)", text: $attachmentNote)
+                        .disabled(uploadingAttachment)
+
+                    Button {
+                        choosingAttachmentSource = true
+                    } label: {
+                        Label(uploadingAttachment ? "Uploading..." : "Upload document", systemImage: "doc.badge.plus")
+                    }
+                    .disabled(uploadingAttachment)
+                }
+
+                let attachments = container.attachments ?? []
+                if attachments.isEmpty {
+                    Text("No documents on file.")
+                        .foregroundStyle(Theme.muted)
+                } else {
                     ForEach(attachments) { attachment in
-                        RowLine(
-                            title: attachment.filename,
-                            subtitle: ContainerDetailLabels.attachmentKind(attachment.kind),
-                            trailing: "\(attachment.sizeBytes / 1024) KB"
-                        )
+                        HStack(alignment: .top) {
+                            Button {
+                                Task { await openAttachment(attachment) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                                    Text(attachment.filename)
+                                        .multilineTextAlignment(.leading)
+                                    Text(ContainerDetailLabels.attachmentSubtitle(attachment))
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.muted)
+                                        .multilineTextAlignment(.leading)
+                                }
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+
+                            if canManage {
+                                Button(role: .destructive) {
+                                    deleteAttachmentTarget = attachment
+                                } label: {
+                                    if deletingAttachmentId == attachment.id {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "trash")
+                                    }
+                                }
+                                .disabled(deletingAttachmentId != nil)
+                            }
+                        }
                     }
                 }
+            } header: {
+                Text("Documents")
+            } footer: {
+                Text("Take a photo or choose a PDF, JPEG, PNG, HEIC or HEIF file.")
             }
 
             Section("Summary") {
@@ -1346,6 +1549,141 @@ struct ContainerDetailNativeView: View {
     }
 
     @MainActor
+    private func openAttachment(_ attachment: ContainerAttachment) async {
+        actionMessage = nil
+        do {
+            let url = try await ContainersAPI().downloadAttachment(id: id, attachment: attachment)
+            attachmentPreview = PreviewFile(url: url)
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not open document."
+        }
+    }
+
+    @MainActor
+    private func handleAttachmentImport(_ result: Result<[URL], Error>) async {
+        guard canManage else { return }
+        uploadingAttachment = true
+        actionMessage = nil
+        var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            uploadingAttachment = false
+        }
+
+        do {
+            let source = try result.get().first
+            guard let source else { return }
+            let copied = try copyImportedAttachment(source)
+            tempURL = copied
+            try await uploadContainerAttachment(
+                fileURL: copied,
+                fileName: source.lastPathComponent,
+                mimeType: mimeType(for: source)
+            )
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload document."
+        }
+    }
+
+    @MainActor
+    private func handleAttachmentPhoto(_ item: PhotosPickerItem) async {
+        guard canManage else { return }
+        uploadingAttachment = true
+        actionMessage = nil
+        var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            attachmentPhotoSelection = nil
+            uploadingAttachment = false
+        }
+
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw APIError(status: 0, message: "Could not read the selected photo.")
+            }
+
+            let contentType = Self.imageContentType(for: data)
+                ?? item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+                ?? .jpeg
+            let fileExtension = contentType.preferredFilenameExtension ?? "jpg"
+            let filename = Self.capturedAttachmentFilename(fileExtension: fileExtension)
+            let url = try writeTemporaryAttachment(data, filename: filename)
+            tempURL = url
+
+            try await uploadContainerAttachment(
+                fileURL: url,
+                fileName: filename,
+                mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
+            )
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload photo."
+        }
+    }
+
+    @MainActor
+    private func handleAttachmentCameraCapture(_ capture: ContainerDocumentCameraCapture) async {
+        guard canManage else { return }
+        uploadingAttachment = true
+        actionMessage = nil
+        var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            uploadingAttachment = false
+        }
+
+        do {
+            let url = try writeTemporaryAttachment(capture.data, filename: capture.filename)
+            tempURL = url
+            try await uploadContainerAttachment(
+                fileURL: url,
+                fileName: capture.filename,
+                mimeType: capture.mimeType
+            )
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload photo."
+        }
+    }
+
+    @MainActor
+    private func uploadContainerAttachment(fileURL: URL, fileName: String, mimeType: String) async throws {
+        _ = try await ContainersAPI().uploadAttachment(
+            id: id,
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType,
+            kind: attachmentKind,
+            note: attachmentNote.nilIfBlank
+        )
+        let updated = try await ContainersAPI().get(id: id)
+        seed(updated)
+        attachmentNote = ""
+        actionMessage = "Document uploaded."
+    }
+
+    @MainActor
+    private func deleteAttachment(_ attachment: ContainerAttachment) async {
+        deleteAttachmentTarget = nil
+        deletingAttachmentId = attachment.id
+        actionMessage = nil
+        defer { deletingAttachmentId = nil }
+
+        do {
+            _ = try await ContainersAPI().deleteAttachment(id: id, attachmentId: attachment.id)
+            let updated = try await ContainersAPI().get(id: id)
+            seed(updated)
+            actionMessage = "Document deleted."
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete document."
+        }
+    }
+
+    @MainActor
     private func saveDraft() async {
         guard let body = draftBody() else { return }
         busy = true
@@ -1456,6 +1794,65 @@ struct ContainerDetailNativeView: View {
         )
     }
 
+    private func actionMessageIsError(_ message: String) -> Bool {
+        message.hasPrefix("Could not")
+            || message.hasPrefix("Choose")
+            || message.hasPrefix("Fix")
+            || message.contains("already")
+    }
+
+    private func copyImportedAttachment(_ url: URL) throws -> URL {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("purchase-doc-\(UUID().uuidString)-\(url.lastPathComponent)")
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.copyItem(at: url, to: destination)
+        return destination
+    }
+
+    private func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf": return "application/pdf"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "heic": return "image/heic"
+        case "heif": return "image/heif"
+        default: return "application/octet-stream"
+        }
+    }
+
+    private func writeTemporaryAttachment(_ data: Data, filename: String) throws -> URL {
+        let safeFilename = filename
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: ".")
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("purchase-doc-\(UUID().uuidString)-\(safeFilename)")
+        try? FileManager.default.removeItem(at: destination)
+        try data.write(to: destination, options: .atomic)
+        return destination
+    }
+
+    private static func imageContentType(for data: Data) -> UTType? {
+        guard
+            let source = CGImageSourceCreateWithData(data as CFData, nil),
+            let identifier = CGImageSourceGetType(source)
+        else { return nil }
+
+        return UTType(identifier as String)
+    }
+
+    private static func capturedAttachmentFilename(fileExtension: String) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm"
+        return "Purchase document \(formatter.string(from: Date())).\(fileExtension)"
+    }
+
     @MainActor
     private func seed(_ value: Container) {
         container = value
@@ -1489,6 +1886,14 @@ private enum ContainerDetailLabels {
         ("LABOR", "Unloading labor"),
         ("OTHER", "Other")
     ]
+    static let attachmentKinds: [(ContainerAttachmentKind, String)] = [
+        ("BOL", "BOL"),
+        ("PACKING_LIST", "Packing list"),
+        ("INVOICE", "Invoice"),
+        ("RECEIPT", "Receipt"),
+        ("PHOTO", "Photo"),
+        ("OTHER", "Other")
+    ]
 
     static func status(_ value: ContainerStatus) -> String {
         switch value {
@@ -1507,7 +1912,20 @@ private enum ContainerDetailLabels {
     }
 
     static func attachmentKind(_ value: ContainerAttachmentKind) -> String {
-        value.replacingOccurrences(of: "_", with: " ").capitalized
+        attachmentKinds.first { $0.0 == value }?.1
+            ?? value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func attachmentSubtitle(_ attachment: ContainerAttachment) -> String {
+        var parts = [
+            attachmentKind(attachment.kind),
+            ByteCountFormatter.string(fromByteCount: Int64(attachment.sizeBytes), countStyle: .file),
+            AppFormat.dateTime(attachment.createdAt)
+        ]
+        if let note = attachment.note?.nilIfBlank {
+            parts.append(note)
+        }
+        return parts.joined(separator: " · ")
     }
 
     static func isEditable(_ status: ContainerStatus) -> Bool {
@@ -1939,7 +2357,7 @@ private struct SkuSearchSheet: View {
                 HStack(spacing: Theme.Space.sm) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(Theme.muted)
-                    TextField("Search SKU, brand, model...", text: $q)
+                    TextField("Search SKU, code, brand, model, size, attribute...", text: $q)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit { Task { await search() } }
@@ -2221,32 +2639,37 @@ private struct QuoteCustomerPickerList: View {
     @State private var customers: [Customer] = []
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var selectingCustomerID: String?
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
-        Group {
-            if loading && customers.isEmpty {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, customers.isEmpty {
-                RetryView(message: errorMessage) { Task { await load() } }
-            } else if customers.isEmpty {
-                EmptyStateView(text: "No customers match that search.")
-            } else {
-                List(customers) { customer in
-                    Button {
-                        quote.setCustomer(QuoteCustomer(customer: customer))
-                        dismiss()
-                    } label: {
-                        RowLine(
-                            title: customer.company ?? customer.name,
-                            subtitle: customer.company == nil ? nil : customer.name,
-                            trailing: customer.taxExempt ? "Tax exempt" : nil
-                        )
+        VStack(spacing: 0) {
+            customerSearchField
+
+            Group {
+                if loading && customers.isEmpty {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, customers.isEmpty {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if customers.isEmpty {
+                    EmptyStateView(text: "No customers match that search.")
+                } else {
+                    List(customers) { customer in
+                        Button {
+                            select(customer)
+                        } label: {
+                            RowLine(
+                                title: customer.company ?? customer.name,
+                                subtitle: customer.company == nil ? nil : customer.name,
+                                trailing: customer.taxExempt ? "Tax exempt" : nil
+                            )
+                        }
                     }
+                    .listStyle(.plain)
+                    .disabled(selectingCustomerID != nil)
                 }
-                .listStyle(.plain)
             }
         }
-        .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search name, company, phone…")
         .task(id: q) {
             if !q.isEmpty {
                 try? await Task.sleep(nanoseconds: 300_000_000)
@@ -2255,6 +2678,61 @@ private struct QuoteCustomerPickerList: View {
             await load()
         }
         .navigationTitle("Select customer")
+    }
+
+    private var customerSearchField: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Theme.muted)
+
+            TextField("Search name, company, phone…", text: $q)
+                .focused($searchFieldFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                    searchFieldFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .frame(height: 44)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
+        )
+        .padding(Theme.Space.lg)
+        .background(Theme.background)
+    }
+
+    @MainActor
+    private func select(_ customer: Customer) {
+        guard selectingCustomerID == nil else { return }
+        selectingCustomerID = customer.id
+
+        searchFieldFocused = false
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            quote.setCustomer(QuoteCustomer(customer: customer))
+            dismiss()
+        }
     }
 
     @MainActor

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 private func isCancelledRequest(_ error: Error) -> Bool {
     if error is CancellationError {
@@ -147,17 +148,21 @@ struct DashboardNativeView: View {
 
     private func topSellerSection(_ items: [DashboardSummary.TopSku]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 SectionHeader(i18n.t("dashboard.topSellers"))
                 Spacer()
-                Picker(i18n.t("dashboard.topSellerPeriod"), selection: $months) {
-                    ForEach(periods, id: \.self) { period in
-                        Text(i18n.t(period == 12 ? "dashboard.period.1y" : "dashboard.period.\(period)m")).tag(period)
-                    }
+                NavigationLink(value: AppRoute.bestSellers(months: months)) {
+                    Text(i18n.t("bestSellers.viewAll"))
+                        .font(.caption.weight(.semibold))
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 210)
             }
+
+            Picker(i18n.t("dashboard.topSellerPeriod"), selection: $months) {
+                ForEach(periods, id: \.self) { period in
+                    Text(i18n.t(period == 12 ? "dashboard.period.1y" : "dashboard.period.\(period)m")).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
 
             if !rankingsAreCurrent && isLoading {
                 DashboardLoadingRow(text: i18n.t("dashboard.loadingRankings"))
@@ -378,10 +383,174 @@ private enum InventoryLabels {
     }
 }
 
+private struct InventoryExportConfiguration {
+    let selectedIDs: [String]
+    let q: String?
+    let category: TireCategory?
+    let position: TirePosition?
+    let brand: String?
+    let hideZeroStock: Bool
+    let location: String?
+    let matchCount: Int
+}
+
+private enum InventoryExportScope: String, Identifiable {
+    case filters
+    case all
+    case selected
+
+    var id: String { rawValue }
+}
+
+private struct InventoryExportFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct InventoryExportShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct InventoryExportSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var i18n: I18nStore
+
+    let configuration: InventoryExportConfiguration
+    let warehouses: [Warehouse]
+
+    @State private var scope: InventoryExportScope
+    @State private var hideZeroStock: Bool
+    @State private var location: String
+    @State private var exporting = false
+    @State private var errorMessage: String?
+    @State private var exportFile: InventoryExportFile?
+
+    init(configuration: InventoryExportConfiguration, warehouses: [Warehouse]) {
+        self.configuration = configuration
+        self.warehouses = warehouses
+        _scope = State(initialValue: configuration.selectedIDs.isEmpty ? .filters : .selected)
+        _hideZeroStock = State(initialValue: configuration.hideZeroStock)
+        _location = State(initialValue: configuration.location ?? "")
+    }
+
+    private var scopes: [InventoryExportScope] {
+        configuration.selectedIDs.isEmpty ? [.filters, .all] : [.filters, .all, .selected]
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(i18n.t("inventory.export.scope")) {
+                    Picker(i18n.t("inventory.export.scope"), selection: $scope) {
+                        ForEach(scopes) { option in
+                            Text(scopeLabel(option)).tag(option)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+
+                Section {
+                    Toggle(i18n.t("inventory.export.hideZero"), isOn: $hideZeroStock)
+                        .disabled(scope == .selected)
+
+                    if warehouses.count > 1 {
+                        Picker(i18n.t("inventory.export.warehouse"), selection: $location) {
+                            Text(i18n.t("inventory.allWarehouses")).tag("")
+                            ForEach(warehouses) { warehouse in
+                                Text("\(warehouse.code) — \(warehouse.name)").tag(warehouse.code)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Text(i18n.t("inventory.export.totalNote"))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+            }
+            .navigationTitle(i18n.t("inventory.export.title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(exporting)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(i18n.t("common.cancel")) {
+                        dismiss()
+                    }
+                    .disabled(exporting)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(exporting ? i18n.t("common.exporting") : i18n.t("common.export")) {
+                        Task { await export() }
+                    }
+                    .disabled(exporting)
+                }
+            }
+        }
+        .sheet(item: $exportFile, onDismiss: {
+            dismiss()
+        }) { file in
+            InventoryExportShareSheet(url: file.url)
+        }
+    }
+
+    private func scopeLabel(_ option: InventoryExportScope) -> String {
+        switch option {
+        case .filters:
+            i18n.t("inventory.export.scopeFilters", ["n": configuration.matchCount])
+        case .all:
+            i18n.t("inventory.export.scopeAll")
+        case .selected:
+            i18n.t("inventory.export.scopeSelected", ["n": configuration.selectedIDs.count])
+        }
+    }
+
+    @MainActor
+    private func export() async {
+        exporting = true
+        errorMessage = nil
+        defer { exporting = false }
+
+        do {
+            let usesFilters = scope == .filters
+            let url = try await InventoryAPI().exportSkus(
+                ids: scope == .selected ? configuration.selectedIDs : nil,
+                q: usesFilters ? configuration.q : nil,
+                category: usesFilters ? configuration.category : nil,
+                position: usesFilters ? configuration.position : nil,
+                brand: usesFilters ? configuration.brand : nil,
+                inStock: scope == .selected ? false : hideZeroStock,
+                location: location.nilIfBlank
+            )
+            exportFile = InventoryExportFile(url: url)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? i18n.t("inventory.exportFailedBody")
+        }
+    }
+}
+
 struct InventoryListNativeView: View {
     var selectForQuote = false
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var quote: QuoteStore
 
     private let pageSize = 1000
@@ -402,6 +571,7 @@ struct InventoryListNativeView: View {
     @State private var warehouseError: String?
     @State private var items: [TireSku] = []
     @State private var total = 0
+    @State private var inventoryTotals: InventoryTotals?
     @State private var loadedPage = 0
     @State private var hasLoaded = false
     @State private var loading = false
@@ -409,6 +579,9 @@ struct InventoryListNativeView: View {
     @State private var errorMessage: String?
     @State private var loadMoreError: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var selectingRows = false
+    @State private var selectedSkuIDs: Set<String> = []
+    @State private var showingExportOptions = false
 
     private var selectedLocation: String {
         selectForQuote ? quote.location : location
@@ -426,6 +599,49 @@ struct InventoryListNativeView: View {
                 : Self.onHand(sku, location: location)
             return result + quantity
         }
+    }
+
+    private var displayedInventoryTotals: InventoryTotals {
+        if let inventoryTotals {
+            return inventoryTotals
+        }
+
+        let selectedWarehouse = selectedLocation.nilIfBlank
+        let units = items.reduce(0) { $0 + Self.onHand($1, location: selectedWarehouse) }
+        let reserved = items.reduce(0) { result, sku in
+            if let selectedWarehouse {
+                return result + (sku.inventory.first { $0.location == selectedWarehouse }?.qtyReserved ?? 0)
+            }
+            return result + sku.inventory.reduce(0) { $0 + $1.qtyReserved }
+        }
+        let costValue = items.reduce(0.0) {
+            $0 + Double(Self.onHand($1, location: selectedWarehouse)) * (Double($1.priceCost) ?? 0)
+        }
+        let retailValue = items.reduce(0.0) {
+            $0 + Double(Self.onHand($1, location: selectedWarehouse)) * (Double($1.priceRetail) ?? 0)
+        }
+        return InventoryTotals(
+            skus: items.count,
+            units: units,
+            reserved: reserved,
+            available: units - reserved,
+            costValue: costValue,
+            retailValue: retailValue,
+            location: selectedWarehouse
+        )
+    }
+
+    private var exportConfiguration: InventoryExportConfiguration {
+        InventoryExportConfiguration(
+            selectedIDs: selectedSkuIDs.sorted(),
+            q: q.nilIfBlank,
+            category: category.nilIfBlank,
+            position: position.nilIfBlank,
+            brand: brand.nilIfBlank,
+            hideZeroStock: !showZeroStock,
+            location: selectedLocation.nilIfBlank,
+            matchCount: total
+        )
     }
 
     private var hasActiveFilters: Bool {
@@ -482,27 +698,76 @@ struct InventoryListNativeView: View {
         .onDisappear {
             searchTask?.cancel()
         }
+        .toolbar {
+            if !selectForQuote {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showingExportOptions = true
+                    } label: {
+                        Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
+                    }
+
+                    Button(selectingRows ? i18n.t("common.done") : i18n.t("common.select")) {
+                        selectingRows.toggle()
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if selectingRows && !selectForQuote {
+                selectionBar
+            }
+        }
+        .sheet(isPresented: $showingExportOptions) {
+            InventoryExportSheet(configuration: exportConfiguration, warehouses: warehouses)
+        }
     }
 
     private var inventoryTotal: some View {
-        HStack(spacing: Theme.Space.sm) {
-            Label(selectForQuote ? "Available inventory" : "Total inventory", systemImage: "shippingbox.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.text)
+        Group {
+            if selectForQuote {
+                HStack(spacing: Theme.Space.sm) {
+                    Label("Available inventory", systemImage: "shippingbox.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
 
-            Spacer(minLength: Theme.Space.sm)
+                    Spacer(minLength: Theme.Space.sm)
 
-            Text("\(totalQuantity.formatted()) \(totalQuantity == 1 ? "tire" : "tires")")
-                .font(.subheadline.monospacedDigit())
-                .fontWeight(.semibold)
-                .foregroundStyle(Theme.primary)
+                    Text("\(totalQuantity.formatted()) \(totalQuantity == 1 ? "tire" : "tires")")
+                        .font(.subheadline.monospacedDigit())
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.primary)
 
-            Text("·")
-                .foregroundStyle(Theme.muted)
+                    Text("·")
+                        .foregroundStyle(Theme.muted)
 
-            Text("\(items.count.formatted()) \(items.count == 1 ? "SKU" : "SKUs")")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(Theme.muted)
+                    Text("\(items.count.formatted()) \(items.count == 1 ? "SKU" : "SKUs")")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Theme.muted)
+                }
+            } else {
+                let totals = displayedInventoryTotals
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    Label(
+                        totals.location.map {
+                            i18n.t("inventory.totals.warehouse", ["wh": $0, "n": totals.skus])
+                        } ?? i18n.t("inventory.totals.allWarehouses", ["n": totals.skus]),
+                        systemImage: "shippingbox.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+
+                    Text(i18n.t("inventory.totals.summary", [
+                        "units": totals.units.formatted(),
+                        "cost": AppFormat.money(totals.costValue),
+                        "retail": AppFormat.money(totals.retailValue)
+                    ]))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.vertical, Theme.Space.sm)
@@ -543,6 +808,24 @@ struct InventoryListNativeView: View {
             }
             .tint(Theme.text)
             .disabled(Self.available(sku, location: selectedLocation.nilIfBlank) <= 0)
+        } else if selectingRows {
+            Button {
+                if selectedSkuIDs.contains(sku.id) {
+                    selectedSkuIDs.remove(sku.id)
+                } else {
+                    selectedSkuIDs.insert(sku.id)
+                }
+            } label: {
+                HStack(spacing: Theme.Space.md) {
+                    Image(systemName: selectedSkuIDs.contains(sku.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selectedSkuIDs.contains(sku.id) ? Theme.primary : Theme.muted)
+
+                    InventorySkuRow(sku: sku, location: selectedLocation.nilIfBlank)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         } else {
             NavigationLink {
                 SkuDetailNativeView(sku: sku, initialLocation: selectedLocation.nilIfBlank)
@@ -550,6 +833,34 @@ struct InventoryListNativeView: View {
                 InventorySkuRow(sku: sku, location: selectedLocation.nilIfBlank)
             }
         }
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Text(i18n.t("inventory.export.scopeSelected", ["n": selectedSkuIDs.count]))
+                .font(.subheadline.weight(.semibold))
+
+            Spacer(minLength: Theme.Space.sm)
+
+            if !selectedSkuIDs.isEmpty {
+                Button(i18n.t("common.clear")) {
+                    selectedSkuIDs.removeAll()
+                }
+                .font(.subheadline)
+            }
+
+            Button {
+                showingExportOptions = true
+            } label: {
+                Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(selectedSkuIDs.isEmpty)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(.bar)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
     }
 
     @ViewBuilder
@@ -697,7 +1008,7 @@ struct InventoryListNativeView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.muted)
 
-            TextField("Search size, brand, SKU...", text: $q)
+            TextField(i18n.t("inventory.search"), text: $q)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -957,11 +1268,13 @@ struct InventoryListNativeView: View {
             var page = 1
             var allItems: [TireSku] = []
             var expectedTotal = 0
+            var loadedTotals: InventoryTotals?
             var lastLoadedPage = 0
 
             while true {
                 let pageData = try await requestInventoryPage(page)
                 expectedTotal = pageData.total
+                loadedTotals = pageData.totals ?? loadedTotals
                 lastLoadedPage = pageData.page
 
                 let existingIds = Set(allItems.map(\.id))
@@ -973,7 +1286,9 @@ struct InventoryListNativeView: View {
 
             items = allItems
             total = expectedTotal
+            inventoryTotals = loadedTotals
             loadedPage = lastLoadedPage
+            selectedSkuIDs.formIntersection(Set(allItems.map(\.id)))
             hasLoaded = true
         } catch {
             guard !isCancellation(error) else { return }
@@ -1011,6 +1326,7 @@ struct InventoryListNativeView: View {
             let pageData = try await requestInventoryPage(page)
 
             total = pageData.total
+            inventoryTotals = pageData.totals ?? inventoryTotals
             loadedPage = pageData.page
             hasLoaded = true
 
@@ -1020,6 +1336,7 @@ struct InventoryListNativeView: View {
                 let existingIds = Set(items.map(\.id))
                 items.append(contentsOf: pageData.items.filter { !existingIds.contains($0.id) })
             }
+            selectedSkuIDs.formIntersection(Set(items.map(\.id)))
         } catch {
             guard !isCancellation(error) else { return }
 
@@ -1033,7 +1350,7 @@ struct InventoryListNativeView: View {
         }
     }
 
-    private func requestInventoryPage(_ page: Int) async throws -> Paged<TireSku> {
+    private func requestInventoryPage(_ page: Int) async throws -> InventorySkuPage {
         try await InventoryAPI().listSkus(
             q: q.nilIfBlank,
             category: category.nilIfBlank,
@@ -1362,8 +1679,445 @@ private struct SalesStatusBadge: View {
     }
 }
 
+private enum SalesViewTab: String, CaseIterable, Identifiable {
+    case sales
+    case bestSellers
+
+    var id: String { rawValue }
+}
+
+private struct BestSellerSortOption: Identifiable {
+    let id: String
+    let labelKey: String
+}
+
+private struct BestSellerRequestKey: Hashable {
+    let months: Int?
+    let from: String?
+    let to: String?
+    let sortBy: String
+    let sortOrder: String
+}
+
+private struct BestSellersNativeView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
+    private static let periods = [1, 3, 6, 12]
+    private static let sortOptions = [
+        BestSellerSortOption(id: "qty", labelKey: "bestSellers.col.sold"),
+        BestSellerSortOption(id: "saleCount", labelKey: "bestSellers.col.sales"),
+        BestSellerSortOption(id: "revenue", labelKey: "bestSellers.col.revenue"),
+        BestSellerSortOption(id: "grossProfit", labelKey: "bestSellers.col.grossProfit"),
+        BestSellerSortOption(id: "margin", labelKey: "bestSellers.col.margin"),
+        BestSellerSortOption(id: "onHand", labelKey: "bestSellers.col.onHand"),
+        BestSellerSortOption(id: "lastSoldAt", labelKey: "bestSellers.col.lastSold")
+    ]
+    private static let isoDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    @State private var months: Int
+    @State private var usesCustomRange = false
+    @State private var fromDate: Date
+    @State private var toDate: Date
+    @State private var sortBy = "qty"
+    @State private var sortOrder = "desc"
+    @State private var data: BestSellersResponse?
+    @State private var loading = false
+    @State private var errorMessage: String?
+    @State private var exporting = false
+    @State private var exportError: String?
+    @State private var exportFile: InventoryExportFile?
+
+    init(initialMonths: Int) {
+        let period = Self.periods.contains(initialMonths) ? initialMonths : 3
+        let today = Calendar.current.startOfDay(for: Date())
+        _months = State(initialValue: period)
+        _fromDate = State(
+            initialValue: Calendar.current.date(byAdding: .month, value: -period, to: today) ?? today
+        )
+        _toDate = State(initialValue: today)
+    }
+
+    private var fromDay: String {
+        Self.isoDayFormatter.string(from: fromDate)
+    }
+
+    private var toDay: String {
+        Self.isoDayFormatter.string(from: toDate)
+    }
+
+    private var invalidRange: Bool {
+        usesCustomRange && fromDay > toDay
+    }
+
+    private var requestKey: BestSellerRequestKey {
+        BestSellerRequestKey(
+            months: usesCustomRange ? nil : months,
+            from: usesCustomRange ? fromDay : nil,
+            to: usesCustomRange ? toDay : nil,
+            sortBy: sortBy,
+            sortOrder: sortOrder
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            controls
+
+            Group {
+                if invalidRange {
+                    EmptyStateView(text: i18n.t("bestSellers.rangeInvalid"))
+                } else if loading && data == nil {
+                    LoadingView(label: i18n.t("common.loading"))
+                } else if let errorMessage, data == nil {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if let data, data.items.isEmpty {
+                    EmptyStateView(text: i18n.t("bestSellers.empty"))
+                } else if let data {
+                    report(data)
+                } else {
+                    LoadingView(label: i18n.t("common.loading"))
+                }
+            }
+        }
+        .background(Theme.background)
+        .task(id: requestKey) {
+            guard !invalidRange else { return }
+            await load()
+        }
+        .sheet(item: $exportFile) { file in
+            InventoryExportShareSheet(url: file.url)
+        }
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(spacing: Theme.Space.sm) {
+                Picker(i18n.t("bestSellers.periodLabel"), selection: $months) {
+                    ForEach(Self.periods, id: \.self) { period in
+                        Text(i18n.t(period == 12 ? "dashboard.period.1y" : "dashboard.period.\(period)m"))
+                            .tag(period)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(usesCustomRange)
+
+                Button {
+                    Task { await export() }
+                } label: {
+                    if exporting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(exporting || invalidRange || data == nil)
+                .accessibilityLabel(i18n.t("common.export"))
+            }
+
+            Toggle(i18n.t("bestSellers.customRange"), isOn: $usesCustomRange)
+                .font(.subheadline)
+
+            if usesCustomRange {
+                HStack(spacing: Theme.Space.md) {
+                    DatePicker(
+                        i18n.t("bestSellers.from"),
+                        selection: $fromDate,
+                        in: ...toDate,
+                        displayedComponents: .date
+                    )
+                    DatePicker(
+                        i18n.t("bestSellers.to"),
+                        selection: $toDate,
+                        in: fromDate...Date(),
+                        displayedComponents: .date
+                    )
+                }
+                .font(.caption)
+            }
+
+            HStack(spacing: Theme.Space.sm) {
+                if let period = data?.period, !invalidRange {
+                    Text(i18n.t("bestSellers.window", [
+                        "from": period.from.map { AppFormat.calendarDate($0) } ?? i18n.t("bestSellers.allTime"),
+                        "to": AppFormat.calendarDate(period.to)
+                    ]))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(2)
+                }
+
+                Spacer(minLength: Theme.Space.sm)
+                sortMenu
+            }
+
+            if let exportError {
+                Label(exportError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+            } else if let errorMessage, data != nil {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+            }
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Theme.background)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Section(i18n.t("bestSellers.sortBy")) {
+                ForEach(Self.sortOptions) { option in
+                    Button {
+                        if sortBy == option.id {
+                            sortOrder = sortOrder == "asc" ? "desc" : "asc"
+                        } else {
+                            sortBy = option.id
+                            sortOrder = "desc"
+                        }
+                    } label: {
+                        if sortBy == option.id {
+                            Label(i18n.t(option.labelKey), systemImage: sortOrder == "asc" ? "arrow.up" : "arrow.down")
+                        } else {
+                            Text(i18n.t(option.labelKey))
+                        }
+                    }
+                }
+            }
+
+            Section(i18n.t("bestSellers.direction")) {
+                Button {
+                    sortOrder = "desc"
+                } label: {
+                    sortOrder == "desc"
+                        ? Label(i18n.t("bestSellers.descending"), systemImage: "checkmark")
+                        : Label(i18n.t("bestSellers.descending"), systemImage: "arrow.down")
+                }
+                Button {
+                    sortOrder = "asc"
+                } label: {
+                    sortOrder == "asc"
+                        ? Label(i18n.t("bestSellers.ascending"), systemImage: "checkmark")
+                        : Label(i18n.t("bestSellers.ascending"), systemImage: "arrow.up")
+                }
+            }
+        } label: {
+            Label(i18n.t("bestSellers.sort"), systemImage: sortOrder == "asc" ? "arrow.up.arrow.down.circle" : "arrow.down.arrow.up.circle")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private func report(_ response: BestSellersResponse) -> some View {
+        List {
+            ForEach(Array(response.items.enumerated()), id: \.element.id) { index, row in
+                NavigationLink(value: AppRoute.skuDetail(row.id)) {
+                    BestSellerNativeRow(rank: index + 1, row: row)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .refreshable { await load() }
+        .safeAreaInset(edge: .bottom) {
+            BestSellersSummaryFooter(summary: response.summary)
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        let key = requestKey
+        loading = true
+        errorMessage = nil
+        defer {
+            if key == requestKey {
+                loading = false
+            }
+        }
+
+        do {
+            let response = try await SalesAPI().bestSellers(
+                months: key.months,
+                from: key.from,
+                to: key.to,
+                sortBy: key.sortBy,
+                sortOrder: key.sortOrder,
+                pageSize: 1000
+            )
+            guard key == requestKey, !Task.isCancelled else { return }
+            data = response
+        } catch {
+            guard key == requestKey, !Task.isCancelled, !isCancelledRequest(error) else { return }
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? i18n.t("bestSellers.loadFailed")
+        }
+    }
+
+    @MainActor
+    private func export() async {
+        guard let period = data?.period else { return }
+        let key = requestKey
+        exporting = true
+        exportError = nil
+        defer { exporting = false }
+
+        do {
+            let fileName = "best-sellers-\(period.from ?? "all")_\(period.to).xlsx"
+            let url = try await SalesAPI().exportBestSellers(
+                months: key.months,
+                from: key.from,
+                to: key.to,
+                sortBy: key.sortBy,
+                sortOrder: key.sortOrder,
+                fileName: fileName
+            )
+            guard key == requestKey else { return }
+            exportFile = InventoryExportFile(url: url)
+        } catch {
+            exportError = (error as? LocalizedError)?.errorDescription
+                ?? i18n.t("inventory.exportFailedBody")
+        }
+    }
+}
+
+private struct BestSellerNativeRow: View {
+    @EnvironmentObject private var i18n: I18nStore
+
+    let rank: Int
+    let row: BestSellerRow
+
+    private var profit: Double {
+        Double(row.grossProfit) ?? 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                Text("#\(rank)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Theme.muted)
+
+                Text([row.size, row.model, row.position, row.brand].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(2)
+
+                Spacer(minLength: Theme.Space.sm)
+
+                Text(i18n.t("bestSellers.soldCount", ["n": row.qty]))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.primary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                Text(row.sku)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(Theme.muted)
+
+                Text("· \(i18n.t("bestSellers.salesCount", ["n": row.saleCount]))")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+
+                Spacer()
+
+                Text(i18n.t("bestSellers.stockCount", ["n": row.onHand]))
+                    .font(.caption.weight(row.onHand == 0 ? .bold : .regular))
+                    .foregroundStyle(row.onHand == 0 ? Theme.danger : Theme.muted)
+            }
+
+            HStack(spacing: Theme.Space.md) {
+                BestSellerMetric(
+                    label: i18n.t("bestSellers.col.revenue"),
+                    value: AppFormat.money(row.revenue)
+                )
+                BestSellerMetric(
+                    label: i18n.t("bestSellers.col.grossProfit"),
+                    value: AppFormat.money(row.grossProfit),
+                    color: profit < 0 ? Theme.danger : Theme.success
+                )
+                BestSellerMetric(
+                    label: i18n.t("bestSellers.col.margin"),
+                    value: row.margin.map { "\($0.formatted())%" } ?? "—"
+                )
+                Spacer(minLength: 0)
+                BestSellerMetric(
+                    label: i18n.t("bestSellers.col.lastSold"),
+                    value: AppFormat.shortDate(row.lastSoldAt)
+                )
+            }
+        }
+        .padding(.vertical, Theme.Space.xs)
+    }
+}
+
+private struct BestSellerMetric: View {
+    let label: String
+    let value: String
+    var color: Color = Theme.text
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Theme.muted)
+            Text(value)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(color)
+        }
+    }
+}
+
+private struct BestSellersSummaryFooter: View {
+    @EnvironmentObject private var i18n: I18nStore
+    let summary: BestSellersSummary
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.sm) {
+                summaryItem(i18n.t("bestSellers.total", ["n": summary.skuCount]), "\(summary.qty)")
+                summaryItem(i18n.t("bestSellers.col.sales"), "\(summary.saleCount)")
+                summaryItem(i18n.t("bestSellers.col.revenue"), AppFormat.money(summary.revenue))
+                summaryItem(
+                    i18n.t("bestSellers.col.grossProfit"),
+                    AppFormat.money(summary.grossProfit),
+                    color: (Double(summary.grossProfit) ?? 0) < 0 ? Theme.danger : Theme.success
+                )
+            }
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+        }
+        .background(.bar)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
+    }
+
+    private func summaryItem(_ label: String, _ value: String, color: Color = Theme.text) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Theme.muted)
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(color)
+        }
+        .frame(minWidth: 90, alignment: .leading)
+    }
+}
+
 struct SalesListNativeView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     private let pageSize = 50
+
+    @State private var selectedView: SalesViewTab
+    private let initialBestSellerMonths: Int
 
     @State private var q = ""
     @State private var status = ""
@@ -1374,6 +2128,11 @@ struct SalesListNativeView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
+
+    init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3) {
+        _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
+        self.initialBestSellerMonths = initialBestSellerMonths
+    }
 
     private var hasActiveFilters: Bool {
         !status.isEmpty || range != .all || !sortBy.isEmpty
@@ -1397,25 +2156,40 @@ struct SalesListNativeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            salesHeader
+            Picker(i18n.t("salesList.viewLabel"), selection: $selectedView) {
+                Text(i18n.t("salesList.tab.sales")).tag(SalesViewTab.sales)
+                Text(i18n.t("salesList.tab.bestSellers")).tag(SalesViewTab.bestSellers)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+            .background(Theme.background)
 
-            Group {
-                if loading && data == nil {
-                    LoadingView(label: "Loading...")
-                } else if let errorMessage, data == nil {
-                    RetryView(message: errorMessage) { Task { await load() } }
-                } else if let data, data.items.isEmpty {
-                    EmptyStateView(text: emptyMessage)
-                } else if let data {
-                    salesContent(data)
-                } else {
-                    LoadingView(label: "Loading...")
+            if selectedView == .bestSellers {
+                BestSellersNativeView(initialMonths: initialBestSellerMonths)
+            } else {
+                VStack(spacing: 0) {
+                    salesHeader
+
+                    Group {
+                        if loading && data == nil {
+                            LoadingView(label: "Loading...")
+                        } else if let errorMessage, data == nil {
+                            RetryView(message: errorMessage) { Task { await load() } }
+                        } else if let data, data.items.isEmpty {
+                            EmptyStateView(text: emptyMessage)
+                        } else if let data {
+                            salesContent(data)
+                        } else {
+                            LoadingView(label: "Loading...")
+                        }
+                    }
                 }
             }
         }
         .background(Theme.background)
-        .task {
-            if data == nil { await load() }
+        .task(id: selectedView) {
+            if selectedView == .sales, data == nil { await load() }
         }
         .onDisappear {
             searchTask?.cancel()
@@ -2282,8 +3056,19 @@ private enum ContainerLabels {
         ("CANCELLED", "Cancelled")
     ]
 
+    static let sortOptions: [(String, String)] = [
+        ("", "Default order"),
+        ("ref", "Order number"),
+        ("status", "Status"),
+        ("createdAt", "Created")
+    ]
+
     static func status(_ value: ContainerStatus) -> String {
         statusOptions.first { $0.0 == value }?.1 ?? value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func sort(_ value: String) -> String {
+        sortOptions.first { $0.0 == value }?.1 ?? "Default order"
     }
 }
 
@@ -2587,11 +3372,14 @@ private struct PurchasingIncomingInventoryView: View {
 
 private struct PurchasingContainersListView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     private let pageSize = 50
 
     @State private var q = ""
     @State private var status = ""
+    @State private var sortBy = ""
+    @State private var sortOrder = "asc"
     @State private var page: Paged<ContainerListItem>?
     @State private var loading = false
     @State private var errorMessage: String?
@@ -2605,7 +3393,18 @@ private struct PurchasingContainersListView: View {
     }
 
     private var hasFilters: Bool {
-        q.nilIfBlank != nil || !status.isEmpty
+        q.nilIfBlank != nil || !status.isEmpty || !sortBy.isEmpty
+    }
+
+    private var activeFilterSummary: String? {
+        var parts: [String] = []
+        if !status.isEmpty {
+            parts.append(ContainerLabels.status(status))
+        }
+        if !sortBy.isEmpty {
+            parts.append("\(ContainerLabels.sort(sortBy)) \(sortOrder.uppercased())")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     var body: some View {
@@ -2694,12 +3493,12 @@ private struct PurchasingContainersListView: View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack(spacing: Theme.Space.sm) {
                 searchBar
-                statusMenu
+                filterMenu
             }
 
-            if !status.isEmpty {
+            if let activeFilterSummary {
                 HStack(spacing: Theme.Space.sm) {
-                    Text(ContainerLabels.status(status))
+                    Text(activeFilterSummary)
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
@@ -2707,8 +3506,7 @@ private struct PurchasingContainersListView: View {
                     Spacer()
 
                     Button("Reset") {
-                        status = ""
-                        Task { await load() }
+                        resetFilters()
                     }
                     .font(.caption)
                     .fontWeight(.semibold)
@@ -2728,7 +3526,7 @@ private struct PurchasingContainersListView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.muted)
 
-            TextField("Search ref, BOL, supplier...", text: $q)
+            TextField(i18n.t("purchasing.searchOrders"), text: $q)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -2764,7 +3562,7 @@ private struct PurchasingContainersListView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var statusMenu: some View {
+    private var filterMenu: some View {
         Menu {
             Section("Status") {
                 ForEach(ContainerLabels.statusOptions, id: \.0) { option in
@@ -2780,21 +3578,70 @@ private struct PurchasingContainersListView: View {
                     }
                 }
             }
+
+            Section(i18n.t("purchasing.sort")) {
+                ForEach(ContainerLabels.sortOptions, id: \.0) { option in
+                    Button {
+                        if sortBy == option.0, !sortBy.isEmpty {
+                            sortOrder = sortOrder == "asc" ? "desc" : "asc"
+                        } else {
+                            sortBy = option.0
+                            sortOrder = "asc"
+                        }
+                        Task { await load() }
+                    } label: {
+                        if sortBy == option.0 {
+                            Label(option.1, systemImage: sortBy.isEmpty ? "checkmark" : (sortOrder == "asc" ? "arrow.up" : "arrow.down"))
+                        } else {
+                            Text(option.1)
+                        }
+                    }
+                }
+            }
+
+            if !sortBy.isEmpty {
+                Section(i18n.t("bestSellers.direction")) {
+                    Button {
+                        sortOrder = "asc"
+                        Task { await load() }
+                    } label: {
+                        sortOrder == "asc"
+                            ? Label(i18n.t("bestSellers.ascending"), systemImage: "checkmark")
+                            : Label(i18n.t("bestSellers.ascending"), systemImage: "arrow.up")
+                    }
+                    Button {
+                        sortOrder = "desc"
+                        Task { await load() }
+                    } label: {
+                        sortOrder == "desc"
+                            ? Label(i18n.t("bestSellers.descending"), systemImage: "checkmark")
+                            : Label(i18n.t("bestSellers.descending"), systemImage: "arrow.down")
+                    }
+                }
+            }
+
+            Button(i18n.t("purchasing.resetFilters")) {
+                resetFilters()
+            }
+            .disabled(!hasFilters)
         } label: {
-            Label("Status", systemImage: status.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+            Label(
+                i18n.t("purchasing.filters"),
+                systemImage: hasFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+            )
                 .font(.caption)
                 .fontWeight(.semibold)
                 .labelStyle(.titleAndIcon)
                 .frame(width: 94, height: 42)
-                .background(status.isEmpty ? Theme.card : Theme.primary)
-                .foregroundStyle(status.isEmpty ? Theme.text : Theme.primaryText)
+                .background(hasFilters ? Theme.primary : Theme.card)
+                .foregroundStyle(hasFilters ? Theme.primaryText : Theme.text)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                        .stroke(status.isEmpty ? Theme.border : Theme.primary)
+                        .stroke(hasFilters ? Theme.primary : Theme.border)
                 )
         }
-        .accessibilityLabel("Container status filter")
+        .accessibilityLabel(i18n.t("purchasing.filters"))
     }
 
     private func subtitle(_ container: ContainerListItem) -> String {
@@ -2825,12 +3672,27 @@ private struct PurchasingContainersListView: View {
         }
     }
 
+    private func resetFilters() {
+        q = ""
+        searchTask?.cancel()
+        status = ""
+        sortBy = ""
+        sortOrder = "asc"
+        Task { await load() }
+    }
+
     @MainActor
     private func load() async {
         loading = true
         errorMessage = nil
         do {
-            page = try await ContainersAPI().list(status: status.nilIfBlank, q: q.nilIfBlank, pageSize: pageSize)
+            page = try await ContainersAPI().list(
+                status: status.nilIfBlank,
+                q: q.nilIfBlank,
+                sortBy: sortBy.nilIfBlank,
+                sortOrder: sortBy.isEmpty ? nil : sortOrder,
+                pageSize: pageSize
+            )
         } catch {
             page = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load containers."

@@ -223,7 +223,11 @@ final class APIClient {
 
     func download(_ path: String, fileName: String) async throws -> URL {
         var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/api\(path)"
+        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        components?.path = "/api\(pieces.first.map(String.init) ?? path)"
+        if pieces.count > 1 {
+            components?.percentEncodedQuery = String(pieces[1])
+        }
 
         guard let url = components?.url else {
             throw APIError(status: 0, message: "The request URL is invalid.")
