@@ -659,8 +659,7 @@ struct InventoryListNativeView: View {
         if !position.isEmpty { parts.append(InventoryLabels.position(position)) }
         if !brand.isEmpty { parts.append(brand) }
         if !sortBy.isEmpty { parts.append("\(InventoryLabels.sort(sortBy)) \(sortOrder.uppercased())") }
-        if showZeroStock { parts.append("Including 0 stock") }
-        return parts.isEmpty ? nil : parts.joined(separator: " - ")
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
     }
 
     var body: some View {
@@ -701,31 +700,42 @@ struct InventoryListNativeView: View {
         }
         .toolbar {
             if !selectForQuote {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if auth.canActOrRequest("inventory.adjust") {
-                        NavigationLink {
-                            StockAdjustBatchNativeView(
-                                initialSkuIDs: selectedSkuIDs.sorted(),
-                                initialLocation: selectedLocation.nilIfBlank
-                            )
+                ToolbarItem(placement: .topBarTrailing) {
+                    if selectingRows {
+                        Button {
+                            selectingRows = false
                         } label: {
-                            Label(
-                                selectedSkuIDs.isEmpty
-                                    ? i18n.t("inventory.stockAdjust")
-                                    : i18n.t("inventory.stockAdjustSelected", ["n": selectedSkuIDs.count]),
-                                systemImage: "plus.forwardslash.minus"
-                            )
+                            Image(systemName: "checkmark")
                         }
-                    }
+                        .accessibilityLabel(i18n.t("common.done"))
+                    } else {
+                        Menu {
+                            if auth.canActOrRequest("inventory.adjust") {
+                                NavigationLink {
+                                    StockAdjustBatchNativeView(
+                                        initialSkuIDs: [],
+                                        initialLocation: selectedLocation.nilIfBlank
+                                    )
+                                } label: {
+                                    Label(i18n.t("inventory.stockAdjust"), systemImage: "plus.forwardslash.minus")
+                                }
+                            }
 
-                    Button {
-                        showingExportOptions = true
-                    } label: {
-                        Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
-                    }
+                            Button {
+                                showingExportOptions = true
+                            } label: {
+                                Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
+                            }
 
-                    Button(selectingRows ? i18n.t("common.done") : i18n.t("common.select")) {
-                        selectingRows.toggle()
+                            Button {
+                                selectingRows = true
+                            } label: {
+                                Label(i18n.t("common.select"), systemImage: "checkmark.circle")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .accessibilityLabel("Inventory actions")
                     }
                 }
             }
@@ -744,44 +754,72 @@ struct InventoryListNativeView: View {
         Group {
             if selectForQuote {
                 HStack(spacing: Theme.Space.sm) {
-                    Label("Available inventory", systemImage: "shippingbox.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.text)
+                    Image(systemName: "shippingbox.fill")
+                        .foregroundStyle(Theme.primary)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Available inventory")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.muted)
+
+                        Text("\(totalQuantity.formatted()) \(totalQuantity == 1 ? "tire" : "tires")")
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(Theme.text)
+                    }
 
                     Spacer(minLength: Theme.Space.sm)
 
-                    Text("\(totalQuantity.formatted()) \(totalQuantity == 1 ? "tire" : "tires")")
-                        .font(.subheadline.monospacedDigit())
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Theme.primary)
-
-                    Text("·")
-                        .foregroundStyle(Theme.muted)
-
                     Text("\(items.count.formatted()) \(items.count == 1 ? "SKU" : "SKUs")")
-                        .font(.caption.monospacedDigit())
+                        .font(.caption.weight(.semibold).monospacedDigit())
                         .foregroundStyle(Theme.muted)
                 }
             } else {
                 let totals = displayedInventoryTotals
-                VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                    Label(
-                        totals.location.map {
-                            i18n.t("inventory.totals.warehouse", ["wh": $0, "n": totals.skus])
-                        } ?? i18n.t("inventory.totals.allWarehouses", ["n": totals.skus]),
-                        systemImage: "shippingbox.fill"
-                    )
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.text)
+                VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text((totals.location ?? i18n.t("inventory.allWarehouses")).uppercased())
+                                .font(.caption2.weight(.bold))
+                                .tracking(0.7)
+                                .foregroundStyle(Theme.primary)
 
-                    Text(i18n.t("inventory.totals.summary", [
-                        "units": totals.units.formatted(),
-                        "cost": AppFormat.money(totals.costValue),
-                        "retail": AppFormat.money(totals.retailValue)
-                    ]))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(Theme.muted)
-                    .lineLimit(2)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                Text(totals.units.formatted())
+                                    .font(.title2.weight(.bold).monospacedDigit())
+                                    .foregroundStyle(Theme.text)
+                                Text(i18n.t("inventory.onHand"))
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
+
+                        Spacer(minLength: Theme.Space.md)
+
+                        VStack(alignment: .trailing, spacing: 3) {
+                            Text("\(totals.skus.formatted()) SKUs")
+                                .font(.subheadline.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(Theme.text)
+                            Text("\(totals.available.formatted()) available · \(totals.reserved.formatted()) reserved")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(Theme.muted)
+                        }
+                    }
+
+                    HStack(spacing: 0) {
+                        InventoryLedgerMetric(
+                            label: "COST VALUE",
+                            value: AppFormat.money(totals.costValue)
+                        )
+
+                        Divider()
+                            .padding(.horizontal, Theme.Space.md)
+
+                        InventoryLedgerMetric(
+                            label: "RETAIL VALUE",
+                            value: AppFormat.money(totals.retailValue)
+                        )
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -789,7 +827,14 @@ struct InventoryListNativeView: View {
         .padding(.horizontal, Theme.Space.lg)
         .padding(.vertical, Theme.Space.sm)
         .background(Theme.card)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.md)
+                .stroke(Theme.border)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.top, Theme.Space.xs)
+        .padding(.bottom, Theme.Space.sm)
         .accessibilityElement(children: .combine)
     }
 
@@ -797,6 +842,14 @@ struct InventoryListNativeView: View {
         List {
             ForEach(items) { sku in
                 skuRow(sku)
+                    .listRowInsets(EdgeInsets(
+                        top: Theme.Space.xs,
+                        leading: Theme.Space.lg,
+                        bottom: Theme.Space.xs,
+                        trailing: Theme.Space.lg
+                    ))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Theme.background)
                     .onAppear {
                         if sku.id == items.last?.id {
                             Task { await loadMoreIfNeeded() }
@@ -807,6 +860,8 @@ struct InventoryListNativeView: View {
             loadMoreRow
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
         .refreshable { await reload() }
     }
 
@@ -855,15 +910,25 @@ struct InventoryListNativeView: View {
     private var selectionBar: some View {
         HStack(spacing: Theme.Space.sm) {
             Text(i18n.t("inventory.export.scopeSelected", ["n": selectedSkuIDs.count]))
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(.semibold).monospacedDigit())
 
             Spacer(minLength: Theme.Space.sm)
 
             if !selectedSkuIDs.isEmpty {
-                Button(i18n.t("common.clear")) {
+                Button {
                     selectedSkuIDs.removeAll()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 40, height: 40)
                 }
-                .font(.subheadline)
+                .buttonStyle(.plain)
+                .background(Theme.card)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                        .stroke(Theme.border)
+                }
+                .accessibilityLabel(i18n.t("common.clear"))
             }
 
             if auth.canActOrRequest("inventory.adjust") {
@@ -873,22 +938,32 @@ struct InventoryListNativeView: View {
                         initialLocation: selectedLocation.nilIfBlank
                     )
                 } label: {
-                    Label(
-                        i18n.t("inventory.stockAdjustSelected", ["n": selectedSkuIDs.count]),
-                        systemImage: "plus.forwardslash.minus"
-                    )
+                    Image(systemName: "plus.forwardslash.minus")
+                        .frame(width: 40, height: 40)
+                        .background(Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                                .stroke(Theme.border)
+                        }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .disabled(selectedSkuIDs.isEmpty)
+                .accessibilityLabel(i18n.t("inventory.stockAdjustSelected", ["n": selectedSkuIDs.count]))
             }
 
             Button {
                 showingExportOptions = true
             } label: {
-                Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
+                Image(systemName: "square.and.arrow.up")
+                    .frame(width: 42, height: 42)
+                    .background(Theme.primary)
+                    .foregroundStyle(Theme.primaryText)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .disabled(selectedSkuIDs.isEmpty)
+            .accessibilityLabel(i18n.t("common.export"))
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.vertical, Theme.Space.sm)
@@ -947,14 +1022,13 @@ struct InventoryListNativeView: View {
     }
 
     private var filters: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            warehouseFilter
-
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: Theme.Space.sm) {
                 compactSearchField
-                showZeroButton
                 filterMenu
             }
+
+            warehouseFilter
 
             if let activeSummary {
                 HStack(spacing: Theme.Space.sm) {
@@ -1002,17 +1076,37 @@ struct InventoryListNativeView: View {
             .foregroundStyle(warehouseError == nil ? Theme.muted : Theme.danger)
             .frame(height: 32)
         } else if selectForQuote {
-            HStack {
-                CompactFilterChip(
-                    title: selectedLocation.isEmpty ? "All warehouses" : selectedLocation,
-                    selected: true,
-                    accessibilityLabel: warehouseLabel(selectedLocation)
-                )
-                Spacer(minLength: 0)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.sm) {
+                    stockScopeChip
+
+                    Divider()
+                        .frame(height: 20)
+
+                    Image(systemName: "building.2")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+
+                    CompactFilterChip(
+                        title: selectedLocation.isEmpty ? "All warehouses" : selectedLocation,
+                        selected: true,
+                        accessibilityLabel: warehouseLabel(selectedLocation)
+                    )
+                }
             }
+            .frame(height: 32)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.Space.sm) {
+                    stockScopeChip
+
+                    Divider()
+                        .frame(height: 20)
+
+                    Image(systemName: "building.2")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+
                     CompactFilterChip(
                         title: "All warehouses",
                         selected: location.isEmpty,
@@ -1034,6 +1128,31 @@ struct InventoryListNativeView: View {
             }
             .frame(height: 32)
         }
+    }
+
+    private var stockScopeChip: some View {
+        Button {
+            showZeroStock.toggle()
+            Task { await reload() }
+        } label: {
+            Label(
+                showZeroStock ? "All stock" : "In stock",
+                systemImage: showZeroStock ? "shippingbox" : "shippingbox.fill"
+            )
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, Theme.Space.md)
+            .frame(height: 30)
+            .background(showZeroStock ? Theme.card : Theme.primary.opacity(0.12))
+            .foregroundStyle(showZeroStock ? Theme.text : Theme.primary)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                    .stroke(showZeroStock ? Theme.border : Theme.primary.opacity(0.35))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Stock visibility")
+        .accessibilityValue(showZeroStock ? "All stock" : "In-stock items only")
     }
 
     private var compactSearchField: some View {
@@ -1074,29 +1193,6 @@ struct InventoryListNativeView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.sm)
                 .stroke(Theme.border)
         )
-    }
-
-    private var showZeroButton: some View {
-        Button {
-            showZeroStock.toggle()
-            Task { await reload() }
-        } label: {
-            Label("Show 0", systemImage: showZeroStock ? "eye.fill" : "eye")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .labelStyle(.titleAndIcon)
-                .frame(width: 78, height: 42)
-                .background(showZeroStock ? Theme.primary : Theme.card)
-                .foregroundStyle(showZeroStock ? Theme.primaryText : Theme.text)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                        .stroke(showZeroStock ? Theme.primary : Theme.border)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show zero stock items")
-        .accessibilityValue(showZeroStock ? "On" : "Off")
     }
 
     private var filterMenu: some View {
@@ -1457,11 +1553,34 @@ struct InventoryListNativeView: View {
     }
 }
 
+private struct InventoryLedgerMetric: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(Theme.muted)
+
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct InventorySkuRow: View {
     let sku: TireSku
     var location: String? = nil
     var showsUnitCost = true
     var showsAvailableQuantity = false
+
+    @EnvironmentObject private var i18n: I18nStore
 
     private var selectedInventory: TireSkuInventory? {
         guard let location else { return nil }
@@ -1489,68 +1608,138 @@ private struct InventorySkuRow: View {
         showsAvailableQuantity ? available : onHand
     }
 
+    private var displayName: String {
+        let brand = sku.brand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = sku.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !brand.isEmpty else { return model }
+        guard !model.isEmpty else { return brand }
+
+        let brandPrefix = brand.lowercased() + " "
+        if model.lowercased().hasPrefix(brandPrefix) || model.caseInsensitiveCompare(brand) == .orderedSame {
+            return model
+        }
+        return "\(brand) \(model)"
+    }
+
+    private var stockColor: Color {
+        if displayedQuantity == 0 {
+            return Theme.muted
+        }
+        if displayedQuantity <= sku.reorderPoint {
+            return Theme.danger
+        }
+        return Theme.success
+    }
+
+    private var quantityLabel: String {
+        showsAvailableQuantity ? "AVAILABLE" : i18n.t("inventory.onHand").uppercased()
+    }
+
     private var inventoryDetail: String {
         if showsAvailableQuantity {
             if let location {
                 let reserved = selectedInventory?.qtyReserved ?? 0
-                return "\(available) available at \(location) · \(reserved) reserved"
+                return "\(location) · \(reserved) reserved"
             }
-            return "\(available) available across all warehouses"
+            return sku.inventory.isEmpty
+                ? "No warehouse stock"
+                : "\(sku.inventory.count) \(sku.inventory.count == 1 ? "warehouse" : "warehouses")"
         }
 
         if let location {
             let cost = selectedInventory.map { AppFormat.money($0.unitCost) } ?? "—"
             return showsUnitCost
-                ? "\(location) · \(onHand) on hand · \(cost) cost"
-                : "\(onHand) on hand at \(location)"
+                ? "\(location) · Unit cost \(cost)"
+                : location
         }
 
         let rows = sku.inventory
             .sorted { $0.location < $1.location }
             .map { row in
                 showsUnitCost
-                    ? "\(row.location) \(row.qtyOnHand) @ \(AppFormat.money(row.unitCost))"
+                    ? "\(row.location) \(row.qtyOnHand) · \(AppFormat.money(row.unitCost)) cost"
                     : "\(row.location) \(row.qtyOnHand)"
             }
-        return rows.isEmpty ? "No warehouse stock" : rows.joined(separator: " · ")
+        return rows.isEmpty ? "No warehouse stock" : rows.joined(separator: "  |  ")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("\(sku.brand) \(sku.model)")
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(1)
-                Spacer()
-                Text(AppFormat.money(sku.priceRetail))
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Theme.text)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: Theme.Space.md) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayName)
+                        .font(.headline)
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(2)
 
-            Text("\(sku.size) - \(sku.sku)")
-                .font(.subheadline)
-                .foregroundStyle(Theme.muted)
-                .lineLimit(1)
+                    Text("\(sku.size)  ·  \(sku.sku)")
+                        .font(.subheadline.monospaced())
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
 
-            HStack {
-                Text("\(InventoryLabels.category(sku.category)) / \(InventoryLabels.position(sku.position))")
-                Spacer()
-                if location == nil {
-                    Text(showsAvailableQuantity ? "\(available) available" : "\(onHand) total")
+                Spacer(minLength: 0)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(AppFormat.money(sku.priceRetail))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(Theme.text)
+                    Text("RETAIL")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(Theme.muted)
                 }
             }
-            .font(.caption)
-            .foregroundStyle(displayedQuantity <= sku.reorderPoint ? Theme.danger : Theme.muted)
 
-            Text(inventoryDetail)
-                .font(.caption2)
-                .foregroundStyle(displayedQuantity <= sku.reorderPoint ? Theme.danger : Theme.muted)
-                .lineLimit(2)
+            HStack(spacing: Theme.Space.sm) {
+                Text(InventoryLabels.category(sku.category).uppercased())
+                Text("·")
+                Text(InventoryLabels.position(sku.position).uppercased())
+
+                Spacer()
+
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Circle()
+                        .fill(stockColor)
+                        .frame(width: 6, height: 6)
+
+                    Text(displayedQuantity.formatted())
+                        .font(.subheadline.weight(.bold).monospacedDigit())
+
+                    Text(quantityLabel)
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.5)
+                }
+                .foregroundStyle(stockColor)
+                .padding(.horizontal, Theme.Space.sm)
+                .frame(height: 24)
+                .background(stockColor.opacity(0.1))
+                .clipShape(Capsule())
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Theme.muted)
+
+            HStack(spacing: 6) {
+                Image(systemName: "building.2")
+                    .font(.caption2)
+                Text(inventoryDetail)
+                    .lineLimit(2)
+            }
+            .font(.caption2)
+            .foregroundStyle(Theme.muted)
         }
-        .padding(.vertical, Theme.Space.xs)
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.md)
+                .stroke(Theme.border)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .accessibilityElement(children: .combine)
     }
 }
 
