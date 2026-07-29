@@ -15,6 +15,7 @@ private let settingsTimezones: [(value: String, label: String)] = [
 
 struct ShopSettingsNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var loaded = false
     @State private var loading = false
@@ -35,6 +36,7 @@ struct ShopSettingsNativeView: View {
     @State private var timezone = ""
     @State private var taxRatePercent = ""
     @State private var storefrontLocation = ""
+    @State private var storefrontHideOutOfStock = false
 
     @State private var mailProvider = "smtp"
     @State private var mailHost = ""
@@ -167,6 +169,16 @@ struct ShopSettingsNativeView: View {
                 }
                 .disabled(!canManage || savingGeneral)
             }
+
+            Toggle(
+                i18n.t("settings.storefrontHideOutOfStock"),
+                isOn: $storefrontHideOutOfStock
+            )
+            .disabled(!canManage || savingGeneral)
+
+            Text(i18n.t("settings.storefrontHideOutOfStockHint"))
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
 
             Button {
                 Task { await saveGeneral() }
@@ -396,6 +408,7 @@ struct ShopSettingsNativeView: View {
         timezone = general.timezone
         taxRatePercent = Self.taxPercentText(general.defaultTaxRate)
         storefrontLocation = general.storefrontLocation
+        storefrontHideOutOfStock = general.storefrontHideOutOfStock ?? false
 
         mailProvider = mail.provider ?? "smtp"
         mailHost = mail.host
@@ -447,12 +460,14 @@ struct ShopSettingsNativeView: View {
             let updated = try await SettingsAPI().updateGeneral(GeneralPatchInput(
                 timezone: timezone,
                 defaultTaxRate: fraction,
-                storefrontLocation: storefrontLocation.nilIfBlank
+                storefrontLocation: storefrontLocation.nilIfBlank,
+                storefrontHideOutOfStock: storefrontHideOutOfStock
             ))
             general = updated
             timezone = updated.timezone
             taxRatePercent = Self.taxPercentText(updated.defaultTaxRate)
             storefrontLocation = updated.storefrontLocation
+            storefrontHideOutOfStock = updated.storefrontHideOutOfStock ?? false
             statusMessage = "General settings saved."
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save general settings."

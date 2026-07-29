@@ -61,10 +61,7 @@ struct RootNavigatorView: View {
     private var visiblePinned: [Destination] {
         tabs.pinned
             .compactMap(DestinationRegistry.destination(for:))
-            .filter { destination in
-                guard let permission = destination.permission else { return true }
-                return auth.has(permission)
-            }
+            .filter { DestinationRegistry.isVisible($0, auth: auth) }
     }
 
     var body: some View {
@@ -246,12 +243,16 @@ struct DestinationView: View {
             StockTransfersListNativeView()
         case "skuManagement":
             SkuManagementNativeView()
+        case "storefrontManage":
+            StorefrontManagementNativeView()
         case "tireAttributes":
             TireAttributesNativeView()
         case "brandInfo":
             BrandInfoNativeView()
         case "inventoryCounts":
             InventoryCountsListNativeView()
+        case "stockAdjustments":
+            StockAdjustmentsLogNativeView()
         case "purchasing":
             PurchasingNativeView()
         case "vendors":

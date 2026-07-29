@@ -33,10 +33,31 @@ struct Destination: Identifiable, Hashable {
     let systemImage: String
     let group: DestinationGroup
     let permission: String?
+    let alternatePermission: String?
     let isBuilt: Bool
     let blurb: String?
 
     var id: String { key }
+
+    init(
+        key: String,
+        title: String,
+        systemImage: String,
+        group: DestinationGroup,
+        permission: String?,
+        alternatePermission: String? = nil,
+        isBuilt: Bool,
+        blurb: String?
+    ) {
+        self.key = key
+        self.title = title
+        self.systemImage = systemImage
+        self.group = group
+        self.permission = permission
+        self.alternatePermission = alternatePermission
+        self.isBuilt = isBuilt
+        self.blurb = blurb
+    }
 
     @MainActor
     func localizedTitle(using i18n: I18nStore) -> String {
@@ -54,9 +75,11 @@ enum DestinationRegistry {
         Destination(key: "inventory", title: "Inventory", systemImage: "circle.grid.3x3", group: .operations, permission: "inventory.view", isBuilt: true, blurb: nil),
         Destination(key: "transfers", title: "Transfers", systemImage: "arrow.left.arrow.right", group: .operations, permission: "transfers.view", isBuilt: true, blurb: nil),
         Destination(key: "skuManagement", title: "SKU Management", systemImage: "tag", group: .operations, permission: "inventory.manage", isBuilt: true, blurb: nil),
+        Destination(key: "storefrontManage", title: "Storefront", systemImage: "storefront", group: .operations, permission: "inventory.manage", alternatePermission: "storefront.manage", isBuilt: true, blurb: nil),
         Destination(key: "tireAttributes", title: "Tire Attributes", systemImage: "gearshape", group: .operations, permission: "inventory.config", isBuilt: true, blurb: nil),
         Destination(key: "brandInfo", title: "Brand Info", systemImage: "book", group: .operations, permission: "brands.manage", isBuilt: true, blurb: nil),
         Destination(key: "inventoryCounts", title: "Inventory Counts", systemImage: "checkmark.circle", group: .operations, permission: "inventory.count.view", isBuilt: true, blurb: nil),
+        Destination(key: "stockAdjustments", title: "Stock Adjustments", systemImage: "arrow.up.arrow.down.square", group: .operations, permission: "inventory.view", isBuilt: true, blurb: nil),
         Destination(key: "purchasing", title: "Purchasing", systemImage: "shippingbox", group: .operations, permission: "purchasing.view", isBuilt: true, blurb: nil),
         Destination(key: "vendors", title: "Vendors", systemImage: "truck.box", group: .operations, permission: "vendors.view", isBuilt: true, blurb: nil),
         Destination(key: "customers", title: "Customers", systemImage: "person", group: .operations, permission: "customers.view", isBuilt: true, blurb: nil),
@@ -94,10 +117,14 @@ enum DestinationRegistry {
 
     @MainActor
     static func visibleDestinations(auth: AuthStore) -> [Destination] {
-        all.filter { destination in
-            guard let permission = destination.permission else { return true }
-            return auth.has(permission)
-        }
+        all.filter { isVisible($0, auth: auth) }
+    }
+
+    @MainActor
+    static func isVisible(_ destination: Destination, auth: AuthStore) -> Bool {
+        guard let permission = destination.permission else { return true }
+        return auth.has(permission)
+            || destination.alternatePermission.map(auth.has) == true
     }
 }
 

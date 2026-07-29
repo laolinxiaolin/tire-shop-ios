@@ -287,11 +287,18 @@ struct GeneralPatchInput: Codable {
     let timezone: String?
     let defaultTaxRate: Double?
     let storefrontLocation: String?
+    let storefrontHideOutOfStock: Bool?
 
-    init(timezone: String?, defaultTaxRate: Double?, storefrontLocation: String? = nil) {
+    init(
+        timezone: String?,
+        defaultTaxRate: Double?,
+        storefrontLocation: String? = nil,
+        storefrontHideOutOfStock: Bool? = nil
+    ) {
         self.timezone = timezone
         self.defaultTaxRate = defaultTaxRate
         self.storefrontLocation = storefrontLocation
+        self.storefrontHideOutOfStock = storefrontHideOutOfStock
     }
 }
 
@@ -829,6 +836,7 @@ struct InventoryAPI {
     var client = APIClient.shared
 
     func listSkus(
+        ids: [String]? = nil,
         q: String? = nil,
         category: TireCategory? = nil,
         position: TirePosition? = nil,
@@ -837,10 +845,12 @@ struct InventoryAPI {
         sortOrder: String? = nil,
         inStock: Bool? = nil,
         location: String? = nil,
+        storefrontVisible: Bool? = nil,
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> InventorySkuPage {
         let qs = query([
+            "ids": ids?.joined(separator: ","),
             "q": q,
             "category": category,
             "position": position,
@@ -849,10 +859,26 @@ struct InventoryAPI {
             "sortOrder": sortOrder,
             "inStock": inStock == true ? "1" : nil,
             "location": location,
+            "storefrontVisible": storefrontVisible.map { $0 ? "1" : "0" },
             "page": page,
             "pageSize": pageSize
         ])
         return try await client.request("/inventory/skus\(qs)")
+    }
+
+    func listStorefrontSkus(
+        q: String? = nil,
+        storefrontVisible: Bool? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> StorefrontSkuPage {
+        let qs = query([
+            "q": q,
+            "storefrontVisible": storefrontVisible.map { $0 ? "1" : "0" },
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/inventory/storefront-skus\(qs)")
     }
 
     func exportSkus(
@@ -904,6 +930,107 @@ struct InventoryAPI {
             "/inventory/skus/\(id)/adjust",
             method: "POST",
             body: StockAdjustmentInput(delta: delta, reason: reason, location: location, note: note)
+        )
+    }
+
+    func adjustBatch(_ body: StockAdjustBatchInput) async throws -> ImmediateOrApproval<StockAdjustBatchResult> {
+        try await client.request("/inventory/adjust-batch", method: "POST", body: body)
+    }
+
+    func listAdjustmentBatches(
+        q: String? = nil,
+        location: String? = nil,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> Paged<StockAdjustBatch> {
+        let qs = query([
+            "q": q,
+            "location": location,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/inventory/adjustments\(qs)")
+    }
+
+    func skuHistory(
+        id: String,
+        page: Int? = nil,
+        pageSize: Int? = nil
+    ) async throws -> SkuHistory {
+        let qs = query(["page": page, "pageSize": pageSize])
+        return try await client.request("/inventory/skus/\(id)/history\(qs)")
+    }
+
+    func updateStorefront(id: String, body: StorefrontSkuPatchInput) async throws -> StorefrontSkuPatchResult {
+        try await client.request("/inventory/skus/\(id)/storefront", method: "PATCH", body: body)
+    }
+
+    func setStorefrontVisibility(ids: [String], visible: Bool) async throws -> StorefrontVisibilityResult {
+        try await client.request(
+            "/inventory/skus/storefront-visibility",
+            method: "POST",
+            body: StorefrontVisibilityInput(ids: ids, visible: visible)
+        )
+    }
+
+    func listSkuImages(skuId: String) async throws -> [SkuImage] {
+        try await client.request("/inventory/skus/\(skuId)/images")
+    }
+
+    func uploadSkuImage(
+        skuId: String,
+        fileURL: URL,
+        fileName: String,
+        mimeType: String
+    ) async throws -> SkuImage {
+        try await client.uploadMultipart(
+            "/inventory/skus/\(skuId)/images",
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType
+        )
+    }
+
+    func addSkuImageLink(skuId: String, url: String) async throws -> SkuImage {
+        try await client.request(
+            "/inventory/skus/\(skuId)/image-links",
+            method: "POST",
+            body: SkuImageLinkInput(url: url)
+        )
+    }
+
+    func updateSkuImageLink(imageId: String, url: String) async throws -> SkuImage {
+        try await client.request(
+            "/inventory/sku-images/\(imageId)",
+            method: "PATCH",
+            body: SkuImageLinkInput(url: url)
+        )
+    }
+
+    func reorderSkuImages(skuId: String, ids: [String]) async throws -> [SkuImage] {
+        try await client.request(
+            "/inventory/skus/\(skuId)/images/reorder",
+            method: "POST",
+            body: SkuImageReorderInput(ids: ids)
+        )
+    }
+
+    func deleteSkuImage(imageId: String) async throws -> EmptyResponse {
+        try await client.request("/inventory/sku-images/\(imageId)", method: "DELETE")
+    }
+
+    func checkSkuImageLinks(skuId: String? = nil) async throws -> SkuImageLinkReport {
+        if let skuId {
+            return try await client.request(
+                "/inventory/image-links/check",
+                method: "POST",
+                body: SkuImageLinkCheckInput(skuId: skuId)
+            )
+        }
+        return try await client.request(
+            "/inventory/image-links/check",
+            method: "POST",
+            body: EmptyBody()
         )
     }
 

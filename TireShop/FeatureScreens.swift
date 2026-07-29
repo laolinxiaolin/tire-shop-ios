@@ -550,6 +550,7 @@ struct InventoryListNativeView: View {
     var selectForQuote = false
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var quote: QuoteStore
 
@@ -701,6 +702,22 @@ struct InventoryListNativeView: View {
         .toolbar {
             if !selectForQuote {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if auth.canActOrRequest("inventory.adjust") {
+                        NavigationLink {
+                            StockAdjustBatchNativeView(
+                                initialSkuIDs: selectedSkuIDs.sorted(),
+                                initialLocation: selectedLocation.nilIfBlank
+                            )
+                        } label: {
+                            Label(
+                                selectedSkuIDs.isEmpty
+                                    ? i18n.t("inventory.stockAdjust")
+                                    : i18n.t("inventory.stockAdjustSelected", ["n": selectedSkuIDs.count]),
+                                systemImage: "plus.forwardslash.minus"
+                            )
+                        }
+                    }
+
                     Button {
                         showingExportOptions = true
                     } label: {
@@ -847,6 +864,22 @@ struct InventoryListNativeView: View {
                     selectedSkuIDs.removeAll()
                 }
                 .font(.subheadline)
+            }
+
+            if auth.canActOrRequest("inventory.adjust") {
+                NavigationLink {
+                    StockAdjustBatchNativeView(
+                        initialSkuIDs: selectedSkuIDs.sorted(),
+                        initialLocation: selectedLocation.nilIfBlank
+                    )
+                } label: {
+                    Label(
+                        i18n.t("inventory.stockAdjustSelected", ["n": selectedSkuIDs.count]),
+                        systemImage: "plus.forwardslash.minus"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .disabled(selectedSkuIDs.isEmpty)
             }
 
             Button {
@@ -4177,17 +4210,26 @@ private struct NewContainerNativeView: View {
 // FinanceScreens.swift with full action flows.
 
 struct ActivityNativeView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     var body: some View {
         AsyncContentView(load: { try await ActivityAPI().list(pageSize: 50) }) { page in
             List(page.items) { log in
                 RowLine(
-                    title: "\(log.action) \(log.entity)",
+                    title: activityTitle(log),
                     subtitle: "\(log.user?.fullName ?? "System") - \(AppFormat.dateTime(log.createdAt))",
                     trailing: log.entityId
                 )
             }
             .listStyle(.plain)
         }
+    }
+
+    private func activityTitle(_ log: AuditLog) -> String {
+        if log.action == "inventory.adjust.batch" {
+            return i18n.t("activity.stockAdjustedBatch")
+        }
+        return "\(log.action) \(log.entity)"
     }
 }
 

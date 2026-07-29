@@ -150,7 +150,57 @@ struct TireSku: Codable, Identifiable, Equatable {
     let priceCost: String
     let reorderPoint: Int
     let active: Bool
+    let storefrontVisible: Bool?
+    let descriptionEn: String?
+    let descriptionZh: String?
     let inventory: [TireSkuInventory]
+}
+
+struct StorefrontSkuInventory: Codable, Equatable {
+    let qtyOnHand: Int
+}
+
+struct StorefrontSkuImageCount: Codable, Equatable {
+    let images: Int
+}
+
+struct StorefrontSku: Codable, Identifiable, Equatable {
+    let id: String
+    let sku: String
+    let brand: String
+    let model: String
+    let size: String
+    let priceRetail: String
+    let storefrontVisible: Bool
+    let descriptionEn: String?
+    let descriptionZh: String?
+    let inventory: [StorefrontSkuInventory]
+    let imageCount: StorefrontSkuImageCount
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sku
+        case brand
+        case model
+        case size
+        case priceRetail
+        case storefrontVisible
+        case descriptionEn
+        case descriptionZh
+        case inventory
+        case imageCount = "_count"
+    }
+
+    var qtyOnHand: Int {
+        inventory.reduce(0) { $0 + $1.qtyOnHand }
+    }
+}
+
+struct StorefrontSkuPage: Codable {
+    let items: [StorefrontSku]
+    let total: Int
+    let page: Int
+    let pageSize: Int
 }
 
 struct InventoryTotals: Codable, Equatable {
@@ -204,6 +254,178 @@ struct StockAdjustmentInput: Codable {
     let reason: StockAdjustReason
     let location: String?
     let note: String?
+}
+
+struct StockAdjustBatchLineInput: Codable, Equatable {
+    let skuId: String
+    let delta: Int
+    let note: String?
+}
+
+struct StockAdjustBatchInput: Codable, Equatable {
+    let lines: [StockAdjustBatchLineInput]
+    let reason: StockAdjustReason
+    let location: String?
+    let note: String?
+}
+
+struct StockAdjustBatchResultLine: Codable, Equatable {
+    let skuId: String
+    let sku: String?
+    let delta: Int
+    let qtyBefore: Int
+    let qtyAfter: Int
+    let note: String?
+}
+
+struct StockAdjustBatchResult: Codable, Equatable {
+    let ref: String
+    let location: String
+    let reason: String
+    let note: String?
+    let skus: Int
+    let totalDelta: Int
+    let lines: [StockAdjustBatchResultLine]
+}
+
+struct StockAdjustBatchLine: Codable, Identifiable, Equatable {
+    let id: String
+    let skuId: String
+    let sku: String
+    let brand: String
+    let model: String
+    let size: String
+    let delta: Int
+    let note: String?
+}
+
+struct StockAdjustBatch: Codable, Identifiable, Equatable {
+    let ref: String
+    let at: String?
+    let user: String?
+    let location: String?
+    let reason: String?
+    let skus: Int
+    let totalDelta: Int
+    let lines: [StockAdjustBatchLine]
+
+    var id: String { ref }
+}
+
+struct SkuHistorySku: Codable, Identifiable, Equatable {
+    let id: String
+    let sku: String
+    let brand: String
+    let model: String
+    let size: String
+}
+
+struct SkuMovement: Codable, Identifiable, Equatable {
+    let id: String
+    let date: String
+    let delta: Int
+    let reason: String
+    let note: String?
+    let refType: String?
+    let refId: String?
+    let refLabel: String?
+    let user: String?
+}
+
+struct SkuHistory: Codable, Equatable {
+    let sku: SkuHistorySku
+    let onHand: Int
+    let items: [SkuMovement]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+}
+
+struct StorefrontSkuPatchInput: Codable, Equatable {
+    let storefrontVisible: Bool?
+    let descriptionEn: String?
+    let descriptionZh: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case storefrontVisible
+        case descriptionEn
+        case descriptionZh
+    }
+
+    init(
+        storefrontVisible: Bool? = nil,
+        descriptionEn: String? = nil,
+        descriptionZh: String? = nil
+    ) {
+        self.storefrontVisible = storefrontVisible
+        self.descriptionEn = descriptionEn
+        self.descriptionZh = descriptionZh
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(storefrontVisible, forKey: .storefrontVisible)
+        if storefrontVisible == nil {
+            try container.encode(descriptionEn, forKey: .descriptionEn)
+            try container.encode(descriptionZh, forKey: .descriptionZh)
+        }
+    }
+}
+
+struct StorefrontSkuPatchResult: Codable, Equatable {
+    let id: String
+    let storefrontVisible: Bool
+    let descriptionEn: String?
+    let descriptionZh: String?
+}
+
+struct StorefrontVisibilityInput: Codable, Equatable {
+    let ids: [String]
+    let visible: Bool
+}
+
+struct StorefrontVisibilityResult: Codable, Equatable {
+    let updated: Int
+    let visible: Bool
+}
+
+struct SkuImage: Codable, Identifiable, Equatable {
+    let id: String
+    let mimeType: String?
+    let sortOrder: Int
+    let externalUrl: String?
+}
+
+struct SkuImageLinkInput: Codable, Equatable {
+    let url: String
+}
+
+struct SkuImageReorderInput: Codable, Equatable {
+    let ids: [String]
+}
+
+struct SkuImageLinkCheckInput: Codable, Equatable {
+    let skuId: String?
+}
+
+struct BrokenSkuImageLinkSku: Codable, Equatable {
+    let id: String
+    let sku: String
+    let brand: String
+    let model: String
+    let size: String
+}
+
+struct BrokenSkuImageLink: Codable, Identifiable, Equatable {
+    let id: String
+    let url: String
+    let reason: String
+    let sku: BrokenSkuImageLinkSku
+}
+
+struct SkuImageLinkReport: Codable, Equatable {
+    let checked: Int
+    let broken: [BrokenSkuImageLink]
 }
 
 struct Warehouse: Codable, Identifiable, Equatable {
@@ -2416,6 +2638,7 @@ struct GeneralSettings: Codable, Equatable {
     let timezone: String
     let defaultTaxRate: Double
     let storefrontLocation: String
+    let storefrontHideOutOfStock: Bool?
 }
 
 struct BrandingSettings: Codable, Equatable {

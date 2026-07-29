@@ -1119,7 +1119,37 @@ private struct ApprovalDetailView: View {
                     }
                 }
 
-                if let context = current.context, case let rows = ApprovalFormat.rows(context), !rows.isEmpty {
+                if let context = current.context,
+                   let batch = ApprovalFormat.adjustBatchContext(context) {
+                    Section("Stock adjustment") {
+                        if let location = batch.location {
+                            LabeledContent("Warehouse", value: location)
+                        }
+                        if let reason = batch.reason {
+                            LabeledContent("Reason", value: ApprovalFormat.action(reason))
+                        }
+                        if let note = batch.note {
+                            LabeledContent("Note", value: note)
+                        }
+                        LabeledContent("Tires", value: batch.lines.count.formatted())
+                        LabeledContent(
+                            "Net change",
+                            value: batch.totalDelta > 0 ? "+\(batch.totalDelta)" : "\(batch.totalDelta)"
+                        )
+                    }
+
+                    Section("Tires") {
+                        ForEach(Array(batch.lines.enumerated()), id: \.offset) { _, line in
+                            RowLine(
+                                title: line.sku,
+                                subtitle: line.note,
+                                trailing: "\(line.onHand) → \(line.resulting) (\(line.delta > 0 ? "+" : "")\(line.delta))"
+                            )
+                        }
+                    }
+                } else if let context = current.context,
+                          case let rows = ApprovalFormat.rows(context),
+                          !rows.isEmpty {
                     Section("Context") {
                         ForEach(rows, id: \.0) { key, value in
                             LabeledContent(key, value: value)
@@ -1248,6 +1278,42 @@ private enum ApprovalFormat {
             .map { ($0.key, scalar($0.value)) }
     }
 
+    static func adjustBatchContext(_ value: JSONValue) -> ApprovalAdjustBatchContext? {
+        guard case let .object(object) = value, string(object["kind"]) == "adjustBatch" else {
+            return nil
+        }
+        guard case let .array(rawLines)? = object["lines"] else { return nil }
+
+        let lines = rawLines.compactMap { value -> ApprovalAdjustBatchLine? in
+            guard case let .object(line) = value else { return nil }
+            return ApprovalAdjustBatchLine(
+                sku: string(line["sku"]) ?? "Unknown tire",
+                delta: integer(line["delta"]),
+                onHand: integer(line["onHand"]),
+                resulting: integer(line["resulting"]),
+                note: string(line["note"])
+            )
+        }
+
+        return ApprovalAdjustBatchContext(
+            location: string(object["location"]),
+            reason: string(object["reason"]),
+            note: string(object["note"]),
+            totalDelta: integer(object["totalDelta"]),
+            lines: lines
+        )
+    }
+
+    private static func string(_ value: JSONValue?) -> String? {
+        guard case let .string(text)? = value else { return nil }
+        return text.nilIfBlank
+    }
+
+    private static func integer(_ value: JSONValue?) -> Int {
+        guard case let .number(number)? = value else { return 0 }
+        return Int(number)
+    }
+
     private static func scalar(_ value: JSONValue) -> String {
         switch value {
         case .string(let string): return string
@@ -1260,6 +1326,22 @@ private enum ApprovalFormat {
         case .object: return "…"
         }
     }
+}
+
+private struct ApprovalAdjustBatchContext {
+    let location: String?
+    let reason: String?
+    let note: String?
+    let totalDelta: Int
+    let lines: [ApprovalAdjustBatchLine]
+}
+
+private struct ApprovalAdjustBatchLine {
+    let sku: String
+    let delta: Int
+    let onHand: Int
+    let resulting: Int
+    let note: String?
 }
 
 // MARK: - Shared

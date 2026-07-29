@@ -608,6 +608,9 @@ struct SkuDetailNativeView: View {
                 NavigationLink("Adjust stock") {
                     AdjustStockNativeView(sku: sku, initialLocation: initialLocation)
                 }
+                NavigationLink("Stock history") {
+                    SkuHistoryNativeView(skuId: sku.id)
+                }
                 NavigationLink("Add to sale") {
                     SkuAddToQuoteView(sku: sku)
                 }
