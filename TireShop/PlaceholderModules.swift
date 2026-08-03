@@ -5,19 +5,12 @@ import SwiftUI
 // settings/tire-attributes}).
 
 private enum DayFormat {
-    static let formatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static func string(_ date: Date) -> String { formatter.string(from: date) }
+    static func string(_ date: Date) -> String { ShopClock.dayString(from: date) }
 
     static var today: Date { Date() }
 
     static var monthStart: Date {
-        let cal = Calendar.current
-        return cal.date(from: cal.dateComponents([.year, .month], from: Date())) ?? Date()
+        ShopClock.monthStart()
     }
 }
 
@@ -196,7 +189,7 @@ private struct MonthlySalesRowView: View {
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
             HStack {
-                Text(AppFormat.calendarDate(row.date))
+                Text(AppFormat.shortDate(row.date))
                 Spacer()
                 Text("Qty \(String(format: "%.0f", row.qty)) @ \(AppFormat.money(row.salesPrice))")
             }

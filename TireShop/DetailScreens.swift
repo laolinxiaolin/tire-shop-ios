@@ -2034,7 +2034,7 @@ private struct ContainerCostRow: View {
                     Text(vendor)
                 }
                 if let dueAt = cost.dueAt {
-                    Text("Due \(AppFormat.calendarDate(dueAt))")
+                    Text("Due \(AppFormat.shortDate(dueAt))")
                 }
             }
             .font(.caption)

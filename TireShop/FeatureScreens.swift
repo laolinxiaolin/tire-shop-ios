@@ -1830,7 +1830,7 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
     func params() -> (from: String?, to: String?) {
         guard self != .all else { return (nil, nil) }
 
-        let calendar = Calendar.current
+        let calendar = ShopClock.calendar
         let now = Date()
         let startToday = calendar.startOfDay(for: now)
         let startTomorrow = calendar.date(byAdding: .day, value: 1, to: startToday) ?? startToday
@@ -1982,14 +1982,6 @@ private struct BestSellersNativeView: View {
         BestSellerSortOption(id: "onHand", labelKey: "bestSellers.col.onHand"),
         BestSellerSortOption(id: "lastSoldAt", labelKey: "bestSellers.col.lastSold")
     ]
-    private static let isoDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
     @State private var months: Int
     @State private var usesCustomRange = false
     @State private var fromDate: Date
@@ -2005,20 +1997,21 @@ private struct BestSellersNativeView: View {
 
     init(initialMonths: Int) {
         let period = Self.periods.contains(initialMonths) ? initialMonths : 3
-        let today = Calendar.current.startOfDay(for: Date())
+        let calendar = ShopClock.calendar
+        let today = calendar.startOfDay(for: Date())
         _months = State(initialValue: period)
         _fromDate = State(
-            initialValue: Calendar.current.date(byAdding: .month, value: -period, to: today) ?? today
+            initialValue: calendar.date(byAdding: .month, value: -period, to: today) ?? today
         )
         _toDate = State(initialValue: today)
     }
 
     private var fromDay: String {
-        Self.isoDayFormatter.string(from: fromDate)
+        ShopClock.dayString(from: fromDate)
     }
 
     private var toDay: String {
-        Self.isoDayFormatter.string(from: toDate)
+        ShopClock.dayString(from: toDate)
     }
 
     private var invalidRange: Bool {

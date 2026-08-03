@@ -637,7 +637,7 @@ private struct VendorExpenseList: View {
             ForEach(expenses) { expense in
                 RowLine(
                     title: expense.expenseCode,
-                    subtitle: [expense.reference, AppFormat.calendarDate(expense.date)].compactMap { $0?.nilIfBlank }.joined(separator: " - "),
+                    subtitle: [expense.reference, AppFormat.shortDate(expense.date)].compactMap { $0?.nilIfBlank }.joined(separator: " - "),
                     trailing: AppFormat.money(expense.amount)
                 )
                 .opacity(expense.reversedAt == nil ? 1 : 0.45)
@@ -667,7 +667,7 @@ private struct VendorRefundList: View {
                             .foregroundStyle(Theme.text)
 
                         Text([
-                            AppFormat.calendarDate(refund.date),
+                            AppFormat.shortDate(refund.date),
                             "Deposit \(refund.depositToCode)",
                             "Credit \(refund.creditCode)"
                         ].joined(separator: " - "))
@@ -845,6 +845,7 @@ struct VendorRefundEditorView: View {
     @State private var amount = ""
     @State private var depositToCode = ""
     @State private var creditCode = ""
+    @State private var date = Date()
     @State private var reference = ""
     @State private var note = ""
     @State private var loadingAccounts = false
@@ -873,6 +874,8 @@ struct VendorRefundEditorView: View {
                             Text("\(account.code) - \(account.name)").tag(account.code)
                         }
                     }
+
+                    DatePicker("Refund date", selection: $date, displayedComponents: .date)
                 }
 
                 Section("Reference") {
@@ -960,7 +963,7 @@ struct VendorRefundEditorView: View {
                     amount: parsedAmount,
                     depositToCode: depositToCode,
                     creditCode: creditCode,
-                    date: nil,
+                    date: ShopClock.dayString(from: date),
                     reference: reference.nilIfBlank,
                     note: note.nilIfBlank
                 )

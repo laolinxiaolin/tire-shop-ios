@@ -9,19 +9,12 @@ import SwiftUI
 // MARK: - Shared helpers
 
 private enum FinanceDay {
-    static let formatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static func string(_ date: Date) -> String { formatter.string(from: date) }
+    static func string(_ date: Date) -> String { ShopClock.dayString(from: date) }
 
     static var todayString: String { string(Date()) }
 
     static var monthStart: Date {
-        let cal = Calendar.current
-        return cal.date(from: cal.dateComponents([.year, .month], from: Date())) ?? Date()
+        ShopClock.monthStart()
     }
 
     /// Format a plain calendar date (yyyy-MM-dd) without any timezone shift.
@@ -1321,7 +1314,7 @@ private func documentRow(ref: String, party: String, total: Double, lineCount: I
                 .foregroundStyle(Theme.muted)
                 .lineLimit(1)
             Spacer()
-            Text("\(lineCount) line\(lineCount == 1 ? "" : "s") · \(AppFormat.calendarDate(date))")
+            Text("\(lineCount) line\(lineCount == 1 ? "" : "s") · \(AppFormat.shortDate(date))")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
             DocStatusBadge(status: status)
@@ -1836,7 +1829,7 @@ private struct JournalEntryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack {
-                Text(AppFormat.calendarDate(entry.date))
+                Text(AppFormat.shortDate(entry.date))
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
                 Spacer()
@@ -2084,7 +2077,7 @@ struct CashAccountsNativeView: View {
                                     .foregroundStyle(Theme.text)
                             }
                             HStack {
-                                Text(FinanceDay.calendar(String(expense.date.prefix(10))))
+                                Text(AppFormat.shortDate(expense.date))
                                 if let payee = expense.payee?.nilIfBlank {
                                     Text("· \(payee)").lineLimit(1)
                                 }
@@ -2271,7 +2264,7 @@ private struct AccountHistorySheet: View {
         let moneyOut = debitNormal ? item.credit : item.debit
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(AppFormat.calendarDate(item.date))
+                Text(AppFormat.shortDate(item.date))
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
                 Spacer()
@@ -2999,7 +2992,7 @@ struct FetNativeView: View {
                 ForEach(status.payments) { payment in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Text(AppFormat.calendarDate(payment.date))
+                            Text(AppFormat.shortDate(payment.date))
                                 .font(.caption)
                                 .foregroundStyle(Theme.muted)
                             Spacer()

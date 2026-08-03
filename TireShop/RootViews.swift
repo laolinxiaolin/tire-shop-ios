@@ -33,13 +33,18 @@ struct RootGateView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var quote: QuoteStore
+    @EnvironmentObject private var shopClock: ShopClockStore
 
     var body: some View {
         Group {
             if !auth.ready {
                 LoadingView(label: i18n.t("common.loading"))
-            } else if auth.user != nil {
-                RootNavigatorView()
+            } else if let user = auth.user {
+                if shopClock.isReady(for: user.id) {
+                    RootNavigatorView()
+                } else {
+                    LoadingView(label: i18n.t("common.loading"))
+                }
             } else {
                 LoginView()
             }
@@ -47,6 +52,13 @@ struct RootGateView: View {
         .task {
             if !auth.ready {
                 auth.restore()
+            }
+        }
+        .task(id: auth.user?.id) {
+            if let userID = auth.user?.id {
+                await shopClock.refresh(for: userID)
+            } else {
+                shopClock.resetSession()
             }
         }
         .onChange(of: auth.user?.id) { oldUserID, newUserID in

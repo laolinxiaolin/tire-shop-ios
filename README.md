@@ -47,4 +47,5 @@ To run the local conversion checks available without Xcode, run:
 
 ```sh
 node scripts/verify-swift-conversion.mjs
+bash scripts/verify-shop-clock.sh
 ```

@@ -16,6 +16,7 @@ private let settingsTimezones: [(value: String, label: String)] = [
 struct ShopSettingsNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var shopClock: ShopClockStore
 
     @State private var loaded = false
     @State private var loading = false
@@ -406,6 +407,7 @@ struct ShopSettingsNativeView: View {
         shopEmail = branding.shopEmail ?? ""
 
         timezone = general.timezone
+        shopClock.update(identifier: general.timezone)
         taxRatePercent = Self.taxPercentText(general.defaultTaxRate)
         storefrontLocation = general.storefrontLocation
         storefrontHideOutOfStock = general.storefrontHideOutOfStock ?? false
@@ -465,6 +467,7 @@ struct ShopSettingsNativeView: View {
             ))
             general = updated
             timezone = updated.timezone
+            shopClock.update(identifier: updated.timezone)
             taxRatePercent = Self.taxPercentText(updated.defaultTaxRate)
             storefrontLocation = updated.storefrontLocation
             storefrontHideOutOfStock = updated.storefrontHideOutOfStock ?? false

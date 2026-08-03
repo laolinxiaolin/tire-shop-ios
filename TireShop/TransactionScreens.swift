@@ -1774,9 +1774,6 @@ struct TapToPayNativeView: View {
     }
 
     private func shareText(for outcome: TapToPayOutcome) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
         let saleText = saleRef?.nilIfBlank.map { "\nSale: \($0)" } ?? ""
         let customerText = customerName?.nilIfBlank.map { "\nCustomer: \($0)" } ?? ""
         return """
@@ -1785,7 +1782,7 @@ struct TapToPayNativeView: View {
         Amount: \(AppFormat.money(outcome.amount))
         Invoice: \(outcome.invoiceId)\(saleText)\(customerText)
         Payment intent: \(outcome.paymentIntentId)
-        Time: \(formatter.string(from: outcome.happenedAt))
+        Time: \(AppFormat.dateTime(outcome.happenedAt))
         Note: \(outcome.detail)
         """
     }

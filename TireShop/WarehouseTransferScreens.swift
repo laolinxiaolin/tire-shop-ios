@@ -705,7 +705,7 @@ struct StockTransferDetailNativeView: View {
                 }
 
                 if let dueAt = transfer.freightDueAt {
-                    LabeledContent("Due", value: AppFormat.calendarDate(dueAt))
+                    LabeledContent("Due", value: AppFormat.shortDate(dueAt))
                 }
 
                 ForEach(transfer.costs) { cost in

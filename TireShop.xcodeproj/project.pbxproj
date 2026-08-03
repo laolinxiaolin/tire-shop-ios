@@ -29,6 +29,8 @@
 		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
 		67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1782DD0F092018F372E6865E /* Services.swift */; };
 		54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867D8A179010B63034C1EDCF /* SharedViews.swift */; };
+		DFB7520D8F37E61ABA5D26B9 /* ShopClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B20C04BE21A066E3A097CBB /* ShopClock.swift */; };
+		971787390F5A55BBE93AA760 /* ShopClockStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE787CB12540A948C415CEC /* ShopClockStore.swift */; };
 		E2386F88CFA6A5D6802475B3 /* ShopSettingsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */; };
 		5FE390CA38D6D19EAF200B16 /* StockAdjustmentScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19CA6101C704157AE4FE3DE3 /* StockAdjustmentScreens.swift */; };
 		1DF4105730A1C5BBC916E85B /* StorefrontScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A66D58A6E6EC68FF2C8794E /* StorefrontScreens.swift */; };
@@ -67,6 +69,8 @@
 		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViews.swift"; sourceTree = "<group>"; };
 		1782DD0F092018F372E6865E /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services.swift"; sourceTree = "<group>"; };
 		867D8A179010B63034C1EDCF /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedViews.swift"; sourceTree = "<group>"; };
+		3B20C04BE21A066E3A097CBB /* ShopClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopClock.swift"; sourceTree = "<group>"; };
+		CFE787CB12540A948C415CEC /* ShopClockStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopClockStore.swift"; sourceTree = "<group>"; };
 		F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopSettingsScreens.swift"; sourceTree = "<group>"; };
 		19CA6101C704157AE4FE3DE3 /* StockAdjustmentScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StockAdjustmentScreens.swift"; sourceTree = "<group>"; };
 		3A66D58A6E6EC68FF2C8794E /* StorefrontScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StorefrontScreens.swift"; sourceTree = "<group>"; };
@@ -130,6 +134,8 @@
 				B54402C1C6DDB15D78025760 /* RootViews.swift */,
 				1782DD0F092018F372E6865E /* Services.swift */,
 				867D8A179010B63034C1EDCF /* SharedViews.swift */,
+				3B20C04BE21A066E3A097CBB /* ShopClock.swift */,
+				CFE787CB12540A948C415CEC /* ShopClockStore.swift */,
 				F8261992B9709F70D1BE6479 /* ShopSettingsScreens.swift */,
 				19CA6101C704157AE4FE3DE3 /* StockAdjustmentScreens.swift */,
 				3A66D58A6E6EC68FF2C8794E /* StorefrontScreens.swift */,
@@ -258,6 +264,8 @@
 				98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */,
 				67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */,
 				54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */,
+				DFB7520D8F37E61ABA5D26B9 /* ShopClock.swift in Sources */,
+				971787390F5A55BBE93AA760 /* ShopClockStore.swift in Sources */,
 				E2386F88CFA6A5D6802475B3 /* ShopSettingsScreens.swift in Sources */,
 				5FE390CA38D6D19EAF200B16 /* StockAdjustmentScreens.swift in Sources */,
 				1DF4105730A1C5BBC916E85B /* StorefrontScreens.swift in Sources */,
@@ -390,7 +398,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026072801;
+				CURRENT_PROJECT_VERSION = 2026080301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -402,7 +410,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -417,7 +425,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026072801;
+				CURRENT_PROJECT_VERSION = 2026080301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -429,7 +437,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
