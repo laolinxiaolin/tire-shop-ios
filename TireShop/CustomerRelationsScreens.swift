@@ -51,11 +51,8 @@ private enum CrmLabels {
 }
 
 private enum CrmDate {
-    static let isoFormatter = ISO8601DateFormatter()
-
     static func date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        return isoFormatter.date(from: value)
+        AppFormat.date(value)
     }
 
     static func isOverdue(_ value: String?, status: FollowUpStatus) -> Bool {
@@ -115,6 +112,7 @@ private struct CrmFollowUpsView: View {
     @State private var items: [CustomerFollowUp] = []
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var loadRequestID = UUID()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -190,21 +188,31 @@ private struct CrmFollowUpsView: View {
 
     @MainActor
     private func load() async {
+        let requestID = UUID()
+        loadRequestID = requestID
+        let requestedFilter = filter
+        let requestedAssigneeID = mine ? auth.user?.id : nil
         loading = true
         errorMessage = nil
+        defer {
+            if loadRequestID == requestID {
+                loading = false
+            }
+        }
         do {
-            let status: FollowUpStatus? = filter == .done ? "DONE" : (filter == .open ? "OPEN" : nil)
+            let status: FollowUpStatus? = requestedFilter == .done ? "DONE" : (requestedFilter == .open ? "OPEN" : nil)
             let page = try await CrmAPI().followUps(
                 status: status,
-                assignedToId: mine ? auth.user?.id : nil,
-                overdue: filter == .overdue ? true : nil,
+                assignedToId: requestedAssigneeID,
+                overdue: requestedFilter == .overdue ? true : nil,
                 pageSize: 50
             )
+            guard loadRequestID == requestID else { return }
             items = page.items
         } catch {
+            guard loadRequestID == requestID, !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load follow-ups."
         }
-        loading = false
     }
 
     @MainActor

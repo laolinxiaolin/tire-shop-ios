@@ -1,4 +1,3 @@
-import ImageIO
 import PhotosUI
 import QuickLook
 import SwiftUI
@@ -68,78 +67,6 @@ private struct CustomerDocumentPreview: Identifiable {
 private struct CustomerDocumentDeleteTarget: Identifiable {
     let document: CustomerDocument
     var id: String { document.id }
-}
-
-private struct CustomerDocumentCameraCapture {
-    let data: Data
-    let filename: String
-    let mimeType: String
-}
-
-private struct CustomerDocumentCameraPicker: UIViewControllerRepresentable {
-    @Environment(\.dismiss) private var dismiss
-
-    let onCapture: (CustomerDocumentCameraCapture) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraCaptureMode = .photo
-        picker.mediaTypes = [UTType.image.identifier]
-        picker.allowsEditing = false
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        private let parent: CustomerDocumentCameraPicker
-
-        init(parent: CustomerDocumentCameraPicker) {
-            self.parent = parent
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.dismiss()
-        }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            defer { parent.dismiss() }
-
-            if
-                let url = info[.imageURL] as? URL,
-                let data = try? Data(contentsOf: url)
-            {
-                let type = UTType(filenameExtension: url.pathExtension)
-                parent.onCapture(CustomerDocumentCameraCapture(
-                    data: data,
-                    filename: url.lastPathComponent,
-                    mimeType: type?.preferredMIMEType ?? "application/octet-stream"
-                ))
-                return
-            }
-
-            guard
-                let image = info[.originalImage] as? UIImage,
-                let data = image.jpegData(compressionQuality: 0.92)
-            else { return }
-
-            let timestamp = Int(Date().timeIntervalSince1970)
-            parent.onCapture(CustomerDocumentCameraCapture(
-                data: data,
-                filename: "Customer document \(timestamp).jpg",
-                mimeType: "image/jpeg"
-            ))
-        }
-    }
 }
 
 private struct CustomerPasswordResetTarget: Identifiable {
@@ -315,8 +242,11 @@ struct CustomerDetailNativeView: View {
             Task { await handleDocumentPhoto(item) }
         }
         .fullScreenCover(isPresented: $capturingDocumentPhoto) {
-            CustomerDocumentCameraPicker { capture in
-                Task { await handleDocumentCameraCapture(capture) }
+            CameraUploadPicker(
+                temporaryPrefix: "customer-doc-camera",
+                fallbackFilenamePrefix: "Customer document"
+            ) { result in
+                Task { await handleDocumentCameraCapture(result) }
             }
             .ignoresSafeArea()
         }
@@ -1194,7 +1124,10 @@ struct CustomerDetailNativeView: View {
         do {
             let source = try result.get().first
             guard let source else { return }
-            let copied = try copyImportedDocument(source)
+            let copied = try await UploadFilePreparation.copySecurityScopedFile(
+                source,
+                prefix: "customer-doc"
+            )
             tempURL = copied
             try await uploadCustomerDocument(
                 fileURL: copied,
@@ -1221,20 +1154,19 @@ struct CustomerDetailNativeView: View {
         }
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
+            guard let photo = try await item.loadTransferable(type: UploadPhotoFile.self) else {
                 throw APIError(status: 0, message: "Could not read the selected photo.")
             }
+            tempURL = photo.url
 
-            let contentType = Self.imageContentType(for: data)
-                ?? item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+            let contentType = item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+                ?? UTType(filenameExtension: photo.url.pathExtension)
                 ?? .jpeg
             let fileExtension = contentType.preferredFilenameExtension ?? "jpg"
             let filename = Self.capturedDocumentFilename(fileExtension: fileExtension)
-            let url = try writeTemporaryDocument(data, filename: filename)
-            tempURL = url
 
             try await uploadCustomerDocument(
-                fileURL: url,
+                fileURL: photo.url,
                 fileName: filename,
                 mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
             )
@@ -1244,23 +1176,29 @@ struct CustomerDetailNativeView: View {
     }
 
     @MainActor
-    private func handleDocumentCameraCapture(_ capture: CustomerDocumentCameraCapture) async {
+    private func handleDocumentCameraCapture(
+        _ result: Result<PreparedCameraUpload, Error>
+    ) async {
+        let capture: PreparedCameraUpload
+        do {
+            capture = try result.get()
+        } catch {
+            clearMessages()
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not prepare photo."
+            return
+        }
+        defer {
+            try? FileManager.default.removeItem(at: capture.url)
+        }
+
         guard canManageCustomers else { return }
         uploadingDocument = true
         clearMessages()
-        var tempURL: URL?
-        defer {
-            if let tempURL {
-                try? FileManager.default.removeItem(at: tempURL)
-            }
-            uploadingDocument = false
-        }
+        defer { uploadingDocument = false }
 
         do {
-            let url = try writeTemporaryDocument(capture.data, filename: capture.filename)
-            tempURL = url
             try await uploadCustomerDocument(
-                fileURL: url,
+                fileURL: capture.url,
                 fileName: capture.filename,
                 mimeType: capture.mimeType
             )
@@ -1525,20 +1463,8 @@ struct CustomerDetailNativeView: View {
     }
 
     private func isLocked(_ user: CustomerUser) -> Bool {
-        guard let lockedUntil = user.lockedUntil, let date = Self.isoFormatter.date(from: lockedUntil) else { return false }
+        guard let date = AppFormat.date(user.lockedUntil) else { return false }
         return date > Date()
-    }
-
-    private func copyImportedDocument(_ url: URL) throws -> URL {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer {
-            if scoped { url.stopAccessingSecurityScopedResource() }
-        }
-
-        let destination = FileManager.default.temporaryDirectory.appendingPathComponent("customer-doc-\(UUID().uuidString)-\(url.lastPathComponent)")
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.copyItem(at: url, to: destination)
-        return destination
     }
 
     private func mimeType(for url: URL) -> String {
@@ -1550,26 +1476,6 @@ struct CustomerDetailNativeView: View {
         case "heif": return "image/heif"
         default: return "application/octet-stream"
         }
-    }
-
-    private func writeTemporaryDocument(_ data: Data, filename: String) throws -> URL {
-        let safeFilename = filename
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: ".")
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("customer-doc-\(UUID().uuidString)-\(safeFilename)")
-        try? FileManager.default.removeItem(at: destination)
-        try data.write(to: destination, options: .atomic)
-        return destination
-    }
-
-    private static func imageContentType(for data: Data) -> UTType? {
-        guard
-            let source = CGImageSourceCreateWithData(data as CFData, nil),
-            let identifier = CGImageSourceGetType(source)
-        else { return nil }
-
-        return UTType(identifier as String)
     }
 
     private static func capturedDocumentFilename(fileExtension: String) -> String {

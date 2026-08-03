@@ -568,12 +568,14 @@ struct ShopSettingsNativeView: View {
         savingLogo = true
         clearMessages()
 
+        var importedURL: URL?
         var tempURL: URL?
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
+            guard let photo = try await item.loadTransferable(type: UploadPhotoFile.self) else {
                 throw APIError(status: 0, message: "Could not read the selected image.")
             }
-            let url = try Self.logoUploadFile(from: data)
+            importedURL = photo.url
+            let url = try await Self.logoUploadFile(from: photo.url)
             tempURL = url
             _ = try await SettingsAPI().uploadLogo(fileURL: url, fileName: url.lastPathComponent, mimeType: "image/jpeg")
             branding = try await SettingsAPI().branding()
@@ -587,6 +589,9 @@ struct ShopSettingsNativeView: View {
 
         if let tempURL {
             try? FileManager.default.removeItem(at: tempURL)
+        }
+        if let importedURL {
+            try? FileManager.default.removeItem(at: importedURL)
         }
         logoSelection = nil
         savingLogo = false
@@ -621,27 +626,33 @@ struct ShopSettingsNativeView: View {
             .replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
     }
 
-    private static func logoUploadFile(from source: Data) throws -> URL {
-        guard let image = UIImage(data: source) else {
-            throw APIError(status: 0, message: "Logo must be an image.")
-        }
+    private static func logoUploadFile(from sourceURL: URL) async throws -> URL {
+        let payload = try await Task.detached(priority: .utility) {
+            let source = try Data(contentsOf: sourceURL, options: .mappedIfSafe)
+            guard let image = UIImage(data: source) else {
+                throw APIError(status: 0, message: "Logo must be an image.")
+            }
 
-        var quality: CGFloat = 0.9
-        var payload = image.jpegData(compressionQuality: quality)
-        while let current = payload, current.count > 1_950_000, quality > 0.3 {
-            quality -= 0.15
-            payload = image.jpegData(compressionQuality: quality)
-        }
+            var quality: CGFloat = 0.9
+            var payload = image.jpegData(compressionQuality: quality)
+            while let current = payload, current.count > 1_950_000, quality > 0.3 {
+                quality -= 0.15
+                payload = image.jpegData(compressionQuality: quality)
+            }
 
-        guard let payload else {
-            throw APIError(status: 0, message: "Could not prepare the logo image.")
-        }
-        guard payload.count <= 2_000_000 else {
-            throw APIError(status: 0, message: "Logo exceeds 2 MB.")
-        }
+            guard let payload else {
+                throw APIError(status: 0, message: "Could not prepare the logo image.")
+            }
+            guard payload.count <= 2_000_000 else {
+                throw APIError(status: 0, message: "Logo exceeds 2 MB.")
+            }
+            return payload
+        }.value
 
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shop-logo-\(UUID().uuidString).jpg")
-        try payload.write(to: url)
-        return url
+        return try await UploadFilePreparation.writeTemporaryData(
+            payload,
+            filename: "shop-logo.jpg",
+            prefix: "shop-logo"
+        )
     }
 }

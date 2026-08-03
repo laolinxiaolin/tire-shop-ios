@@ -30,6 +30,7 @@ struct StorefrontManagementNativeView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var loadRequestID = UUID()
     @State private var selecting = false
     @State private var selectedIDs: Set<String> = []
     @State private var bulkSaving = false
@@ -219,22 +220,32 @@ struct StorefrontManagementNativeView: View {
 
     @MainActor
     private func load() async {
+        let requestID = UUID()
+        loadRequestID = requestID
+        let query = q.nilIfBlank
+        let requestedVisibility = visibility.apiValue
         loading = true
         errorMessage = nil
-        defer { loading = false }
+        defer {
+            if loadRequestID == requestID {
+                loading = false
+            }
+        }
 
         do {
             let page = try await InventoryAPI().listStorefrontSkus(
-                q: q.nilIfBlank,
-                storefrontVisible: visibility.apiValue,
+                q: query,
+                storefrontVisible: requestedVisibility,
                 page: 1,
                 pageSize: 1000
             )
+            guard loadRequestID == requestID else { return }
             items = page.items
             total = page.total
             selectedIDs.formIntersection(Set(page.items.map(\.id)))
             loaded = true
         } catch {
+            guard loadRequestID == requestID, !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "Could not load storefront products."
             loaded = !items.isEmpty
@@ -760,16 +771,21 @@ private struct SkuImagesManagementSheet: View {
         }
 
         do {
-            guard let source = try await item.loadTransferable(type: Data.self) else {
+            guard let photo = try await item.loadTransferable(type: UploadPhotoFile.self) else {
                 throw APIError(status: 0, message: "Could not read the selected image.")
             }
-            let upload = try Self.prepareUpload(
-                source,
-                contentType: item.supportedContentTypes.first
+            defer { try? FileManager.default.removeItem(at: photo.url) }
+
+            let contentType = item.supportedContentTypes.first
+            let upload = try await Task.detached(priority: .utility) {
+                let source = try Data(contentsOf: photo.url, options: .mappedIfSafe)
+                return try Self.prepareUpload(source, contentType: contentType)
+            }.value
+            let fileURL = try await UploadFilePreparation.writeTemporaryData(
+                upload.data,
+                filename: "sku.\(upload.fileExtension)",
+                prefix: "sku-image"
             )
-            let fileURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("sku-\(UUID().uuidString).\(upload.fileExtension)")
-            try upload.data.write(to: fileURL, options: .atomic)
             defer { try? FileManager.default.removeItem(at: fileURL) }
 
             _ = try await InventoryAPI().uploadSkuImage(
@@ -791,7 +807,7 @@ private struct SkuImagesManagementSheet: View {
         let mimeType: String
     }
 
-    private static func prepareUpload(_ source: Data, contentType: UTType?) throws -> PreparedUpload {
+    nonisolated private static func prepareUpload(_ source: Data, contentType: UTType?) throws -> PreparedUpload {
         guard let image = UIImage(data: source) else {
             throw APIError(status: 0, message: "The selected file is not an image.")
         }
@@ -835,7 +851,7 @@ private struct SkuImagesManagementSheet: View {
         return PreparedUpload(data: jpeg, fileExtension: "jpg", mimeType: "image/jpeg")
     }
 
-    private static func supportedType(_ type: UTType?) -> (ext: String, mime: String)? {
+    nonisolated private static func supportedType(_ type: UTType?) -> (ext: String, mime: String)? {
         guard let type else { return nil }
         if type.conforms(to: .jpeg) { return ("jpg", "image/jpeg") }
         if type.conforms(to: .png) { return ("png", "image/png") }

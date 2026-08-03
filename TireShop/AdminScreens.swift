@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Users
 
@@ -914,7 +915,7 @@ private struct ApiKeyRevealView: View {
                 Section {
                     Text(created.plaintext)
                         .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
+                        .privacySensitive()
                 } header: {
                     Text("Secret for \(created.name)")
                 } footer: {
@@ -923,7 +924,13 @@ private struct ApiKeyRevealView: View {
 
                 Section {
                     Button {
-                        UIPasteboard.general.string = created.plaintext
+                        UIPasteboard.general.setItems(
+                            [[UTType.plainText.identifier: created.plaintext]],
+                            options: [
+                                .localOnly: true,
+                                .expirationDate: Date().addingTimeInterval(300)
+                            ]
+                        )
                         copied = true
                     } label: {
                         Label(copied ? "Copied" : "Copy key", systemImage: copied ? "checkmark" : "doc.on.doc")

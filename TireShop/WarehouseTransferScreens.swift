@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 // MARK: - Warehouses
@@ -385,6 +386,7 @@ struct StockTransfersListNativeView: View {
     @State private var loaded = false
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var loadGeneration = 0
 
     private let pageSize = 50
 
@@ -505,21 +507,36 @@ struct StockTransfersListNativeView: View {
 
     @MainActor
     private func load() async {
-        guard !loading else { return }
+        loadGeneration += 1
+        let generation = loadGeneration
+        let requestedStatus = status
+        let requestedPage = currentPage
+
         loading = true
         defer {
-            loaded = true
-            loading = false
+            if loadGeneration == generation {
+                loaded = true
+                loading = false
+            }
         }
 
         do {
-            data = try await TransfersAPI().list(
-                status: status.nilIfBlank,
-                page: currentPage,
+            let response = try await TransfersAPI().list(
+                status: requestedStatus.nilIfBlank,
+                page: requestedPage,
                 pageSize: pageSize
             )
+            guard
+                !Task.isCancelled,
+                loadGeneration == generation,
+                status == requestedStatus,
+                currentPage == requestedPage
+            else { return }
+
+            data = response
             errorMessage = nil
         } catch {
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             errorMessage = transferErrorMessage(error, fallback: "Could not load transfers.")
         }
     }
@@ -1337,6 +1354,7 @@ private struct TransferSkuPickerNativeView: View {
     @State private var loading = false
     @State private var loaded = false
     @State private var errorMessage: String?
+    @State private var searchGeneration = 0
 
     var body: some View {
         NavigationStack {
@@ -1344,7 +1362,7 @@ private struct TransferSkuPickerNativeView: View {
                 if loading, !loaded {
                     LoadingView(label: "Loading tires...")
                 } else if let errorMessage, results.isEmpty {
-                    RetryView(message: errorMessage) { Task { await search() } }
+                    RetryView(message: errorMessage) { Task { await search(query: query) } }
                 } else if results.isEmpty {
                     EmptyStateView(text: query.isEmpty ? "No tires found." : "No tires match your search.")
                 } else {
@@ -1390,7 +1408,7 @@ private struct TransferSkuPickerNativeView: View {
                         .disabled(alreadyAdded)
                     }
                     .listStyle(.plain)
-                    .refreshable { await search() }
+                    .refreshable { await search(query: query) }
                 }
             }
             .navigationTitle("Add tire")
@@ -1404,7 +1422,7 @@ private struct TransferSkuPickerNativeView: View {
             .task(id: query) {
                 try? await Task.sleep(for: .milliseconds(200))
                 guard !Task.isCancelled else { return }
-                await search()
+                await search(query: query)
             }
         }
     }
@@ -1415,15 +1433,14 @@ private struct TransferSkuPickerNativeView: View {
     }
 
     @MainActor
-    private func search() async {
+    private func search(query requestedQuery: String) async {
+        searchGeneration += 1
+        let generation = searchGeneration
         loading = true
-        defer {
-            loading = false
-            loaded = true
-        }
 
         do {
-            let page = try await InventoryAPI().listSkus(q: query.nilIfBlank, pageSize: 50)
+            let page = try await InventoryAPI().listSkus(q: requestedQuery.nilIfBlank, pageSize: 50)
+            guard generation == searchGeneration, requestedQuery == query, !Task.isCancelled else { return }
             results = page.items.sorted {
                 let lhs = availability(for: $0)
                 let rhs = availability(for: $1)
@@ -1431,12 +1448,25 @@ private struct TransferSkuPickerNativeView: View {
                 return $0.sku.localizedCaseInsensitiveCompare($1.sku) == .orderedAscending
             }
             errorMessage = nil
-        } catch is CancellationError {
-            return
         } catch {
+            guard generation == searchGeneration, requestedQuery == query, !isTransferSearchCancellation(error) else {
+                return
+            }
             errorMessage = transferErrorMessage(error, fallback: "Could not search inventory.")
         }
+
+        guard generation == searchGeneration, requestedQuery == query else { return }
+        loading = false
+        loaded = true
     }
+}
+
+private func isTransferSearchCancellation(_ error: Error) -> Bool {
+    if error is CancellationError {
+        return true
+    }
+
+    return (error as? URLError)?.code == .cancelled
 }
 
 // MARK: - Shared transfer presentation helpers

@@ -1,80 +1,7 @@
-import ImageIO
 import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
-
-private struct ContainerDocumentCameraCapture {
-    let data: Data
-    let filename: String
-    let mimeType: String
-}
-
-private struct ContainerDocumentCameraPicker: UIViewControllerRepresentable {
-    @Environment(\.dismiss) private var dismiss
-
-    let onCapture: (ContainerDocumentCameraCapture) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraCaptureMode = .photo
-        picker.mediaTypes = [UTType.image.identifier]
-        picker.allowsEditing = false
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        private let parent: ContainerDocumentCameraPicker
-
-        init(parent: ContainerDocumentCameraPicker) {
-            self.parent = parent
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.dismiss()
-        }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            defer { parent.dismiss() }
-
-            if
-                let url = info[.imageURL] as? URL,
-                let data = try? Data(contentsOf: url)
-            {
-                let type = UTType(filenameExtension: url.pathExtension)
-                parent.onCapture(ContainerDocumentCameraCapture(
-                    data: data,
-                    filename: url.lastPathComponent,
-                    mimeType: type?.preferredMIMEType ?? "application/octet-stream"
-                ))
-                return
-            }
-
-            guard
-                let image = info[.originalImage] as? UIImage,
-                let data = image.jpegData(compressionQuality: 0.92)
-            else { return }
-
-            let timestamp = Int(Date().timeIntervalSince1970)
-            parent.onCapture(ContainerDocumentCameraCapture(
-                data: data,
-                filename: "Purchase document \(timestamp).jpg",
-                mimeType: "image/jpeg"
-            ))
-        }
-    }
-}
 
 struct SaleDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
@@ -159,7 +86,7 @@ struct SaleDetailNativeView: View {
                             }
                         }
 
-                        if balance > 0.005 {
+                        if balance > 0.005 && auth.has("payments.collect") {
                             NavigationLink(value: AppRoute.tapToPay(
                                 invoiceId: invoice.id,
                                 amount: balance,
@@ -201,11 +128,13 @@ struct SaleDetailNativeView: View {
                         .disabled(confirming)
                     }
 
-                    NavigationLink(value: AppRoute.editSale(sale.id)) {
-                        Text("Edit sale")
-                    }
-                    NavigationLink(value: AppRoute.startReturn(saleId: sale.id, saleRef: sale.ref)) {
-                        Text("Return / Exchange")
+                    if canSend {
+                        NavigationLink(value: AppRoute.editSale(sale.id)) {
+                            Text("Edit sale")
+                        }
+                        NavigationLink(value: AppRoute.startReturn(saleId: sale.id, saleRef: sale.ref)) {
+                            Text("Return / Exchange")
+                        }
                     }
 
                     if canSend && sale.status == "INVOICED" && (Double(sale.invoice?.paidTotal ?? "0") ?? 0) == 0 {
@@ -1148,8 +1077,11 @@ struct ContainerDetailNativeView: View {
             Task { await handleAttachmentPhoto(item) }
         }
         .fullScreenCover(isPresented: $capturingAttachmentPhoto) {
-            ContainerDocumentCameraPicker { capture in
-                Task { await handleAttachmentCameraCapture(capture) }
+            CameraUploadPicker(
+                temporaryPrefix: "purchase-doc-camera",
+                fallbackFilenamePrefix: "Purchase document"
+            ) { result in
+                Task { await handleAttachmentCameraCapture(result) }
             }
             .ignoresSafeArea()
         }
@@ -1575,7 +1507,10 @@ struct ContainerDetailNativeView: View {
         do {
             let source = try result.get().first
             guard let source else { return }
-            let copied = try copyImportedAttachment(source)
+            let copied = try await UploadFilePreparation.copySecurityScopedFile(
+                source,
+                prefix: "purchase-doc"
+            )
             tempURL = copied
             try await uploadContainerAttachment(
                 fileURL: copied,
@@ -1602,20 +1537,19 @@ struct ContainerDetailNativeView: View {
         }
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
+            guard let photo = try await item.loadTransferable(type: UploadPhotoFile.self) else {
                 throw APIError(status: 0, message: "Could not read the selected photo.")
             }
+            tempURL = photo.url
 
-            let contentType = Self.imageContentType(for: data)
-                ?? item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+            let contentType = item.supportedContentTypes.first(where: { $0.conforms(to: .image) })
+                ?? UTType(filenameExtension: photo.url.pathExtension)
                 ?? .jpeg
             let fileExtension = contentType.preferredFilenameExtension ?? "jpg"
             let filename = Self.capturedAttachmentFilename(fileExtension: fileExtension)
-            let url = try writeTemporaryAttachment(data, filename: filename)
-            tempURL = url
 
             try await uploadContainerAttachment(
-                fileURL: url,
+                fileURL: photo.url,
                 fileName: filename,
                 mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
             )
@@ -1625,23 +1559,28 @@ struct ContainerDetailNativeView: View {
     }
 
     @MainActor
-    private func handleAttachmentCameraCapture(_ capture: ContainerDocumentCameraCapture) async {
+    private func handleAttachmentCameraCapture(
+        _ result: Result<PreparedCameraUpload, Error>
+    ) async {
+        let capture: PreparedCameraUpload
+        do {
+            capture = try result.get()
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not prepare photo."
+            return
+        }
+        defer {
+            try? FileManager.default.removeItem(at: capture.url)
+        }
+
         guard canManage else { return }
         uploadingAttachment = true
         actionMessage = nil
-        var tempURL: URL?
-        defer {
-            if let tempURL {
-                try? FileManager.default.removeItem(at: tempURL)
-            }
-            uploadingAttachment = false
-        }
+        defer { uploadingAttachment = false }
 
         do {
-            let url = try writeTemporaryAttachment(capture.data, filename: capture.filename)
-            tempURL = url
             try await uploadContainerAttachment(
-                fileURL: url,
+                fileURL: capture.url,
                 fileName: capture.filename,
                 mimeType: capture.mimeType
             )
@@ -1801,19 +1740,6 @@ struct ContainerDetailNativeView: View {
             || message.contains("already")
     }
 
-    private func copyImportedAttachment(_ url: URL) throws -> URL {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer {
-            if scoped { url.stopAccessingSecurityScopedResource() }
-        }
-
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("purchase-doc-\(UUID().uuidString)-\(url.lastPathComponent)")
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.copyItem(at: url, to: destination)
-        return destination
-    }
-
     private func mimeType(for url: URL) -> String {
         switch url.pathExtension.lowercased() {
         case "pdf": return "application/pdf"
@@ -1823,26 +1749,6 @@ struct ContainerDetailNativeView: View {
         case "heif": return "image/heif"
         default: return "application/octet-stream"
         }
-    }
-
-    private func writeTemporaryAttachment(_ data: Data, filename: String) throws -> URL {
-        let safeFilename = filename
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: ".")
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("purchase-doc-\(UUID().uuidString)-\(safeFilename)")
-        try? FileManager.default.removeItem(at: destination)
-        try data.write(to: destination, options: .atomic)
-        return destination
-    }
-
-    private static func imageContentType(for data: Data) -> UTType? {
-        guard
-            let source = CGImageSourceCreateWithData(data as CFData, nil),
-            let identifier = CGImageSourceGetType(source)
-        else { return nil }
-
-        return UTType(identifier as String)
     }
 
     private static func capturedAttachmentFilename(fileExtension: String) -> String {

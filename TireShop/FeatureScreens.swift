@@ -402,9 +402,17 @@ private enum InventoryExportScope: String, Identifiable {
     var id: String { rawValue }
 }
 
-private struct InventoryExportFile: Identifiable {
+private final class InventoryExportFile: Identifiable {
     let id = UUID()
     let url: URL
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    deinit {
+        TemporaryDownloadStore.remove(url)
+    }
 }
 
 private struct InventoryExportShareSheet: UIViewControllerRepresentable {
@@ -546,6 +554,17 @@ private struct InventoryExportSheet: View {
     }
 }
 
+private struct InventoryListRequest {
+    let q: String?
+    let category: String?
+    let position: String?
+    let brand: String?
+    let sortBy: String?
+    let sortOrder: String?
+    let inStock: Bool?
+    let location: String?
+}
+
 struct InventoryListNativeView: View {
     var selectForQuote = false
 
@@ -580,6 +599,7 @@ struct InventoryListNativeView: View {
     @State private var errorMessage: String?
     @State private var loadMoreError: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var loadRequestID = UUID()
     @State private var selectingRows = false
     @State private var selectedSkuIDs: Set<String> = []
     @State private var showingExportOptions = false
@@ -647,6 +667,19 @@ struct InventoryListNativeView: View {
 
     private var hasActiveFilters: Bool {
         !category.isEmpty || !position.isEmpty || !brand.isEmpty || !sortBy.isEmpty
+    }
+
+    private var currentRequest: InventoryListRequest {
+        InventoryListRequest(
+            q: q.nilIfBlank,
+            category: category.nilIfBlank,
+            position: position.nilIfBlank,
+            brand: brand.nilIfBlank,
+            sortBy: sortBy.nilIfBlank,
+            sortOrder: sortBy.isEmpty ? nil : sortOrder,
+            inStock: showZeroStock ? nil : true,
+            location: selectedLocation.nilIfBlank
+        )
     }
 
     private var activeFilterCount: Int {
@@ -1388,10 +1421,18 @@ struct InventoryListNativeView: View {
 
     @MainActor
     private func reload() async {
+        let requestID = UUID()
+        loadRequestID = requestID
+        let request = currentRequest
         loading = true
+        loadingMore = false
         errorMessage = nil
         loadMoreError = nil
-        defer { loading = false }
+        defer {
+            if loadRequestID == requestID {
+                loading = false
+            }
+        }
 
         do {
             var page = 1
@@ -1401,7 +1442,8 @@ struct InventoryListNativeView: View {
             var lastLoadedPage = 0
 
             while true {
-                let pageData = try await requestInventoryPage(page)
+                let pageData = try await requestInventoryPage(page, request: request)
+                guard loadRequestID == requestID else { return }
                 expectedTotal = pageData.total
                 loadedTotals = pageData.totals ?? loadedTotals
                 lastLoadedPage = pageData.page
@@ -1420,7 +1462,7 @@ struct InventoryListNativeView: View {
             selectedSkuIDs.formIntersection(Set(allItems.map(\.id)))
             hasLoaded = true
         } catch {
-            guard !isCancellation(error) else { return }
+            guard loadRequestID == requestID, !isCancellation(error) else { return }
 
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
             hasLoaded = !items.isEmpty
@@ -1435,6 +1477,9 @@ struct InventoryListNativeView: View {
 
     @MainActor
     private func loadPage(_ page: Int, reset: Bool) async {
+        let requestID = UUID()
+        loadRequestID = requestID
+        let request = currentRequest
         if reset {
             loading = true
             errorMessage = nil
@@ -1444,15 +1489,18 @@ struct InventoryListNativeView: View {
             loadMoreError = nil
         }
         defer {
-            if reset {
-                loading = false
-            } else {
-                loadingMore = false
+            if loadRequestID == requestID {
+                if reset {
+                    loading = false
+                } else {
+                    loadingMore = false
+                }
             }
         }
 
         do {
-            let pageData = try await requestInventoryPage(page)
+            let pageData = try await requestInventoryPage(page, request: request)
+            guard loadRequestID == requestID else { return }
 
             total = pageData.total
             inventoryTotals = pageData.totals ?? inventoryTotals
@@ -1467,7 +1515,7 @@ struct InventoryListNativeView: View {
             }
             selectedSkuIDs.formIntersection(Set(items.map(\.id)))
         } catch {
-            guard !isCancellation(error) else { return }
+            guard loadRequestID == requestID, !isCancellation(error) else { return }
 
             let message = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
             if reset {
@@ -1479,16 +1527,16 @@ struct InventoryListNativeView: View {
         }
     }
 
-    private func requestInventoryPage(_ page: Int) async throws -> InventorySkuPage {
+    private func requestInventoryPage(_ page: Int, request: InventoryListRequest) async throws -> InventorySkuPage {
         try await InventoryAPI().listSkus(
-            q: q.nilIfBlank,
-            category: category.nilIfBlank,
-            position: position.nilIfBlank,
-            brand: brand.nilIfBlank,
-            sortBy: sortBy.nilIfBlank,
-            sortOrder: sortBy.isEmpty ? nil : sortOrder,
-            inStock: showZeroStock ? nil : true,
-            location: selectedLocation.nilIfBlank,
+            q: request.q,
+            category: request.category,
+            position: request.position,
+            brand: request.brand,
+            sortBy: request.sortBy,
+            sortOrder: request.sortOrder,
+            inStock: request.inStock,
+            location: request.location,
             page: page,
             pageSize: pageSize
         )
@@ -2350,6 +2398,7 @@ struct SalesListNativeView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var loadRequestID = UUID()
 
     init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3) {
         _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
@@ -2387,28 +2436,34 @@ struct SalesListNativeView: View {
             .padding(.vertical, Theme.Space.sm)
             .background(Theme.background)
 
-            if selectedView == .bestSellers {
-                BestSellersNativeView(initialMonths: initialBestSellerMonths)
-            } else {
-                VStack(spacing: 0) {
-                    salesHeader
+            Group {
+                if selectedView == .bestSellers {
+                    BestSellersNativeView(initialMonths: initialBestSellerMonths)
+                } else {
+                    VStack(spacing: 0) {
+                        salesHeader
 
-                    Group {
-                        if loading && data == nil {
-                            LoadingView(label: "Loading...")
-                        } else if let errorMessage, data == nil {
-                            RetryView(message: errorMessage) { Task { await load() } }
-                        } else if let data, data.items.isEmpty {
-                            EmptyStateView(text: emptyMessage)
-                        } else if let data {
-                            salesContent(data)
-                        } else {
-                            LoadingView(label: "Loading...")
+                        Group {
+                            if loading && data == nil {
+                                LoadingView(label: "Loading...")
+                            } else if let errorMessage, data == nil {
+                                RetryView(message: errorMessage) { Task { await load() } }
+                            } else if let data, data.items.isEmpty {
+                                EmptyStateView(text: emptyMessage)
+                            } else if let data {
+                                salesContent(data)
+                            } else {
+                                LoadingView(label: "Loading...")
+                            }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background)
         .task(id: selectedView) {
             if selectedView == .sales, data == nil { await load() }
@@ -2419,15 +2474,15 @@ struct SalesListNativeView: View {
     }
 
     private func salesContent(_ data: SalesListResponse) -> some View {
-        VStack(spacing: 0) {
-            List(data.items) { sale in
-                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                    saleRow(sale)
-                }
+        List(data.items) { sale in
+            NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                saleRow(sale)
             }
-            .listStyle(.plain)
-            .refreshable { await load() }
-
+        }
+        .listStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .refreshable { await load() }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if !data.items.isEmpty {
                 summaryFooter(data.summary)
             }
@@ -2737,23 +2792,36 @@ struct SalesListNativeView: View {
 
     @MainActor
     private func load() async {
+        let requestID = UUID()
+        loadRequestID = requestID
+        let query = q.nilIfBlank
+        let requestedStatus = status.nilIfBlank
+        let dateParams = range.params()
+        let requestedSortBy = sortBy.nilIfBlank
+        let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
         loading = true
         errorMessage = nil
+        defer {
+            if loadRequestID == requestID {
+                loading = false
+            }
+        }
         do {
-            let dateParams = range.params()
-            data = try await SalesAPI().list(
-                q: q.nilIfBlank,
-                status: status.nilIfBlank,
+            let response = try await SalesAPI().list(
+                q: query,
+                status: requestedStatus,
                 from: dateParams.from,
                 to: dateParams.to,
-                sortBy: sortBy.nilIfBlank,
-                sortOrder: sortBy.isEmpty ? nil : sortOrder,
+                sortBy: requestedSortBy,
+                sortOrder: requestedSortOrder,
                 pageSize: pageSize
             )
+            guard loadRequestID == requestID else { return }
+            data = response
         } catch {
+            guard loadRequestID == requestID, !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load sales."
         }
-        loading = false
     }
 }
 
@@ -2764,6 +2832,7 @@ struct CustomersListNativeView: View {
     @State private var customers: [Customer] = []
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var loadRequestID = UUID()
 
     private var canManageCustomers: Bool {
         auth.has("customers.manage")
@@ -2807,9 +2876,6 @@ struct CustomersListNativeView: View {
                 }
             }
         }
-        .onAppear {
-            Task { await load() }
-        }
         .task(id: q) {
             if !q.isEmpty {
                 try? await Task.sleep(nanoseconds: 300_000_000)
@@ -2844,16 +2910,24 @@ struct CustomersListNativeView: View {
 
     @MainActor
     private func load() async {
+        let requestID = UUID()
+        loadRequestID = requestID
+        let query = q.nilIfBlank
         loading = true
         errorMessage = nil
-        do {
-            customers = try await CustomersAPI().list(q: q.nilIfBlank, pageSize: 50).items
-        } catch {
-            if !Task.isCancelled {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load customers."
+        defer {
+            if loadRequestID == requestID {
+                loading = false
             }
         }
-        loading = false
+        do {
+            let response = try await CustomersAPI().list(q: query, pageSize: 50)
+            guard loadRequestID == requestID else { return }
+            customers = response.items
+        } catch {
+            guard loadRequestID == requestID, !Task.isCancelled else { return }
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load customers."
+        }
     }
 }
 

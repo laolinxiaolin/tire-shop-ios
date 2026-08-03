@@ -6,15 +6,13 @@ struct TireShopApp: App {
 
     @StateObject private var auth = AuthStore()
     @StateObject private var tabs = TabsStore()
-    @StateObject private var quote = QuoteStore()
     @StateObject private var i18n = I18nStore()
 
     var body: some Scene {
         WindowGroup {
-            RootGateView()
+            TireShopSceneRoot()
                 .environmentObject(auth)
                 .environmentObject(tabs)
-                .environmentObject(quote)
                 .environmentObject(i18n)
                 .environment(\.locale, i18n.language.locale)
                 .onChange(of: scenePhase) { _, phase in
@@ -23,5 +21,14 @@ struct TireShopApp: App {
                     }
                 }
         }
+    }
+}
+
+private struct TireShopSceneRoot: View {
+    @StateObject private var quote = QuoteStore()
+
+    var body: some View {
+        RootGateView()
+            .environmentObject(quote)
     }
 }

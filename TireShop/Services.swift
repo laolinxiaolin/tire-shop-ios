@@ -1135,8 +1135,13 @@ struct SalesAPI {
         try await client.request("/sales/\(id)")
     }
 
-    func create(_ body: SaleUpsertInput) async throws -> SaleCreateResult {
-        try await client.request("/sales", method: "POST", body: body)
+    func create(_ body: SaleUpsertInput, idempotencyKey: String? = nil) async throws -> SaleCreateResult {
+        try await client.request(
+            "/sales",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func update(id: String, body: SaleUpsertInput) async throws -> Sale {
@@ -1480,8 +1485,16 @@ struct MoneyAPI {
         try await client.request("/receivables/\(customerId)")
     }
 
-    func payReceivables(_ body: ReceivablesPayInput) async throws -> SettlementResult {
-        try await client.request("/receivables/pay", method: "POST", body: body)
+    func payReceivables(
+        _ body: ReceivablesPayInput,
+        idempotencyKey: String? = nil
+    ) async throws -> SettlementResult {
+        try await client.request(
+            "/receivables/pay",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func downloadStatement(customerId: String) async throws -> URL {
@@ -1501,8 +1514,16 @@ struct MoneyAPI {
         return try await client.request("/payables/\(encoded)")
     }
 
-    func payPayables(_ body: PayablesPayInput) async throws -> SettlementResult {
-        try await client.request("/payables/pay", method: "POST", body: body)
+    func payPayables(
+        _ body: PayablesPayInput,
+        idempotencyKey: String? = nil
+    ) async throws -> SettlementResult {
+        try await client.request(
+            "/payables/pay",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func receipts(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<CustomerReceipt> {
@@ -1774,8 +1795,16 @@ struct CashAccountsAPI {
         try await client.request("/accounting/transfers\(query(["limit": limit]))")
     }
 
-    func createTransfer(_ body: TransferCreateInput) async throws -> OkResponse {
-        try await client.request("/accounting/transfers", method: "POST", body: body)
+    func createTransfer(
+        _ body: TransferCreateInput,
+        idempotencyKey: String? = nil
+    ) async throws -> OkResponse {
+        try await client.request(
+            "/accounting/transfers",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func reverseTransfer(id: String) async throws -> OkResponse {
@@ -1790,8 +1819,16 @@ struct CashAccountsAPI {
         try await client.request("/accounting/expenses\(query(["limit": limit]))")
     }
 
-    func createExpense(_ body: ExpenseCreateInput) async throws -> OkResponse {
-        try await client.request("/accounting/expenses", method: "POST", body: body)
+    func createExpense(
+        _ body: ExpenseCreateInput,
+        idempotencyKey: String? = nil
+    ) async throws -> OkResponse {
+        try await client.request(
+            "/accounting/expenses",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func reverseExpense(id: String) async throws -> OkResponse {
@@ -1851,8 +1888,16 @@ struct FetAPI {
         try await client.request("/accounting/fet")
     }
 
-    func pay(_ body: FetPayInput) async throws -> OkResponse {
-        try await client.request("/accounting/fet/pay", method: "POST", body: body)
+    func pay(
+        _ body: FetPayInput,
+        idempotencyKey: String? = nil
+    ) async throws -> OkResponse {
+        try await client.request(
+            "/accounting/fet/pay",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func reversePayment(refId: String, reason: String? = nil) async throws -> OkResponse {
@@ -2084,8 +2129,17 @@ struct PaymentsAPI {
         try await client.request("/invoices/\(invoiceId)/payments")
     }
 
-    func record(invoiceId: String, body: PaymentRecordInput) async throws -> InvoicePayment {
-        try await client.request("/invoices/\(invoiceId)/payments", method: "POST", body: body)
+    func record(
+        invoiceId: String,
+        body: PaymentRecordInput,
+        idempotencyKey: String? = nil
+    ) async throws -> InvoicePayment {
+        try await client.request(
+            "/invoices/\(invoiceId)/payments",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func reverse(paymentId: String, reason: String? = nil) async throws -> ReverseResult {

@@ -56,6 +56,7 @@ struct NewQuoteNativeView: View {
                 }
             }
         }
+        .disabled(saving)
         .navigationTitle(quote.editingSaleId == nil ? "New Sale" : "Edit sale")
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -392,6 +393,8 @@ struct NewQuoteNativeView: View {
 
     private var buttonTitle: String {
         if saving { return quote.editingSaleId == nil ? "Confirming..." : "Saving..." }
+        if quote.pendingConfirmationSaleId != nil { return "Retry confirmation" }
+        if quote.pendingCreationIdempotencyKey != nil { return "Retry sale creation" }
         return quote.editingSaleId == nil ? "Confirm & invoice" : "Save changes"
     }
 
@@ -407,8 +410,45 @@ struct NewQuoteNativeView: View {
                 quote.clear()
                 dismiss()
             } else {
-                let sale = try await SalesAPI().create(input)
-                _ = try await SalesAPI().confirm(id: sale.id)
+                let saleID: String
+                if let pendingID = quote.pendingConfirmationSaleId {
+                    let pendingSale = try await SalesAPI().get(id: pendingID)
+                    if pendingSale.status == "INVOICED" {
+                        quote.clear()
+                        applyDefaultWarehouse()
+                        saving = false
+                        return
+                    }
+                    _ = try await SalesAPI().update(id: pendingID, body: input)
+                    saleID = pendingID
+                } else {
+                    let isCreationRetry = quote.pendingCreationInput != nil
+                    if !isCreationRetry {
+                        quote.pendingCreationInput = input
+                        quote.pendingCreationIdempotencyKey = UUID().uuidString
+                    }
+                    let creationInput = quote.pendingCreationInput ?? input
+                    let idempotencyKey = quote.pendingCreationIdempotencyKey ?? UUID().uuidString
+                    quote.pendingCreationIdempotencyKey = idempotencyKey
+
+                    let sale: SaleCreateResult
+                    do {
+                        sale = try await SalesAPI().create(creationInput, idempotencyKey: idempotencyKey)
+                    } catch {
+                        if let apiError = error as? APIError, apiError.status != 0 {
+                            quote.pendingCreationInput = nil
+                            quote.pendingCreationIdempotencyKey = nil
+                        }
+                        throw error
+                    }
+                    quote.pendingConfirmationSaleId = sale.id
+                    if isCreationRetry {
+                        _ = try await SalesAPI().update(id: sale.id, body: input)
+                    }
+                    saleID = sale.id
+                }
+
+                _ = try await SalesAPI().confirm(id: saleID)
                 quote.clear()
                 applyDefaultWarehouse()
             }
@@ -562,6 +602,8 @@ struct ServicePickerNativeView: View {
 }
 
 struct SkuDetailNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+
     let sku: TireSku
     var initialLocation: String? = nil
 
@@ -602,17 +644,23 @@ struct SkuDetailNativeView: View {
             }
 
             Section {
-                NavigationLink("Edit tire") {
-                    SkuFormNativeView(editing: sku)
+                if auth.has("inventory.manage") {
+                    NavigationLink("Edit tire") {
+                        SkuFormNativeView(editing: sku)
+                    }
                 }
-                NavigationLink("Adjust stock") {
-                    AdjustStockNativeView(sku: sku, initialLocation: initialLocation)
+                if auth.canActOrRequest("inventory.adjust") {
+                    NavigationLink("Adjust stock") {
+                        AdjustStockNativeView(sku: sku, initialLocation: initialLocation)
+                    }
                 }
                 NavigationLink("Stock history") {
                     SkuHistoryNativeView(skuId: sku.id)
                 }
-                NavigationLink("Add to sale") {
-                    SkuAddToQuoteView(sku: sku)
+                if auth.has("sales.manage") {
+                    NavigationLink("Add to sale") {
+                        SkuAddToQuoteView(sku: sku)
+                    }
                 }
             }
         }
@@ -696,8 +744,12 @@ struct SkuAddToQuoteView: View {
                 .foregroundStyle(available > 0 && warehouseError == nil ? Theme.muted : Theme.danger)
             PrimaryButton(
                 title: "Add to sale",
-                disabled: quote.location.nilIfBlank == nil || available <= 0 || loadingWarehouse
+                disabled: !auth.has("sales.manage")
+                    || quote.location.nilIfBlank == nil
+                    || available <= 0
+                    || loadingWarehouse
             ) {
+                guard auth.has("sales.manage") else { return }
                 quote.addLine(
                     itemType: "SKU",
                     itemId: sku.id,
@@ -742,6 +794,8 @@ struct SkuAddToQuoteView: View {
 
 struct SkuFormNativeView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
+
     let editing: TireSku?
 
     @State private var sku = ""
@@ -811,7 +865,7 @@ struct SkuFormNativeView: View {
                 Button(saving ? "Saving..." : editing == nil ? "Create tire" : "Save changes") {
                     Task { await save() }
                 }
-                .disabled(!isValid || saving)
+                .disabled(!auth.has("inventory.manage") || !isValid || saving)
             }
         }
         .navigationTitle(editing == nil ? "New tire" : "Edit tire")
@@ -845,6 +899,10 @@ struct SkuFormNativeView: View {
 
     @MainActor
     private func save() async {
+        guard auth.has("inventory.manage") else {
+            errorMessage = "You do not have permission to manage inventory."
+            return
+        }
         saving = true
         errorMessage = nil
 
@@ -901,6 +959,8 @@ struct SkuFormNativeView: View {
 
 struct AdjustStockNativeView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
+
     let sku: TireSku
     let initialLocation: String?
 
@@ -914,6 +974,7 @@ struct AdjustStockNativeView: View {
     @State private var warehouseError: String?
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var approvalRequestId: String?
 
     init(sku: TireSku, initialLocation: String? = nil) {
         self.sku = sku
@@ -1016,6 +1077,7 @@ struct AdjustStockNativeView: View {
                     delta == 0
                         || resulting < reserved
                         || !warehouses.contains(where: { $0.code == location })
+                        || !auth.canActOrRequest("inventory.adjust")
                         || saving
                 )
             }
@@ -1024,10 +1086,27 @@ struct AdjustStockNativeView: View {
         .task {
             await loadWarehouses()
         }
+        .alert(
+            "Approval requested",
+            isPresented: Binding(
+                get: { approvalRequestId != nil },
+                set: { if !$0 { approvalRequestId = nil } }
+            )
+        ) {
+            Button("Done") {
+                dismiss()
+            }
+        } message: {
+            Text("Stock was not changed yet. Request \(approvalRequestId ?? "") is waiting for approval.")
+        }
     }
 
     @MainActor
     private func apply() async {
+        guard auth.canActOrRequest("inventory.adjust") else {
+            errorMessage = "You do not have permission to adjust inventory."
+            return
+        }
         saving = true
         errorMessage = nil
 
@@ -1041,14 +1120,19 @@ struct AdjustStockNativeView: View {
             guard resulting >= reserved else {
                 throw APIError(status: 0, message: "Reserved units cannot be removed.")
             }
-            _ = try await InventoryAPI().adjust(
+            let result = try await InventoryAPI().adjust(
                 id: sku.id,
                 delta: delta,
                 reason: reason,
                 location: location,
                 note: note.nilIfBlank
             )
-            dismiss()
+            switch result {
+            case .immediate:
+                dismiss()
+            case .approval(let request):
+                approvalRequestId = request.id
+            }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
         }
@@ -1468,6 +1552,9 @@ struct TapToPayNativeView: View {
     let customerName: String?
 
     private var canCollect: Bool { auth.has("payments.collect") }
+    private var invoiceOutcome: TapToPayOutcome? { terminal.outcome(for: invoiceId) }
+    private var invoiceSucceeded: Bool { terminal.succeeded(for: invoiceId) }
+    private var invoiceIsProcessing: Bool { terminal.isProcessing(invoiceId: invoiceId) }
 
     var body: some View {
         AsyncContentView(load: loadIntent) { intent in
@@ -1513,9 +1600,9 @@ struct TapToPayNativeView: View {
                 }
 
                 Section("Transaction outcome") {
-                    if let outcome = terminal.outcome {
+                    if let outcome = invoiceOutcome {
                         TapToPayOutcomeView(outcome: outcome)
-                    } else if terminal.isBusy {
+                    } else if invoiceIsProcessing {
                         TapToPayInfoRow(
                             title: "Processing",
                             detail: "Keep this screen open until the transaction is approved, declined, or timed out.",
@@ -1539,17 +1626,17 @@ struct TapToPayNativeView: View {
 
                 Section("Status") {
                     HStack(alignment: .top, spacing: Theme.Space.md) {
-                        if terminal.isBusy {
+                        if invoiceIsProcessing {
                             ProgressView()
                         } else {
-                            Image(systemName: terminal.succeeded ? "checkmark.circle.fill" : "iphone.gen3")
-                                .foregroundStyle(terminal.succeeded ? Theme.success : Theme.primary)
+                            Image(systemName: invoiceSucceeded ? "checkmark.circle.fill" : "iphone.gen3")
+                                .foregroundStyle(invoiceSucceeded ? Theme.success : Theme.primary)
                         }
 
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                            Text(terminal.statusMessage)
+                            Text(terminal.statusMessage(for: invoiceId))
                                 .foregroundStyle(Theme.text)
-                            if let readerMessage = terminal.readerMessage {
+                            if let readerMessage = terminal.readerMessage(for: invoiceId) {
                                 Text(readerMessage)
                                     .font(.caption)
                                     .foregroundStyle(Theme.muted)
@@ -1569,7 +1656,7 @@ struct TapToPayNativeView: View {
                     }
                 }
 
-                if let updateProgress = terminal.updateProgress {
+                if terminal.isCurrent(invoiceId: invoiceId), let updateProgress = terminal.updateProgress {
                     Section("Reader setup") {
                         ProgressView(value: updateProgress)
                         Text("\(Int(updateProgress * 100))%")
@@ -1578,14 +1665,14 @@ struct TapToPayNativeView: View {
                     }
                 }
 
-                if let errorMessage = terminal.errorMessage {
+                if let errorMessage = terminal.errorMessage(for: invoiceId) {
                     Section {
                         Text(errorMessage)
                             .foregroundStyle(Theme.danger)
                     }
                 }
 
-                if let outcome = terminal.outcome {
+                if let outcome = invoiceOutcome {
                     Section(outcome.status == .approved ? "Receipt" : "Transaction Result") {
                         TapToPayInfoRow(
                             title: outcome.status == .approved ? "Send a digital receipt" : "Share the result privately",
@@ -1623,8 +1710,14 @@ struct TapToPayNativeView: View {
             }
         }
         .navigationTitle("Tap to Pay on iPhone")
+        .navigationBarBackButtonHidden(invoiceIsProcessing)
         .onAppear {
             terminal.prepare(invoiceId: invoiceId)
+        }
+        .onDisappear {
+            if invoiceIsProcessing {
+                terminal.cancelActiveCharge(invoiceId: invoiceId)
+            }
         }
         .sheet(item: $emailInvoice) { invoice in
             InvoiceEmailView(invoice: invoice)
@@ -1640,20 +1733,20 @@ struct TapToPayNativeView: View {
 
     private func chargeBar(intent: TerminalIntent) -> some View {
         VStack(spacing: Theme.Space.sm) {
-            if terminal.succeeded {
+            if invoiceSucceeded {
                 PrimaryButton(title: "Done") {
                     dismiss()
                 }
             } else {
                 Button {
-                    Task { await terminal.charge(invoiceId: invoiceId, intent: intent) }
+                    terminal.startCharge(invoiceId: invoiceId, intent: intent)
                 } label: {
                     HStack {
-                        if terminal.isBusy {
+                        if invoiceIsProcessing {
                             ProgressView()
                                 .tint(Theme.primaryText)
                         }
-                        Text(terminal.isBusy ? "Processing..." : "Charge \(AppFormat.money(intent.amount))")
+                        Text(invoiceIsProcessing ? "Processing..." : "Charge \(AppFormat.money(intent.amount))")
                             .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity)
@@ -1663,6 +1756,12 @@ struct TapToPayNativeView: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                 }
                 .disabled(!canCharge(intent))
+
+                if invoiceIsProcessing {
+                    Button("Cancel payment", role: .destructive) {
+                        terminal.cancelActiveCharge(invoiceId: invoiceId)
+                    }
+                }
             }
         }
         .padding(.horizontal, Theme.Space.lg)
@@ -1671,7 +1770,7 @@ struct TapToPayNativeView: View {
     }
 
     private func canCharge(_ intent: TerminalIntent) -> Bool {
-        canCollect && terminal.canCharge(intent)
+        canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent)
     }
 
     private func shareText(for outcome: TapToPayOutcome) -> String {
@@ -1733,10 +1832,15 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     @Published private(set) var paymentStatusText = "Not ready"
     @Published private(set) var paymentIntentStatusText: String?
     @Published private(set) var updateProgress: Double?
+    @Published private var invoiceOutcomes: [String: TapToPayOutcome] = [:]
 
     private var currentInvoiceId: String?
+    private var pendingInvoiceId: String?
+    private var resetWhenIdle = false
     private var lastLocationId: String?
     private var paymentsAPI = PaymentsAPI()
+    private var chargeTask: Task<Void, Never>?
+    private var activePaymentCancelable: Cancelable?
 
     private override init() {
         super.init()
@@ -1744,8 +1848,72 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
 
     @MainActor
     func prepare(invoiceId: String) {
-        guard currentInvoiceId != invoiceId, !isBusy else { return }
+        guard currentInvoiceId != invoiceId else { return }
+        if isBusy {
+            pendingInvoiceId = invoiceId
+            return
+        }
+        activate(invoiceId: invoiceId)
+    }
+
+    @MainActor
+    func resetForSessionChange() {
+        invoiceOutcomes.removeAll()
+        pendingInvoiceId = nil
+        lastLocationId = nil
+        if isBusy {
+            resetWhenIdle = true
+            chargeTask?.cancel()
+            cancelTerminalOperation()
+        } else {
+            clearActiveInvoice()
+        }
+    }
+
+    @MainActor
+    func outcome(for invoiceId: String) -> TapToPayOutcome? {
+        invoiceOutcomes[invoiceId]
+    }
+
+    @MainActor
+    func succeeded(for invoiceId: String) -> Bool {
+        invoiceOutcomes[invoiceId]?.status == .approved
+    }
+
+    @MainActor
+    func isCurrent(invoiceId: String) -> Bool {
+        currentInvoiceId == invoiceId
+    }
+
+    @MainActor
+    func isProcessing(invoiceId: String) -> Bool {
+        currentInvoiceId == invoiceId && isBusy
+    }
+
+    @MainActor
+    func statusMessage(for invoiceId: String) -> String {
+        guard currentInvoiceId == invoiceId else {
+            return isBusy
+                ? "Another invoice is currently using Tap to Pay on this iPhone."
+                : "Open this invoice again to prepare Tap to Pay."
+        }
+        return statusMessage
+    }
+
+    @MainActor
+    func readerMessage(for invoiceId: String) -> String? {
+        currentInvoiceId == invoiceId ? readerMessage : nil
+    }
+
+    @MainActor
+    func errorMessage(for invoiceId: String) -> String? {
+        currentInvoiceId == invoiceId ? errorMessage : nil
+    }
+
+    @MainActor
+    private func activate(invoiceId: String) {
         currentInvoiceId = invoiceId
+        invoiceOutcomes.removeValue(forKey: invoiceId)
         succeeded = false
         errorMessage = nil
         outcome = nil
@@ -1754,6 +1922,19 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         updateProgress = nil
         statusMessage = "Checking this iPhone for Tap to Pay on iPhone..."
         Task { await warmUpForForeground() }
+    }
+
+    @MainActor
+    private func clearActiveInvoice() {
+        currentInvoiceId = nil
+        succeeded = false
+        errorMessage = nil
+        outcome = nil
+        readerMessage = nil
+        paymentIntentStatusText = nil
+        updateProgress = nil
+        paymentStatusText = "Not ready"
+        statusMessage = "Reader ready. Tap Charge, then have the customer hold their card to the phone."
     }
 
     @MainActor
@@ -1791,49 +1972,80 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         }
     }
 
-    func canCharge(_ intent: TerminalIntent) -> Bool {
-        !isBusy && !succeeded && intent.clientSecret?.nilIfBlank != nil && intent.amount > 0
+    @MainActor
+    func canCharge(invoiceId: String, intent: TerminalIntent) -> Bool {
+        currentInvoiceId == invoiceId
+            && !isBusy
+            && !succeeded(for: invoiceId)
+            && intent.clientSecret?.nilIfBlank != nil
+            && intent.amount > 0
     }
 
     @MainActor
-    func charge(invoiceId: String, intent serverIntent: TerminalIntent) async {
-        guard canCharge(serverIntent) else { return }
+    func startCharge(invoiceId: String, intent: TerminalIntent) {
+        guard chargeTask == nil, canCharge(invoiceId: invoiceId, intent: intent) else { return }
+        chargeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.charge(invoiceId: invoiceId, intent: intent)
+            self.chargeTask = nil
+        }
+    }
+
+    @MainActor
+    func cancelActiveCharge(invoiceId: String) {
+        guard currentInvoiceId == invoiceId, isBusy else { return }
+        statusMessage = "Canceling payment and checking its final status..."
+        chargeTask?.cancel()
+        cancelTerminalOperation()
+    }
+
+    @MainActor
+    private func charge(invoiceId: String, intent serverIntent: TerminalIntent) async {
+        guard canCharge(invoiceId: invoiceId, intent: serverIntent) else { return }
 
         isBusy = true
         succeeded = false
         errorMessage = nil
         outcome = nil
+        invoiceOutcomes.removeValue(forKey: invoiceId)
         readerMessage = nil
         updateProgress = nil
         paymentIntentStatusText = nil
         currentInvoiceId = invoiceId
+        var clientSecretForReconciliation: String?
 
         do {
             guard let clientSecret = serverIntent.clientSecret?.nilIfBlank else {
                 throw APIError(status: 0, message: "Server did not return a payment to collect.")
             }
+            clientSecretForReconciliation = clientSecret
 
             statusMessage = "Confirming cashier identity..."
             try await authorizeCashierIfAvailable()
+            try Task.checkCancellation()
 
             statusMessage = "Creating the charge..."
             let locationId = try await terminalLocationId()
+            try Task.checkCancellation()
             ensureTerminalInitialized()
             try validateTapToPaySupport()
 
             let reader = try await connectTapToPayReader(locationId: locationId)
+            try Task.checkCancellation()
             readerName = readerDisplayName(reader)
 
             statusMessage = "Loading the payment..."
             var paymentIntent = try await retrievePaymentIntent(clientSecret: clientSecret)
+            try Task.checkCancellation()
             paymentIntentStatusText = paymentIntentStatusLabel(paymentIntent.status)
 
             statusMessage = "Hold the customer's card or device near the top of the iPhone..."
-            paymentIntent = try await Terminal.shared.collectPaymentMethod(paymentIntent)
+            paymentIntent = try await collectPaymentMethod(paymentIntent)
+            try Task.checkCancellation()
             paymentIntentStatusText = paymentIntentStatusLabel(paymentIntent.status)
 
             statusMessage = "Confirming payment..."
-            let confirmedIntent = try await Terminal.shared.confirmPaymentIntent(paymentIntent)
+            let confirmedIntent = try await confirmPaymentIntent(paymentIntent)
             paymentIntentStatusText = paymentIntentStatusLabel(confirmedIntent.status)
 
             succeeded = confirmedIntent.status == .succeeded || confirmedIntent.status == .requiresCapture
@@ -1866,21 +2078,128 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
                 statusMessage = detail
             }
         } catch {
-            let message = paymentErrorMessage(error)
-            let status = outcomeStatus(for: message)
-            errorMessage = message
-            outcome = TapToPayOutcome(
-                status: status,
-                detail: outcomeDetail(for: status, message: message),
-                amount: serverIntent.amount,
-                invoiceId: invoiceId,
-                paymentIntentId: serverIntent.paymentIntentId,
-                happenedAt: Date()
-            )
-            statusMessage = outcome?.detail ?? "Payment could not be completed."
+            activePaymentCancelable = nil
+
+            if
+                let clientSecretForReconciliation,
+                let reconciledIntent = try? await retrievePaymentIntent(clientSecret: clientSecretForReconciliation),
+                reconciledIntent.status == .succeeded || reconciledIntent.status == .requiresCapture
+            {
+                succeeded = true
+                paymentIntentStatusText = paymentIntentStatusLabel(reconciledIntent.status)
+                let detail = reconciledIntent.status == .requiresCapture
+                    ? "Approved. The server is capturing this payment."
+                    : "Approved. Payment captured."
+                outcome = TapToPayOutcome(
+                    status: .approved,
+                    detail: detail,
+                    amount: serverIntent.amount,
+                    invoiceId: invoiceId,
+                    paymentIntentId: serverIntent.paymentIntentId,
+                    happenedAt: Date()
+                )
+                errorMessage = nil
+                statusMessage = detail
+            } else if Task.isCancelled {
+                succeeded = false
+                errorMessage = nil
+                outcome = TapToPayOutcome(
+                    status: .timedOut,
+                    detail: "Canceled before approval. Reopen the invoice and verify its balance before using another payment method.",
+                    amount: serverIntent.amount,
+                    invoiceId: invoiceId,
+                    paymentIntentId: serverIntent.paymentIntentId,
+                    happenedAt: Date()
+                )
+                statusMessage = outcome?.detail ?? "Payment canceled."
+            } else {
+                let message = paymentErrorMessage(error)
+                let status = outcomeStatus(for: message)
+                errorMessage = message
+                outcome = TapToPayOutcome(
+                    status: status,
+                    detail: outcomeDetail(for: status, message: message),
+                    amount: serverIntent.amount,
+                    invoiceId: invoiceId,
+                    paymentIntentId: serverIntent.paymentIntentId,
+                    happenedAt: Date()
+                )
+                statusMessage = outcome?.detail ?? "Payment could not be completed."
+            }
         }
 
+        activePaymentCancelable = nil
         isBusy = false
+        if let outcome, outcome.invoiceId == invoiceId {
+            invoiceOutcomes[invoiceId] = outcome
+        }
+
+        if resetWhenIdle {
+            resetWhenIdle = false
+            invoiceOutcomes.removeAll()
+            lastLocationId = nil
+            let nextInvoiceId = pendingInvoiceId
+            pendingInvoiceId = nil
+            clearActiveInvoice()
+            if let nextInvoiceId {
+                activate(invoiceId: nextInvoiceId)
+            }
+        } else if let pendingInvoiceId {
+            self.pendingInvoiceId = nil
+            activate(invoiceId: pendingInvoiceId)
+        }
+    }
+
+    @MainActor
+    private func collectPaymentMethod(_ paymentIntent: PaymentIntent) async throws -> PaymentIntent {
+        defer { activePaymentCancelable = nil }
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                activePaymentCancelable = Terminal.shared.collectPaymentMethod(paymentIntent) { intent, error in
+                    if let intent {
+                        continuation.resume(returning: intent)
+                    } else if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(throwing: APIError(status: 0, message: "Card collection ended without a result."))
+                    }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelTerminalOperation()
+            }
+        }
+    }
+
+    @MainActor
+    private func confirmPaymentIntent(_ paymentIntent: PaymentIntent) async throws -> PaymentIntent {
+        defer { activePaymentCancelable = nil }
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                activePaymentCancelable = Terminal.shared.confirmPaymentIntent(paymentIntent) { intent, error in
+                    if let intent {
+                        continuation.resume(returning: intent)
+                    } else if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(throwing: APIError(status: 0, message: "Payment confirmation ended without a result."))
+                    }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelTerminalOperation()
+            }
+        }
+    }
+
+    @MainActor
+    private func cancelTerminalOperation() {
+        guard let activePaymentCancelable, !activePaymentCancelable.completed else { return }
+        activePaymentCancelable.cancel { _ in }
     }
 
     private func ensureTerminalInitialized() {
@@ -2230,6 +2549,8 @@ extension TapToPayTerminalController: TapToPayReaderDelegate {
 
 struct StartReturnNativeView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
+
     let saleId: String
     let saleRef: String?
 
@@ -2239,6 +2560,7 @@ struct StartReturnNativeView: View {
     @State private var refundMethod = "STORE_CREDIT"
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var selectedQuantities: [String: Int] = [:]
 
     var body: some View {
         AsyncContentView(load: { try await ReturnsAPI().returnable(saleId: saleId) }) { returnable in
@@ -2267,7 +2589,25 @@ struct StartReturnNativeView: View {
 
                 Section("Lines") {
                     ForEach(returnable.lines, id: \.saleLineId) { line in
-                        RowLine(title: line.description, subtitle: "\(line.qtyRemaining) remaining", trailing: AppFormat.money(line.unitPrice))
+                        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                            Toggle(isOn: includedBinding(lineId: line.saleLineId, maximum: line.qtyRemaining)) {
+                                RowLine(
+                                    title: line.description,
+                                    subtitle: "\(line.qtyRemaining) remaining",
+                                    trailing: AppFormat.money(line.unitPrice)
+                                )
+                            }
+
+                            if selectedQuantity(for: line.saleLineId) > 0 {
+                                Stepper(
+                                    "Quantity: \(selectedQuantity(for: line.saleLineId))",
+                                    value: quantityBinding(lineId: line.saleLineId, maximum: line.qtyRemaining),
+                                    in: 1...max(1, line.qtyRemaining)
+                                )
+                                .font(.subheadline)
+                            }
+                        }
+                        .padding(.vertical, Theme.Space.xs)
                     }
                 }
 
@@ -2282,7 +2622,12 @@ struct StartReturnNativeView: View {
                     Button(saving ? "Creating..." : "Create draft return") {
                         Task { await create(returnable: returnable) }
                     }
-                    .disabled(returnable.lines.isEmpty || saving)
+                    .disabled(
+                        !auth.has("sales.manage")
+                            || returnable.lines.isEmpty
+                            || selectedQuantities.values.allSatisfy { $0 <= 0 }
+                            || saving
+                    )
                 }
             }
         }
@@ -2291,12 +2636,25 @@ struct StartReturnNativeView: View {
 
     @MainActor
     private func create(returnable: Returnable) async {
+        guard auth.has("sales.manage") else {
+            errorMessage = "You do not have permission to create returns."
+            return
+        }
         saving = true
         errorMessage = nil
 
         do {
-            let lines = returnable.lines.map {
-                ReturnLineInput(saleLineId: $0.saleLineId, qty: $0.qtyRemaining, inventoryDisposition: "RESTOCK")
+            let lines = returnable.lines.compactMap { line -> ReturnLineInput? in
+                let quantity = min(line.qtyRemaining, max(0, selectedQuantities[line.saleLineId] ?? 0))
+                guard quantity > 0 else { return nil }
+                return ReturnLineInput(
+                    saleLineId: line.saleLineId,
+                    qty: quantity,
+                    inventoryDisposition: "RESTOCK"
+                )
+            }
+            guard !lines.isEmpty else {
+                throw APIError(status: 0, message: "Select at least one item to return.")
             }
             _ = try await ReturnsAPI().create(saleId: saleId, body: CreateReturnInput(
                 type: type,
@@ -2316,5 +2674,25 @@ struct StartReturnNativeView: View {
         }
 
         saving = false
+    }
+
+    private func selectedQuantity(for lineId: String) -> Int {
+        selectedQuantities[lineId] ?? 0
+    }
+
+    private func includedBinding(lineId: String, maximum: Int) -> Binding<Bool> {
+        Binding(
+            get: { selectedQuantity(for: lineId) > 0 },
+            set: { included in
+                selectedQuantities[lineId] = included ? min(maximum, max(1, selectedQuantity(for: lineId))) : 0
+            }
+        )
+    }
+
+    private func quantityBinding(lineId: String, maximum: Int) -> Binding<Int> {
+        Binding(
+            get: { min(maximum, max(1, selectedQuantity(for: lineId))) },
+            set: { selectedQuantities[lineId] = min(maximum, max(1, $0)) }
+        )
     }
 }

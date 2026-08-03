@@ -53,6 +53,8 @@ struct QuoteLine: Identifiable, Equatable {
 final class QuoteStore: ObservableObject {
     private let fallbackTaxPct = 7.0
     private var defaultTaxPct = 7.0
+    private var taxLookupGeneration = 0
+    private var taxRateIsExplicit = false
 
     @Published var customer: QuoteCustomer?
     @Published var lines: [QuoteLine] = []
@@ -60,6 +62,9 @@ final class QuoteStore: ObservableObject {
     @Published var taxOverride: Double?
     @Published var taxLookupMessage: String?
     @Published var editingSaleId: String?
+    @Published var pendingConfirmationSaleId: String?
+    @Published var pendingCreationIdempotencyKey: String?
+    @Published var pendingCreationInput: SaleUpsertInput?
     @Published var location = ""
 
     var subtotal: Double {
@@ -82,7 +87,7 @@ final class QuoteStore: ObservableObject {
         do {
             let general = try await SettingsAPI().general()
             defaultTaxPct = (general.defaultTaxRate * 10000).rounded() / 100
-            if editingSaleId == nil && lines.isEmpty {
+            if editingSaleId == nil && lines.isEmpty && !taxRateIsExplicit {
                 taxRate = defaultTaxPct
             }
         } catch {
@@ -91,12 +96,17 @@ final class QuoteStore: ObservableObject {
     }
 
     func setCustomer(_ customer: QuoteCustomer?) {
+        taxLookupGeneration += 1
+        taxRateIsExplicit = false
         taxOverride = nil
+        taxRate = defaultTaxPct
         taxLookupMessage = nil
         self.customer = customer
     }
 
     func setTaxRate(_ pct: Double) {
+        taxLookupGeneration += 1
+        taxRateIsExplicit = true
         taxOverride = nil
         taxRate = pct
         taxLookupMessage = nil
@@ -107,11 +117,21 @@ final class QuoteStore: ObservableObject {
     }
 
     func applyCustomerTaxRate() async {
-        guard let customer, customer.taxExempt != true else { return }
+        taxLookupGeneration += 1
+        let generation = taxLookupGeneration
+
+        guard let customer, customer.taxExempt != true else {
+            taxRateIsExplicit = false
+            taxRate = defaultTaxPct
+            taxLookupMessage = nil
+            return
+        }
         guard customer.state?.nilIfBlank != nil
             || customer.county?.nilIfBlank != nil
             || customer.city?.nilIfBlank != nil
             || customer.postalCode?.nilIfBlank != nil else {
+            taxRateIsExplicit = false
+            taxRate = defaultTaxPct
             taxLookupMessage = nil
             return
         }
@@ -123,16 +143,22 @@ final class QuoteStore: ObservableObject {
                 city: customer.city?.nilIfBlank,
                 postalCode: customer.postalCode?.nilIfBlank
             )
+            guard generation == taxLookupGeneration, self.customer?.id == customer.id else { return }
             guard let rate else {
+                taxRateIsExplicit = false
+                taxOverride = nil
+                taxRate = defaultTaxPct
                 taxLookupMessage = "No saved tax rate matched this customer location."
                 return
             }
             let fraction = rate.rate
+            taxRateIsExplicit = true
             taxOverride = nil
             taxRate = (fraction * 10000).rounded() / 100
             let location = [rate.county, rate.city, rate.postalCode].compactMap { $0?.nilIfBlank }.joined(separator: " - ")
             taxLookupMessage = location.isEmpty ? "Applied saved tax rate." : "Applied tax for \(location)."
         } catch {
+            guard generation == taxLookupGeneration, self.customer?.id == customer.id else { return }
             taxLookupMessage = (error as? LocalizedError)?.errorDescription ?? "Could not look up tax rate."
         }
     }
@@ -186,6 +212,8 @@ final class QuoteStore: ObservableObject {
     }
 
     func seed(from sale: Sale, customer: QuoteCustomer) {
+        taxLookupGeneration += 1
+        taxRateIsExplicit = true
         self.customer = customer
         lines = sale.lines.map { line in
             let unitPrice = Double(line.unitPrice) ?? 0
@@ -204,16 +232,24 @@ final class QuoteStore: ObservableObject {
         taxOverride = nil
         taxLookupMessage = nil
         editingSaleId = sale.id
+        pendingConfirmationSaleId = nil
+        pendingCreationIdempotencyKey = nil
+        pendingCreationInput = nil
         location = sale.location
     }
 
     func clear() {
+        taxLookupGeneration += 1
+        taxRateIsExplicit = false
         customer = nil
         lines = []
         taxRate = defaultTaxPct
         taxOverride = nil
         taxLookupMessage = nil
         editingSaleId = nil
+        pendingConfirmationSaleId = nil
+        pendingCreationIdempotencyKey = nil
+        pendingCreationInput = nil
         location = ""
     }
 

@@ -33,16 +33,15 @@ final class AuthStore: ObservableObject {
     }
 
     func restore() {
-        api.token = KeychainStore.loadToken()
-
-        if
-            api.token != nil,
-            let data = UserDefaults.standard.data(forKey: userKey),
-            let cached = try? JSONDecoder().decode(SessionUser.self, from: data)
-        {
-            user = cached
-        }
-
+        // The API currently has no read-only endpoint that returns the signed-in
+        // user with freshly evaluated role permissions. Reusing the cached user
+        // here would make old permissions an authorization source indefinitely.
+        // Keep sessions in memory, but require fresh credentials after a cold
+        // launch until the server provides a session-refresh contract.
+        api.token = nil
+        KeychainStore.deleteToken()
+        UserDefaults.standard.removeObject(forKey: userKey)
+        user = nil
         ready = true
     }
 
@@ -74,10 +73,6 @@ final class AuthStore: ObservableObject {
         guard var current = user else { return }
         patch(&current)
         user = current
-
-        if let data = try? JSONEncoder().encode(current) {
-            UserDefaults.standard.set(data, forKey: userKey)
-        }
     }
 
     func has(_ permission: String) -> Bool {
@@ -94,11 +89,6 @@ final class AuthStore: ObservableObject {
 
     private func persist(token: String, user: SessionUser) {
         api.token = token
-        KeychainStore.saveToken(token)
         self.user = user
-
-        if let data = try? JSONEncoder().encode(user) {
-            UserDefaults.standard.set(data, forKey: userKey)
-        }
     }
 }

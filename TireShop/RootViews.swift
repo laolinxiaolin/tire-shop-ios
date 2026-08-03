@@ -32,6 +32,7 @@ enum AppRoute: Hashable {
 struct RootGateView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var quote: QuoteStore
 
     var body: some View {
         Group {
@@ -47,6 +48,11 @@ struct RootGateView: View {
             if !auth.ready {
                 auth.restore()
             }
+        }
+        .onChange(of: auth.user?.id) { oldUserID, newUserID in
+            guard oldUserID != newUserID else { return }
+            quote.clear()
+            TapToPayTerminalController.shared.resetForSessionChange()
         }
     }
 }
@@ -159,63 +165,140 @@ struct NavigationShell<Content: View>: View {
         case .customizeTabs:
             CustomizeTabsView()
         case .module(let key):
-            if let destination = DestinationRegistry.destination(for: key) {
+            if
+                let destination = DestinationRegistry.destination(for: key),
+                DestinationRegistry.isVisible(destination, auth: auth)
+            {
                 DestinationView(destination: destination)
                     .navigationTitle(destination.localizedTitle(using: i18n))
+            } else if DestinationRegistry.destination(for: key) != nil {
+                EmptyStateView(text: "You do not have permission to open this section.")
             } else {
                 PlaceholderScreen(title: i18n.t("screen.fallbackTitle"))
             }
         case .tapToPayEducation:
-            TapToPayEducationView()
+            authorized(auth.has("payments.collect") || auth.has("settings.manage")) {
+                TapToPayEducationView()
+            }
         case .newInventoryCount:
-            NewInventoryCountNativeView()
+            authorized(auth.has("inventory.count.manage")) {
+                NewInventoryCountNativeView()
+            }
         case .newTransfer:
-            NewStockTransferNativeView()
+            authorized(auth.has("transfers.manage")) {
+                NewStockTransferNativeView()
+            }
         case .skuPicker:
-            SkuPickerNativeView()
+            authorized(auth.has("inventory.view")) {
+                SkuPickerNativeView()
+            }
         case .customerPicker:
-            CustomerPickerNativeView()
+            authorized(auth.has("customers.view")) {
+                CustomerPickerNativeView()
+            }
         case .newCustomer:
-            NewCustomerNativeView()
+            authorized(auth.has("customers.manage")) {
+                NewCustomerNativeView()
+            }
         case .skuDetail(let id):
-            SkuLookupNativeView(idOrSku: id)
+            authorized(auth.has("inventory.view")) {
+                SkuLookupNativeView(idOrSku: id)
+            }
         case .skuForm(let id):
-            if let id {
-                SkuLookupEditNativeView(idOrSku: id)
+            if auth.has("inventory.manage") {
+                if let id {
+                    SkuLookupEditNativeView(idOrSku: id)
+                } else {
+                    SkuFormNativeView(editing: nil)
+                }
             } else {
-                SkuFormNativeView(editing: nil)
+                EmptyStateView(text: "You do not have permission to manage inventory.")
             }
         case .adjustStock(let id):
-            AdjustStockLookupNativeView(idOrSku: id)
+            if auth.canActOrRequest("inventory.adjust") {
+                AdjustStockLookupNativeView(idOrSku: id)
+            } else {
+                EmptyStateView(text: "You do not have permission to adjust inventory.")
+            }
         case .saleDetail(let id):
-            SaleDetailNativeView(id: id)
+            authorized(auth.has("sales.view")) {
+                SaleDetailNativeView(id: id)
+            }
         case .bestSellers(let months):
-            SalesListNativeView(showBestSellers: true, initialBestSellerMonths: months)
-                .navigationTitle(i18n.t("nav.sales"))
+            authorized(auth.has("sales.view")) {
+                SalesListNativeView(showBestSellers: true, initialBestSellerMonths: months)
+                    .navigationTitle(i18n.t("nav.sales"))
+            }
         case .orderDetail(let id):
-            OrderDetailNativeView(id: id)
+            authorized(auth.has("orders.manage")) {
+                OrderDetailNativeView(id: id)
+            }
         case .editSale(let id):
-            EditSaleNativeView(id: id)
+            if auth.has("sales.manage") {
+                EditSaleNativeView(id: id)
+            } else {
+                EmptyStateView(text: "You do not have permission to manage sales.")
+            }
         case .startReturn(let saleId, let saleRef):
-            StartReturnNativeView(saleId: saleId, saleRef: saleRef)
+            if auth.has("sales.manage") {
+                StartReturnNativeView(saleId: saleId, saleRef: saleRef)
+            } else {
+                EmptyStateView(text: "You do not have permission to create returns.")
+            }
         case .returnDetail(let id):
-            ReturnDetailNativeView(id: id)
+            authorized(auth.has("returns.view")) {
+                ReturnDetailNativeView(id: id)
+            }
         case .workOrderDetail(let id):
-            WorkOrderDetailNativeView(id: id)
+            authorized(auth.has("workorders.view")) {
+                WorkOrderDetailNativeView(id: id)
+            }
         case .inventoryCountDetail(let id):
-            InventoryCountDetailNativeView(id: id)
+            authorized(auth.has("inventory.count.view")) {
+                InventoryCountDetailNativeView(id: id)
+            }
         case .transferDetail(let id):
-            StockTransferDetailNativeView(id: id)
+            authorized(auth.has("transfers.view")) {
+                StockTransferDetailNativeView(id: id)
+            }
         case .containerDetail(let id):
-            ContainerDetailNativeView(id: id)
+            authorized(auth.has("purchasing.view")) {
+                ContainerDetailNativeView(id: id)
+            }
         case .vendorDetail(let id):
-            VendorDetailNativeView(id: id)
+            authorized(auth.has("vendors.view")) {
+                VendorDetailNativeView(id: id)
+            }
         case .tapToPay(let invoiceId, let amount, let saleId, let saleRef, let customerName):
-            TapToPayNativeView(invoiceId: invoiceId, amount: amount, saleId: saleId, saleRef: saleRef, customerName: customerName)
+            authorized(auth.has("payments.collect")) {
+                TapToPayNativeView(
+                    invoiceId: invoiceId,
+                    amount: amount,
+                    saleId: saleId,
+                    saleRef: saleRef,
+                    customerName: customerName
+                )
+            }
         case .customerDetail(let id, let name):
-            CustomerDetailNativeView(id: id, fallbackName: name)
+            authorized(auth.has("customers.view")) {
+                CustomerDetailNativeView(id: id, fallbackName: name)
+            }
         case .employeeDetail(let id):
-            EmployeeDetailNativeView(id: id)
+            authorized(auth.has("employees.view")) {
+                EmployeeDetailNativeView(id: id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func authorized<RouteContent: View>(
+        _ allowed: Bool,
+        @ViewBuilder content: () -> RouteContent
+    ) -> some View {
+        if allowed {
+            content()
+        } else {
+            EmptyStateView(text: "You do not have permission to open this screen.")
         }
     }
 }

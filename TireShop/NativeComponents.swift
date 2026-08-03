@@ -119,12 +119,14 @@ struct PaymentSheetNativeView: View {
     @State private var cardProcessing = false
     @State private var cardNotice: String?
     @State private var errorMessage: String?
+    @State private var postedApplied = 0.0
+    @State private var recordingTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    RowLine(title: "Balance owed", trailing: AppFormat.money(balance))
+                    RowLine(title: "Balance owed", trailing: AppFormat.money(effectiveBalance))
                 }
 
                 Section("Card") {
@@ -139,7 +141,7 @@ struct PaymentSheetNativeView: View {
                             }
                         }
                     }
-                    .disabled(cardProcessing || recording || balance <= 0)
+                    .disabled(cardProcessing || recording || effectiveBalance <= 0)
 
                     if let cardNotice {
                         Text(cardNotice)
@@ -165,6 +167,7 @@ struct PaymentSheetNativeView: View {
                                 creditBalance: creditBalance,
                                 storeCreditCode: storeCreditCode
                             )
+                            .disabled(recording || cardProcessing)
                         }
                         .onDelete { offsets in
                             rows.remove(atOffsets: offsets)
@@ -173,6 +176,7 @@ struct PaymentSheetNativeView: View {
                         Button("Add manual payment method") {
                             addRow()
                         }
+                        .disabled(recording || cardProcessing)
                     }
 
                     Section("Totals") {
@@ -197,27 +201,42 @@ struct PaymentSheetNativeView: View {
 
                 Section {
                     Button(recording ? "Recording..." : recordTitle) {
-                        Task { await record() }
+                        startRecording()
                     }
                     .disabled(!canRecord)
                 }
             }
+            .disabled(recording || cardProcessing)
             .navigationTitle("Take payment")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") {
+                        if postedApplied > 0 {
+                            onPaid()
+                        }
                         dismiss()
                     }
+                    .disabled(recording || cardProcessing)
                 }
             }
             .task {
                 await load()
+            }
+            .interactiveDismissDisabled(recording || cardProcessing)
+            .onDisappear {
+                if recording {
+                    recordingTask?.cancel()
+                }
             }
         }
     }
 
     private var validRows: [PaymentRow] {
         rows.filter { $0.amountValue > 0 && !$0.paymentMethodId.isEmpty }
+    }
+
+    private var effectiveBalance: Double {
+        max(0, roundMoney(balance - postedApplied))
     }
 
     private var totalApplied: Double {
@@ -233,11 +252,11 @@ struct PaymentSheetNativeView: View {
     }
 
     private var remaining: Double {
-        roundMoney(balance - totalApplied)
+        roundMoney(effectiveBalance - totalApplied)
     }
 
     private var overpay: Bool {
-        totalApplied - balance > 0.01
+        totalApplied - effectiveBalance > 0.01
     }
 
     private var storeCreditApplied: Double {
@@ -336,7 +355,13 @@ struct PaymentSheetNativeView: View {
                 creditBalance = (try? await CustomersAPI().creditBalance(id: customerId))?.balance
             }
             if let first = methods.first(where: { $0.account.code != storeCreditCode }) ?? methods.first {
-                rows = [PaymentRow(paymentMethodId: first.id, amount: String(format: "%.2f", balance), reference: "")]
+                rows = [
+                    PaymentRow(
+                        paymentMethodId: first.id,
+                        amount: String(format: "%.2f", effectiveBalance),
+                        reference: ""
+                    )
+                ]
             }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
@@ -347,8 +372,10 @@ struct PaymentSheetNativeView: View {
 
     @MainActor
     private func record() async {
+        guard !recording else { return }
         recording = true
         errorMessage = nil
+        defer { recording = false }
 
         do {
             if validRows.isEmpty {
@@ -361,26 +388,78 @@ struct PaymentSheetNativeView: View {
                 throw APIError(status: 0, message: "Store credit exceeds the available balance.")
             }
 
-            for row in validRows {
+            let rowsToRecord = validRows
+            for row in rowsToRecord {
+                try Task.checkCancellation()
+
+                if row.attempted {
+                    if try await paymentWasRecorded(row) {
+                        applyRecorded(row)
+                        continue
+                    }
+                } else if let index = rows.firstIndex(where: { $0.id == row.id }) {
+                    rows[index].attempted = true
+                }
+
                 let gross = roundMoney(row.amountValue + surcharge(for: row))
-                _ = try await PaymentsAPI().record(
-                    invoiceId: invoiceId,
-                    body: PaymentRecordInput(
-                        paymentMethodId: row.paymentMethodId,
-                        amount: gross,
-                        reference: row.reference.nilIfBlank,
-                        note: nil
+                do {
+                    _ = try await PaymentsAPI().record(
+                        invoiceId: invoiceId,
+                        body: PaymentRecordInput(
+                            paymentMethodId: row.paymentMethodId,
+                            amount: gross,
+                            reference: row.reference.nilIfBlank,
+                            note: row.reconciliationMarker
+                        ),
+                        idempotencyKey: row.id.uuidString
                     )
-                )
+                } catch {
+                    if (try? await paymentWasRecorded(row)) == true {
+                        applyRecorded(row)
+                        continue
+                    }
+                    throw error
+                }
+
+                applyRecorded(row)
             }
 
             onPaid()
             dismiss()
+        } catch is CancellationError {
+            if postedApplied > 0 {
+                errorMessage = "Some payments were recorded. Only the remaining entries are shown."
+            }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
+            let message = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
+            errorMessage = postedApplied > 0
+                ? "Some payments were recorded. Only the remaining entries are shown. \(message)"
+                : message
         }
+    }
 
-        recording = false
+    private func startRecording() {
+        guard recordingTask == nil else { return }
+        recordingTask = Task {
+            await record()
+            recordingTask = nil
+        }
+    }
+
+    @MainActor
+    private func paymentWasRecorded(_ row: PaymentRow) async throws -> Bool {
+        let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
+        return payments.contains { $0.note == row.reconciliationMarker }
+    }
+
+    @MainActor
+    private func applyRecorded(_ row: PaymentRow) {
+        guard rows.contains(where: { $0.id == row.id }) else { return }
+        postedApplied = roundMoney(postedApplied + row.amountValue)
+        if method(for: row)?.account.code == storeCreditCode, let creditBalance {
+            self.creditBalance = max(0, roundMoney(creditBalance - row.amountValue))
+        }
+        rows.removeAll { $0.id == row.id }
     }
 
     private func addRow() {
@@ -449,9 +528,14 @@ private struct PaymentRow: Identifiable {
     var paymentMethodId: String
     var amount: String
     var reference: String
+    var attempted = false
 
     var amountValue: Double {
         Double(amount) ?? 0
+    }
+
+    var reconciliationMarker: String {
+        "[ios-payment:\(id.uuidString)]"
     }
 }
 

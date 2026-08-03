@@ -1,11 +1,137 @@
 import SwiftUI
 import UIKit
 import QuickLook
+import UniformTypeIdentifiers
 
 /// A file reference suitable for driving a `.sheet(item:)` QuickLook preview.
-struct PreviewFile: Identifiable {
+final class PreviewFile: Identifiable {
     let id = UUID()
     let url: URL
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    deinit {
+        TemporaryDownloadStore.remove(url)
+    }
+}
+
+struct PreparedCameraUpload: Sendable {
+    let url: URL
+    let filename: String
+    let mimeType: String
+}
+
+struct CameraUploadPicker: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    let temporaryPrefix: String
+    let fallbackFilenamePrefix: String
+    let onPrepared: (Result<PreparedCameraUpload, Error>) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.mediaTypes = [UTType.image.identifier]
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        private struct SendableImage: @unchecked Sendable {
+            let value: UIImage
+        }
+
+        private let parent: CameraUploadPicker
+
+        init(parent: CameraUploadPicker) {
+            self.parent = parent
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let sourceURL = info[.imageURL] as? URL {
+                prepare(sourceURL)
+                return
+            }
+
+            guard let image = info[.originalImage] as? UIImage else {
+                finish(.failure(APIError(status: 0, message: "Could not read the captured photo.")))
+                return
+            }
+
+            let sendableImage = SendableImage(value: image)
+            let filename = "\(parent.fallbackFilenamePrefix) \(Int(Date().timeIntervalSince1970)).jpg"
+            let temporaryPrefix = parent.temporaryPrefix
+
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let result: Result<PreparedCameraUpload, Error>
+                do {
+                    guard let data = sendableImage.value.jpegData(compressionQuality: 0.92) else {
+                        throw APIError(status: 0, message: "Could not encode the captured photo.")
+                    }
+                    let url = try UploadFilePreparation.writeTemporaryDataSynchronously(
+                        data,
+                        filename: filename,
+                        prefix: temporaryPrefix
+                    )
+                    result = .success(PreparedCameraUpload(
+                        url: url,
+                        filename: filename,
+                        mimeType: "image/jpeg"
+                    ))
+                } catch {
+                    result = .failure(error)
+                }
+
+                DispatchQueue.main.async {
+                    self?.finish(result)
+                }
+            }
+        }
+
+        private func prepare(_ sourceURL: URL) {
+            let temporaryPrefix = parent.temporaryPrefix
+            Task { [weak self] in
+                let result: Result<PreparedCameraUpload, Error>
+                do {
+                    let copied = try await UploadFilePreparation.copySecurityScopedFile(
+                        sourceURL,
+                        prefix: temporaryPrefix
+                    )
+                    let type = UTType(filenameExtension: sourceURL.pathExtension)
+                    result = .success(PreparedCameraUpload(
+                        url: copied,
+                        filename: sourceURL.lastPathComponent,
+                        mimeType: type?.preferredMIMEType ?? "application/octet-stream"
+                    ))
+                } catch {
+                    result = .failure(error)
+                }
+                self?.finish(result)
+            }
+        }
+
+        private func finish(_ result: Result<PreparedCameraUpload, Error>) {
+            parent.onPrepared(result)
+            parent.dismiss()
+        }
+    }
 }
 
 /// Presents the system AirPrint sheet for a printable file (e.g. a PDF at a local URL).
@@ -17,31 +143,48 @@ enum DocumentPrinter {
         info.jobName = jobName
         controller.printInfo = info
         controller.printingItem = url
-        controller.present(animated: true, completionHandler: nil)
+        controller.present(animated: true) { _, _, _ in
+            TemporaryDownloadStore.remove(url)
+        }
     }
 }
 
 /// Shared QuickLook preview for local file URLs (PDFs, images, documents).
 struct QuickLookSheet: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
     let url: URL
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(url: url)
+        Coordinator(url: url) {
+            dismiss()
+        }
     }
 
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        return controller
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let previewController = QLPreviewController()
+        previewController.dataSource = context.coordinator
+        previewController.navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: context.coordinator,
+            action: #selector(Coordinator.dismissPreview)
+        )
+        return UINavigationController(rootViewController: previewController)
     }
 
-    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {}
 
     final class Coordinator: NSObject, QLPreviewControllerDataSource {
         let url: URL
+        private let onDismiss: () -> Void
 
-        init(url: URL) {
+        init(url: URL, onDismiss: @escaping () -> Void) {
             self.url = url
+            self.onDismiss = onDismiss
+        }
+
+        @objc func dismissPreview() {
+            onDismiss()
         }
 
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int {

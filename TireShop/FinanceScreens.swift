@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 // Full-featured finance screens ported from the web UI:
@@ -28,6 +29,24 @@ private enum FinanceDay {
         let parts = s.split(separator: "-")
         guard parts.count == 3 else { return s }
         return "\(Int(parts[1]) ?? 0)/\(Int(parts[2]) ?? 0)/\(parts[0])"
+    }
+}
+
+private struct FinanceSubmissionIdentity {
+    private var fingerprint: Data?
+    private var idempotencyKey = UUID().uuidString
+
+    mutating func key<Body: Encodable>(for body: Body) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let nextFingerprint = try encoder.encode(body)
+
+        if fingerprint != nextFingerprint {
+            fingerprint = nextFingerprint
+            idempotencyKey = UUID().uuidString
+        }
+
+        return idempotencyKey
     }
 }
 
@@ -155,10 +174,17 @@ struct MoneyNativeView: View {
         return available
     }
 
+    private var selectedTab: Tab? {
+        tabs.contains(tab) ? tab : tabs.first
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if tabs.count > 1 {
-                Picker("Section", selection: $tab) {
+                Picker("Section", selection: Binding(
+                    get: { selectedTab ?? .receivables },
+                    set: { tab = $0 }
+                )) {
                     ForEach(tabs, id: \.self) { Text($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
@@ -166,15 +192,21 @@ struct MoneyNativeView: View {
                 .padding(.vertical, Theme.Space.sm)
             }
 
-            switch tab {
-            case .receivables: ReceivablesTabView()
-            case .payables: PayablesTabView()
-            case .history: MoneyDocumentsTabView()
+            if let selectedTab {
+                switch selectedTab {
+                case .receivables: ReceivablesTabView()
+                case .payables: PayablesTabView()
+                case .history: MoneyDocumentsTabView()
+                }
+            } else {
+                EmptyStateView(text: "You do not have permission to view receivables or payables.")
             }
         }
         .background(Theme.background)
-        .onAppear {
-            if !tabs.contains(tab), let first = tabs.first { tab = first }
+        .onChange(of: selectedTab) { _, next in
+            if let next, tab != next {
+                tab = next
+            }
         }
     }
 }
@@ -426,18 +458,38 @@ private struct CollectReceivableSheet: View {
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var postedRef: String?
+    @State private var submissionIdentity = FinanceSubmissionIdentity()
+    @State private var submissionTask: Task<Void, Never>?
 
     private var canCollect: Bool { auth.has("payments.collect") }
 
     private var totalApplied: Double {
-        allocations.values.reduce(0) { $0 + (Double($1) ?? 0) }
+        applications.reduce(0) { $0 + $1.amount }
     }
 
     private var applications: [ReceivableApplication] {
         (detail?.openInvoices ?? []).compactMap { inv in
             let amount = Double(allocations[inv.id] ?? "") ?? 0
-            return amount > 0 ? ReceivableApplication(invoiceId: inv.id, amount: amount) : nil
+            return amount.isFinite && amount > 0
+                ? ReceivableApplication(invoiceId: inv.id, amount: amount)
+                : nil
         }
+    }
+
+    private var invalidAllocationRows: Set<String> {
+        Set((detail?.openInvoices ?? []).compactMap { invoice in
+            let raw = allocations[invoice.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !raw.isEmpty else { return nil }
+            guard let amount = Double(raw), amount.isFinite, amount >= 0 else { return invoice.id }
+            return nil
+        })
+    }
+
+    private var overpaidRows: Set<String> {
+        Set((detail?.openInvoices ?? []).compactMap { invoice in
+            let amount = Double(allocations[invoice.id] ?? "") ?? 0
+            return amount.isFinite && amount - invoice.balance > 0.01 ? invoice.id : nil
+        })
     }
 
     var body: some View {
@@ -454,11 +506,20 @@ private struct CollectReceivableSheet: View {
             .navigationTitle(customer.company?.nilIfBlank ?? customer.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                        .disabled(busy)
+                }
                 if canCollect {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(busy ? "Posting..." : "Collect") { Task { await submit() } }
-                            .disabled(busy || totalApplied <= 0)
+                        Button(busy ? "Posting..." : "Collect") { startSubmission() }
+                            .disabled(
+                                busy
+                                    || totalApplied <= 0
+                                    || paymentMethodId.isEmpty
+                                    || !invalidAllocationRows.isEmpty
+                                    || !overpaidRows.isEmpty
+                            )
                     }
                 }
             }
@@ -472,6 +533,12 @@ private struct CollectReceivableSheet: View {
             }
         }
         .task { if detail == nil { await load() } }
+        .interactiveDismissDisabled(busy)
+        .onDisappear {
+            if busy {
+                submissionTask?.cancel()
+            }
+        }
     }
 
     private func form(_ detail: ReceivableCustomerDetail) -> some View {
@@ -526,6 +593,15 @@ private struct CollectReceivableSheet: View {
                                 ))
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
+                            }
+                            if overpaidRows.contains(inv.id) {
+                                Text("Amount exceeds the remaining balance.")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            } else if invalidAllocationRows.contains(inv.id) {
+                                Text("Enter zero or a positive dollar amount.")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
                             }
                         }
                     }
@@ -609,36 +685,70 @@ private struct CollectReceivableSheet: View {
 
     @MainActor
     private func submit() async {
+        guard canCollect else {
+            errorMessage = "You do not have permission to collect payments."
+            return
+        }
         guard !applications.isEmpty else {
             errorMessage = "Enter an amount for at least one invoice."
             return
         }
+        guard invalidAllocationRows.isEmpty else {
+            errorMessage = "One or more invoice amounts are invalid."
+            return
+        }
+        guard overpaidRows.isEmpty else {
+            errorMessage = "One or more amounts exceed the remaining invoice balance."
+            return
+        }
+        guard !paymentMethodId.isEmpty else {
+            errorMessage = "Select a payment method."
+            return
+        }
+
         busy = true
         errorMessage = nil
+        defer { busy = false }
+
         do {
+            let input = ReceivablesPayInput(
+                customerId: customer.id,
+                paymentMethodId: paymentMethodId,
+                applications: applications,
+                reference: reference.nilIfBlank,
+                note: note.nilIfBlank
+            )
+            let idempotencyKey = try submissionIdentity.key(for: input)
             let result = try await MoneyAPI().payReceivables(
-                ReceivablesPayInput(
-                    customerId: customer.id,
-                    paymentMethodId: paymentMethodId,
-                    applications: applications,
-                    reference: reference.nilIfBlank,
-                    note: note.nilIfBlank
-                )
+                input,
+                idempotencyKey: idempotencyKey
             )
             if let ref = result.ref {
                 postedRef = ref
             } else {
+                busy = false
                 onPaid()
                 dismiss()
             }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
+            }
         }
-        busy = false
+    }
+
+    private func startSubmission() {
+        guard submissionTask == nil else { return }
+        submissionTask = Task { @MainActor in
+            await submit()
+            submissionTask = nil
+        }
     }
 }
 
 private struct PayablesTabView: View {
+    @EnvironmentObject private var auth: AuthStore
+
     @State private var items: [PayableVendor] = []
     @State private var total = 0
     @State private var loaded = false
@@ -648,6 +758,10 @@ private struct PayablesTabView: View {
     @State private var payTarget: PayableVendor?
 
     private let pageSize = 50
+
+    private var canPay: Bool {
+        auth.canActOrRequest("payables.pay")
+    }
 
     private var filtered: [PayableVendor] {
         guard let term = q.nilIfBlank?.lowercased() else { return items }
@@ -719,6 +833,7 @@ private struct PayablesTabView: View {
                                 .padding(.vertical, 2)
                             }
                             .tint(Theme.text)
+                            .disabled(!canPay)
                             .onAppear {
                                 if row.vendorKey == items.last?.vendorKey { Task { await loadMore() } }
                             }
@@ -772,6 +887,7 @@ private struct PayVendorSheet: View {
     let vendorKey: String
     let onPaid: () -> Void
 
+    @EnvironmentObject private var auth: AuthStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var detail: PayableVendorDetail?
@@ -786,6 +902,12 @@ private struct PayVendorSheet: View {
     @State private var errorMessage: String?
     @State private var postedRef: String?
     @State private var approvalQueued = false
+    @State private var submissionIdentity = FinanceSubmissionIdentity()
+    @State private var submissionTask: Task<Void, Never>?
+
+    private var canPay: Bool {
+        auth.canActOrRequest("payables.pay")
+    }
 
     private var applications: [PayableApplication] {
         (detail?.items ?? []).compactMap { item in
@@ -820,10 +942,23 @@ private struct PayVendorSheet: View {
             .navigationTitle(detail?.vendor ?? "Pay vendor")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(busy ? "Saving..." : "Pay \(AppFormat.money(totalSelected))") { Task { await submit() } }
-                        .disabled(busy || totalSelected <= 0 || !overpaidRows.isEmpty || pendingApproval)
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                        .disabled(busy)
+                }
+                if canPay {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(busy ? "Saving..." : "Pay \(AppFormat.money(totalSelected))") {
+                            startSubmission()
+                        }
+                        .disabled(
+                            busy
+                                || totalSelected <= 0
+                                || accountId.isEmpty
+                                || !overpaidRows.isEmpty
+                                || pendingApproval
+                        )
+                    }
                 }
             }
             .alert("Payment recorded", isPresented: Binding(
@@ -841,6 +976,12 @@ private struct PayVendorSheet: View {
             }
         }
         .task { if detail == nil { await load() } }
+        .interactiveDismissDisabled(busy)
+        .onDisappear {
+            if busy {
+                submissionTask?.cancel()
+            }
+        }
     }
 
     private func form(_ detail: PayableVendorDetail) -> some View {
@@ -941,6 +1082,7 @@ private struct PayVendorSheet: View {
                 }
             }
         }
+        .disabled(!canPay || busy)
     }
 
     private func payAll(_ detail: PayableVendorDetail) {
@@ -978,30 +1120,62 @@ private struct PayVendorSheet: View {
 
     @MainActor
     private func submit() async {
+        guard canPay else {
+            errorMessage = "You do not have permission to pay vendors."
+            return
+        }
+        guard !applications.isEmpty else {
+            errorMessage = "Enter an amount for at least one payable."
+            return
+        }
+        guard overpaidRows.isEmpty else {
+            errorMessage = "One or more amounts exceed the remaining balance."
+            return
+        }
+        guard !accountId.isEmpty else {
+            errorMessage = "Select the account to pay from."
+            return
+        }
+
         busy = true
         errorMessage = nil
+        defer { busy = false }
+
         do {
+            let input = PayablesPayInput(
+                applications: applications,
+                paidAt: FinanceDay.string(paidAt),
+                reference: reference.nilIfBlank,
+                note: note.nilIfBlank,
+                accountId: accountId.nilIfBlank
+            )
+            let idempotencyKey = try submissionIdentity.key(for: input)
             let result = try await MoneyAPI().payPayables(
-                PayablesPayInput(
-                    applications: applications,
-                    paidAt: FinanceDay.string(paidAt),
-                    reference: reference.nilIfBlank,
-                    note: note.nilIfBlank,
-                    accountId: accountId.nilIfBlank
-                )
+                input,
+                idempotencyKey: idempotencyKey
             )
             if result.approvalRequest != nil {
                 approvalQueued = true
             } else if let ref = result.ref {
                 postedRef = ref
             } else {
+                busy = false
                 onPaid()
                 dismiss()
             }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
+            }
         }
-        busy = false
+    }
+
+    private func startSubmission() {
+        guard submissionTask == nil else { return }
+        submissionTask = Task { @MainActor in
+            await submit()
+            submissionTask = nil
+        }
     }
 }
 
@@ -1475,12 +1649,21 @@ struct AccountingNativeView: View {
     }
 }
 
+private struct PnlRequestKey: Hashable {
+    let from: String
+    let to: String
+}
+
 private struct PnlTabView: View {
     @State private var from = FinanceDay.monthStart
     @State private var to = Date()
     @State private var pnl: Pnl?
     @State private var loading = false
     @State private var errorMessage: String?
+
+    private var requestKey: PnlRequestKey {
+        PnlRequestKey(from: FinanceDay.string(from), to: FinanceDay.string(to))
+    }
 
     var body: some View {
         List {
@@ -1519,10 +1702,8 @@ private struct PnlTabView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .refreshable { await load() }
-        .task { if pnl == nil { await load() } }
-        .onChange(of: from) { Task { await load() } }
-        .onChange(of: to) { Task { await load() } }
+        .refreshable { await load(requestKey) }
+        .task(id: requestKey) { await load(requestKey) }
     }
 
     private func pnlSection(title: String, rows: [Pnl.Line], total: Double, positive: Bool) -> some View {
@@ -1546,15 +1727,19 @@ private struct PnlTabView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(_ key: PnlRequestKey) async {
         loading = true
         errorMessage = nil
         do {
-            pnl = try await AccountingAPI().pnl(from: FinanceDay.string(from), to: FinanceDay.string(to))
+            let loaded = try await AccountingAPI().pnl(from: key.from, to: key.to)
+            guard key == requestKey, !Task.isCancelled else { return }
+            pnl = loaded
+            loading = false
         } catch {
+            guard key == requestKey, !Task.isCancelled, !isFinanceRequestCancellation(error) else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the P&L."
+            loading = false
         }
-        loading = false
     }
 }
 
@@ -2151,6 +2336,8 @@ private struct TransferFundsSheet: View {
     @State private var checkedIds = Set<String>()
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var submissionIdentity = FinanceSubmissionIdentity()
+    @State private var submissionTask: Task<Void, Never>?
 
     // When transferring out of the Undeposited Checks account, the operator
     // picks the specific checks being deposited instead of typing an amount.
@@ -2253,10 +2440,14 @@ private struct TransferFundsSheet: View {
             }
             .navigationTitle(isCheckDeposit ? "Deposit checks" : "Transfer funds")
             .navigationBarTitleDisplayMode(.inline)
+            .disabled(saving)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(saving)
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Saving..." : "Transfer") { Task { await submit() } }
+                    Button(saving ? "Saving..." : "Transfer") { startSubmission() }
                         .disabled(saving)
                 }
             }
@@ -2267,6 +2458,12 @@ private struct TransferFundsSheet: View {
             .task {
                 if checks == nil {
                     checks = (try? await CashAccountsAPI().undepositedChecks()) ?? UndepositedChecks(accountCode: "", items: [])
+                }
+            }
+            .interactiveDismissDisabled(saving)
+            .onDisappear {
+                if saving {
+                    submissionTask?.cancel()
                 }
             }
         }
@@ -2288,23 +2485,38 @@ private struct TransferFundsSheet: View {
         }
         saving = true
         errorMessage = nil
+        defer { saving = false }
+
         do {
-            _ = try await CashAccountsAPI().createTransfer(
-                TransferCreateInput(
-                    fromCode: fromCode,
-                    toCode: toCode,
-                    amount: effectiveAmount,
-                    fee: Double(fee) ?? 0,
-                    note: note.nilIfBlank,
-                    paymentIds: isCheckDeposit ? Array(checkedIds) : nil
-                )
+            let input = TransferCreateInput(
+                fromCode: fromCode,
+                toCode: toCode,
+                amount: effectiveAmount,
+                fee: Double(fee) ?? 0,
+                note: note.nilIfBlank,
+                paymentIds: isCheckDeposit ? Array(checkedIds).sorted() : nil
             )
+            let idempotencyKey = try submissionIdentity.key(for: input)
+            _ = try await CashAccountsAPI().createTransfer(
+                input,
+                idempotencyKey: idempotencyKey
+            )
+            saving = false
             onDone()
             dismiss()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the transfer."
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the transfer."
+            }
         }
-        saving = false
+    }
+
+    private func startSubmission() {
+        guard submissionTask == nil else { return }
+        submissionTask = Task { @MainActor in
+            await submit()
+            submissionTask = nil
+        }
     }
 }
 
@@ -2325,6 +2537,8 @@ private struct RecordExpenseSheet: View {
     @State private var note = ""
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var submissionIdentity = FinanceSubmissionIdentity()
+    @State private var submissionTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -2369,10 +2583,14 @@ private struct RecordExpenseSheet: View {
             }
             .navigationTitle("Record expense")
             .navigationBarTitleDisplayMode(.inline)
+            .disabled(saving)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(saving)
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Recording..." : "Record") { Task { await submit() } }
+                    Button(saving ? "Recording..." : "Record") { startSubmission() }
                         .disabled(saving)
                 }
             }
@@ -2395,6 +2613,12 @@ private struct RecordExpenseSheet: View {
                     vendors = (try? await VendorsAPI().list(active: true, pageSize: 200).items) ?? []
                 }
             }
+            .interactiveDismissDisabled(saving)
+            .onDisappear {
+                if saving {
+                    submissionTask?.cancel()
+                }
+            }
         }
     }
 
@@ -2414,25 +2638,40 @@ private struct RecordExpenseSheet: View {
         }
         saving = true
         errorMessage = nil
+        defer { saving = false }
+
         do {
-            _ = try await CashAccountsAPI().createExpense(
-                ExpenseCreateInput(
-                    amount: value,
-                    expenseCode: expenseCode,
-                    paidFromCode: paidFromCode,
-                    date: FinanceDay.string(date),
-                    payee: payee.nilIfBlank,
-                    vendorId: vendorId.nilIfBlank,
-                    reference: reference.nilIfBlank,
-                    note: note.nilIfBlank
-                )
+            let input = ExpenseCreateInput(
+                amount: value,
+                expenseCode: expenseCode,
+                paidFromCode: paidFromCode,
+                date: FinanceDay.string(date),
+                payee: payee.nilIfBlank,
+                vendorId: vendorId.nilIfBlank,
+                reference: reference.nilIfBlank,
+                note: note.nilIfBlank
             )
+            let idempotencyKey = try submissionIdentity.key(for: input)
+            _ = try await CashAccountsAPI().createExpense(
+                input,
+                idempotencyKey: idempotencyKey
+            )
+            saving = false
             onDone()
             dismiss()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the expense."
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the expense."
+            }
         }
-        saving = false
+    }
+
+    private func startSubmission() {
+        guard submissionTask == nil else { return }
+        submissionTask = Task { @MainActor in
+            await submit()
+            submissionTask = nil
+        }
     }
 }
 
@@ -2618,24 +2857,26 @@ private struct ExpenseReceiptsSheet: View {
         busy = true
         errorMessage = nil
         var tempURL: URL?
+        defer {
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            busy = false
+        }
+
         do {
             guard let source = try result.get().first else {
-                busy = false
                 return
             }
-            let scoped = source.startAccessingSecurityScopedResource()
-            defer {
-                if scoped { source.stopAccessingSecurityScopedResource() }
-            }
-            let destination = FileManager.default.temporaryDirectory
-                .appendingPathComponent("expense-receipt-\(UUID().uuidString)-\(source.lastPathComponent)")
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: source, to: destination)
-            tempURL = destination
+            let copied = try await UploadFilePreparation.copySecurityScopedFile(
+                source,
+                prefix: "expense-receipt"
+            )
+            tempURL = copied
 
             _ = try await CashAccountsAPI().uploadExpenseReceipt(
                 expenseId: expense.id,
-                fileURL: destination,
+                fileURL: copied,
                 fileName: source.lastPathComponent,
                 mimeType: mimeType(for: source)
             )
@@ -2643,10 +2884,6 @@ private struct ExpenseReceiptsSheet: View {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload the receipt."
         }
-        if let tempURL {
-            try? FileManager.default.removeItem(at: tempURL)
-        }
-        busy = false
     }
 
     @MainActor
@@ -2870,6 +3107,8 @@ private struct PayFetSheet: View {
     @State private var note = ""
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var submissionIdentity = FinanceSubmissionIdentity()
+    @State private var submissionTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -2900,10 +3139,14 @@ private struct PayFetSheet: View {
             }
             .navigationTitle(quarter.map { "Pay \($0.label)" } ?? "Record FET payment")
             .navigationBarTitleDisplayMode(.inline)
+            .disabled(saving)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(saving)
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Recording..." : "Record") { Task { await submit() } }
+                    Button(saving ? "Recording..." : "Record") { startSubmission() }
                         .disabled(saving)
                 }
             }
@@ -2917,6 +3160,12 @@ private struct PayFetSheet: View {
                     }
                 }
             }
+            .interactiveDismissDisabled(saving)
+            .onDisappear {
+                if saving {
+                    submissionTask?.cancel()
+                }
+            }
         }
     }
 
@@ -2928,22 +3177,37 @@ private struct PayFetSheet: View {
         }
         saving = true
         errorMessage = nil
+        defer { saving = false }
+
         do {
-            _ = try await FetAPI().pay(
-                FetPayInput(
-                    amount: value,
-                    date: FinanceDay.string(date),
-                    reference: reference.nilIfBlank,
-                    note: note.nilIfBlank,
-                    quarterKey: quarter?.key
-                )
+            let input = FetPayInput(
+                amount: value,
+                date: FinanceDay.string(date),
+                reference: reference.nilIfBlank,
+                note: note.nilIfBlank,
+                quarterKey: quarter?.key
             )
+            let idempotencyKey = try submissionIdentity.key(for: input)
+            _ = try await FetAPI().pay(
+                input,
+                idempotencyKey: idempotencyKey
+            )
+            saving = false
             onDone()
             dismiss()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
+            if !Task.isCancelled {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
+            }
         }
-        saving = false
+    }
+
+    private func startSubmission() {
+        guard submissionTask == nil else { return }
+        submissionTask = Task { @MainActor in
+            await submit()
+            submissionTask = nil
+        }
     }
 }
 
@@ -2954,6 +3218,10 @@ struct EodNativeView: View {
     @State private var report: EodReport?
     @State private var loading = false
     @State private var errorMessage: String?
+
+    private var requestDay: String {
+        FinanceDay.string(date)
+    }
 
     var body: some View {
         ScrollView {
@@ -2993,9 +3261,8 @@ struct EodNativeView: View {
             .padding(Theme.Space.lg)
         }
         .background(Theme.background)
-        .task { if report == nil { await load() } }
-        .refreshable { await load() }
-        .onChange(of: date) { Task { await load() } }
+        .task(id: requestDay) { await load(requestDay) }
+        .refreshable { await load(requestDay) }
     }
 
     private func panel<Content: View>(_ title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) -> some View {
@@ -3216,15 +3483,27 @@ struct EodNativeView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(_ day: String) async {
         loading = true
         errorMessage = nil
         do {
-            report = try await EodAPI().report(date: FinanceDay.string(date))
+            let loaded = try await EodAPI().report(date: day)
+            guard day == requestDay, !Task.isCancelled else { return }
+            report = loaded
+            loading = false
         } catch {
+            guard day == requestDay, !Task.isCancelled, !isFinanceRequestCancellation(error) else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the report."
             report = nil
+            loading = false
         }
-        loading = false
     }
+}
+
+private func isFinanceRequestCancellation(_ error: Error) -> Bool {
+    if error is CancellationError {
+        return true
+    }
+
+    return (error as? URLError)?.code == .cancelled
 }

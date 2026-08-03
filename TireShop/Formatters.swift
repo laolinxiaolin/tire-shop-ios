@@ -76,6 +76,10 @@ enum AppFormat {
         return dateTimeFormatter.string(from: date)
     }
 
+    static func date(_ value: String?) -> Date? {
+        parseDate(value)
+    }
+
     static func phone(_ value: String?) -> String {
         guard let value, !value.isEmpty else { return "" }
         let digits = value.filter(\.isNumber)

@@ -11,7 +11,7 @@ struct LoginView: View {
     @State private var busy = false
     @State private var alert: AlertState?
     @State private var serverURL = Server.baseURLString
-    @FocusState private var serverFieldFocused: Bool
+    @FocusState private var focusedField: LoginField?
 
     private static let serverFieldID = "serverConfig"
 
@@ -46,8 +46,8 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: serverFieldFocused) { _, focused in
-                guard focused else { return }
+            .onChange(of: focusedField) { _, field in
+                guard field == .server else { return }
                 // The ScrollView's automatic keyboard avoidance handles most
                 // cases; this makes sure the bottom-most field is fully
                 // visible once the keyboard has animated in.
@@ -78,7 +78,7 @@ struct LoginView: View {
                 keyboardType: .URL,
                 disabled: busy
             )
-            .focused($serverFieldFocused)
+            .focused($focusedField, equals: .server)
 
             Text(i18n.t("login.serverNote", ["url": Server.defaultBaseURLString]))
                 .font(.caption)
@@ -98,6 +98,11 @@ struct LoginView: View {
                 textContentType: .emailAddress,
                 disabled: busy
             )
+            .focused($focusedField, equals: .email)
+            .submitLabel(.next)
+            .onSubmit {
+                focusedField = .password
+            }
 
             AppTextField(
                 label: i18n.t("login.password"),
@@ -107,6 +112,9 @@ struct LoginView: View {
                 secure: true,
                 disabled: busy
             )
+            .focused($focusedField, equals: .password)
+            .submitLabel(.go)
+            .onSubmit(submitCredentials)
 
             PrimaryButton(
                 title: i18n.t("login.signIn"),
@@ -131,6 +139,7 @@ struct LoginView: View {
                 textContentType: .oneTimeCode,
                 disabled: busy
             )
+            .focused($focusedField, equals: .code)
 
             PrimaryButton(
                 title: i18n.t("login.verify"),
@@ -159,6 +168,7 @@ struct LoginView: View {
         }
         serverURL = Server.baseURLString
 
+        focusedField = nil
         busy = true
         Task {
             defer { busy = false }
@@ -180,6 +190,7 @@ struct LoginView: View {
         let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedCode.count >= 6 else { return }
 
+        focusedField = nil
         busy = true
         Task {
             defer { busy = false }
@@ -215,6 +226,13 @@ struct LoginView: View {
     private struct Challenge: Equatable {
         let method: String
         let token: String
+    }
+
+    private enum LoginField: Hashable {
+        case email
+        case password
+        case code
+        case server
     }
 
     private struct AlertState: Identifiable {

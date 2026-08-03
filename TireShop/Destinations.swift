@@ -86,7 +86,7 @@ enum DestinationRegistry {
         Destination(key: "customerRelations", title: "Customer Relations", systemImage: "heart", group: .operations, permission: "crm.view", isBuilt: true, blurb: nil),
         Destination(key: "workOrders", title: "Work Orders", systemImage: "wrench.adjustable", group: .operations, permission: "workorders.view", isBuilt: true, blurb: nil),
         Destination(key: "returns", title: "Returns", systemImage: "arrow.uturn.left", group: .operations, permission: "returns.view", isBuilt: true, blurb: nil),
-        Destination(key: "money", title: "Money", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", isBuilt: true, blurb: nil),
+        Destination(key: "money", title: "Money", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", alternatePermission: "payables.view", isBuilt: true, blurb: nil),
         Destination(key: "accounting", title: "Accounting", systemImage: "book.closed", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "cashAccounts", title: "Cash Accounts", systemImage: "building.columns", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "fet", title: "FET", systemImage: "doc.text", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
