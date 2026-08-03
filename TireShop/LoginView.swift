@@ -169,6 +169,8 @@ struct LoginView: View {
         serverURL = Server.baseURLString
 
         focusedField = nil
+        KeyboardSession.dismiss()
+        DebugLayoutLog.event("loginSubmit credentials focusCleared")
         busy = true
         Task {
             defer { busy = false }
@@ -191,6 +193,8 @@ struct LoginView: View {
         guard trimmedCode.count >= 6 else { return }
 
         focusedField = nil
+        KeyboardSession.dismiss()
+        DebugLayoutLog.event("loginSubmit mfa focusCleared")
         busy = true
         Task {
             defer { busy = false }

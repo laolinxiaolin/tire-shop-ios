@@ -20,6 +20,7 @@ struct TireShopApp: App {
                 .environment(\.timeZone, shopClock.timeZone)
                 .environment(\.calendar, shopClock.calendar)
                 .onChange(of: scenePhase) { _, phase in
+                    DebugLayoutLog.event("scenePhase=\(String(describing: phase))")
                     if phase == .active {
                         Task { await TapToPayTerminalController.shared.warmUpForForeground() }
                     }
@@ -34,5 +35,7 @@ private struct TireShopSceneRoot: View {
     var body: some View {
         RootGateView()
             .environmentObject(quote)
+            .debugLayoutProbe("SceneRoot")
+            .debugKeyboardDiagnostics()
     }
 }

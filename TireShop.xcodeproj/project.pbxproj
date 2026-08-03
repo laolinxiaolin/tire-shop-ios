@@ -20,6 +20,7 @@
 		6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F2FDAF3073867A0D51FCB72 /* Formatters.swift */; };
 		11A112861298144664360E27 /* I18nMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */; };
 		68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88CA5A639740B9905E77B77 /* I18nStore.swift */; };
+		1F48DAF4B10E02E253827AD9 /* LayoutDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */; };
 		F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */; };
 		C28E3B592A560C32484F497E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8 /* Models.swift */; };
 		5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4C2DA3A8199A94893222 /* NativeComponents.swift */; };
@@ -60,6 +61,7 @@
 		0F2FDAF3073867A0D51FCB72 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Formatters.swift"; sourceTree = "<group>"; };
 		F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nMessages.swift"; sourceTree = "<group>"; };
 		E88CA5A639740B9905E77B77 /* I18nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nStore.swift"; sourceTree = "<group>"; };
+		4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LayoutDiagnostics.swift"; sourceTree = "<group>"; };
 		64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView.swift"; sourceTree = "<group>"; };
 		78FD430803560F137BDECEE8 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>"; };
 		365A4C2DA3A8199A94893222 /* NativeComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeComponents.swift"; sourceTree = "<group>"; };
@@ -125,6 +127,7 @@
 				0F2FDAF3073867A0D51FCB72 /* Formatters.swift */,
 				F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */,
 				E88CA5A639740B9905E77B77 /* I18nStore.swift */,
+				4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */,
 				64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */,
 				78FD430803560F137BDECEE8 /* Models.swift */,
 				365A4C2DA3A8199A94893222 /* NativeComponents.swift */,
@@ -255,6 +258,7 @@
 				6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */,
 				11A112861298144664360E27 /* I18nMessages.swift in Sources */,
 				68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */,
+				1F48DAF4B10E02E253827AD9 /* LayoutDiagnostics.swift in Sources */,
 				F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */,
 				C28E3B592A560C32484F497E /* Models.swift in Sources */,
 				5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */,

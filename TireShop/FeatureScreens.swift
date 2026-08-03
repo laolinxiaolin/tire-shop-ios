@@ -731,6 +731,7 @@ struct InventoryListNativeView: View {
         .onDisappear {
             searchTask?.cancel()
         }
+        .debugLayoutProbe("SalesScreen")
         .toolbar {
             if !selectForQuote {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -2181,18 +2182,21 @@ private struct BestSellersNativeView: View {
     }
 
     private func report(_ response: BestSellersResponse) -> some View {
-        List {
-            ForEach(Array(response.items.enumerated()), id: \.element.id) { index, row in
-                NavigationLink(value: AppRoute.skuDetail(row.id)) {
-                    BestSellerNativeRow(rank: index + 1, row: row)
+        VStack(spacing: 0) {
+            List {
+                ForEach(Array(response.items.enumerated()), id: \.element.id) { index, row in
+                    NavigationLink(value: AppRoute.skuDetail(row.id)) {
+                        BestSellerNativeRow(rank: index + 1, row: row)
+                    }
                 }
             }
-        }
-        .listStyle(.plain)
-        .refreshable { await load() }
-        .safeAreaInset(edge: .bottom) {
+            .listStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .refreshable { await load() }
+
             BestSellersSummaryFooter(summary: response.summary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @MainActor
@@ -2467,19 +2471,24 @@ struct SalesListNativeView: View {
     }
 
     private func salesContent(_ data: SalesListResponse) -> some View {
-        List(data.items) { sale in
-            NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                saleRow(sale)
+        VStack(spacing: 0) {
+            List(data.items) { sale in
+                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                    saleRow(sale)
+                }
             }
-        }
-        .listStyle(.plain)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .refreshable { await load() }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+            .listStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .refreshable { await load() }
+            .debugLayoutProbe("SalesList")
+
             if !data.items.isEmpty {
                 summaryFooter(data.summary)
+                    .debugLayoutProbe("SalesFooter")
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .debugLayoutProbe("SalesContent")
     }
 
     private func saleRow(_ sale: SaleListItem) -> some View {
