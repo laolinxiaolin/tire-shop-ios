@@ -2,6 +2,7 @@ import CoreTransferable
 import Foundation
 import Security
 import UniformTypeIdentifiers
+import os
 
 enum Server {
     static let defaultBaseURLString = "https://laolin.net"
@@ -268,7 +269,16 @@ struct UploadPhotoFile: Transferable {
 final class APIClient {
     static let shared = APIClient()
 
-    var token: String?
+    /// Requests read the token from the cooperative pool while sign-in and
+    /// sign-out write it from the main actor, so it is lock-guarded rather than
+    /// a bare stored property.
+    private let tokenLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    var token: String? {
+        get { tokenLock.withLock { $0 } }
+        set { tokenLock.withLock { $0 = newValue } }
+    }
+
     var onUnauthorized: (() -> Void)?
 
     private let session: URLSession
@@ -348,14 +358,7 @@ final class APIClient {
         )
         defer { try? FileManager.default.removeItem(at: multipartURL) }
 
-        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/api\(path)"
-
-        guard let url = components?.url else {
-            throw APIError(status: 0, message: "The request URL is invalid.")
-        }
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: try Self.endpointURL(for: path))
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let requestToken = token
@@ -382,18 +385,7 @@ final class APIClient {
     }
 
     func download(_ path: String, fileName: String) async throws -> URL {
-        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
-        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-        components?.path = "/api\(pieces.first.map(String.init) ?? path)"
-        if pieces.count > 1 {
-            components?.percentEncodedQuery = String(pieces[1])
-        }
-
-        guard let url = components?.url else {
-            throw APIError(status: 0, message: "The request URL is invalid.")
-        }
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: try Self.endpointURL(for: path))
         let requestToken = token
         if let requestToken {
             request.setValue("Bearer \(requestToken)", forHTTPHeaderField: "Authorization")
@@ -441,18 +433,7 @@ final class APIClient {
     }
 
     func data(_ path: String, noAuthBounce: Bool = false) async throws -> Data {
-        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
-        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-        components?.path = "/api\(pieces.first.map(String.init) ?? path)"
-        if pieces.count > 1 {
-            components?.percentEncodedQuery = String(pieces[1])
-        }
-
-        guard let url = components?.url else {
-            throw APIError(status: 0, message: "The request URL is invalid.")
-        }
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: try Self.endpointURL(for: path))
         let requestToken = token
         if let requestToken {
             request.setValue("Bearer \(requestToken)", forHTTPHeaderField: "Authorization")
@@ -528,18 +509,7 @@ final class APIClient {
         includeAuth: Bool,
         idempotencyKey: String?
     ) async throws -> T {
-        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
-        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-        components?.path = "/api\(pieces.first.map(String.init) ?? path)"
-        if pieces.count > 1 {
-            components?.percentEncodedQuery = String(pieces[1])
-        }
-
-        guard let url = components?.url else {
-            throw APIError(status: 0, message: "The request URL is invalid.")
-        }
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: try Self.endpointURL(for: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -605,9 +575,35 @@ final class APIClient {
         return try decoder.decode(T.self, from: data)
     }
 
+    /// Build the absolute URL for an API path, keeping any query string the
+    /// caller already percent-encoded into `path`.
+    private static func endpointURL(for path: String) throws -> URL {
+        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
+        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        components?.path = "/api\(pieces.first.map(String.init) ?? path)"
+        if pieces.count > 1 {
+            components?.percentEncodedQuery = String(pieces[1])
+        }
+
+        guard let url = components?.url else {
+            throw APIError(status: 0, message: "The request URL is invalid.")
+        }
+
+        return url
+    }
+
     private func invalidateSession(ifCurrentRequestToken requestToken: String?) {
-        guard let requestToken, token == requestToken else { return }
-        token = nil
+        guard let requestToken else { return }
+
+        // Check and clear under one lock so that concurrent 401s from the same
+        // session tear it down — and notify — exactly once.
+        let didInvalidate = tokenLock.withLock { current -> Bool in
+            guard current == requestToken else { return false }
+            current = nil
+            return true
+        }
+
+        guard didInvalidate else { return }
         KeychainStore.deleteToken()
         onUnauthorized?()
     }

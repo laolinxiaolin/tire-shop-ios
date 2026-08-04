@@ -211,6 +211,7 @@ private struct ReceivablesTabView: View {
     @State private var total = 0
     @State private var loaded = false
     @State private var loadingMore = false
+    @State private var loadedPage = 1
     @State private var errorMessage: String?
     @State private var q = ""
     @State private var collectTarget: ReceivableCustomer?
@@ -236,21 +237,22 @@ private struct ReceivablesTabView: View {
             } else if let errorMessage, items.isEmpty {
                 RetryView(message: errorMessage) { Task { await reload() } }
             } else {
+                let rows = filtered
                 List {
                     Section {
-                        summaryHeader
+                        summaryHeader(rows)
                     }
 
                     Section {
                         if items.isEmpty {
                             Text("Nothing outstanding. Every invoice is paid.")
                                 .foregroundStyle(Theme.muted)
-                        } else if filtered.isEmpty {
+                        } else if rows.isEmpty {
                             Text("No customers match \"\(q)\".")
                                 .foregroundStyle(Theme.muted)
                         }
 
-                        ForEach(filtered, id: \.customer.id) { row in
+                        ForEach(rows, id: \.customer.id) { row in
                             Button {
                                 collectTarget = row
                             } label: {
@@ -288,20 +290,20 @@ private struct ReceivablesTabView: View {
         }
     }
 
-    private var summaryHeader: some View {
+    private func summaryHeader(_ rows: [ReceivableCustomer]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text(q.nilIfBlank == nil ? "TOTAL OPEN A/R" : "FILTERED OPEN A/R")
                 .font(.caption2)
                 .fontWeight(.semibold)
                 .foregroundStyle(Theme.muted)
-            Text(AppFormat.money(filtered.reduce(0) { $0 + $1.openBalance }))
+            Text(AppFormat.money(rows.reduce(0) { $0 + $1.openBalance }))
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundStyle(Theme.text)
-            Text("Across \(filtered.count) customer\(filtered.count == 1 ? "" : "s")")
+            Text("Across \(rows.count) customer\(rows.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
-            AgingStripView(buckets: bucketize(filtered, age: \.ageDays, amount: \.openBalance))
+            AgingStripView(buckets: bucketize(rows, age: \.ageDays, amount: \.openBalance))
             if downloadingStatement {
                 Label("Preparing statement...", systemImage: "arrow.down.doc")
                     .font(.caption)
@@ -342,6 +344,7 @@ private struct ReceivablesTabView: View {
             let page = try await MoneyAPI().receivables(page: 1, pageSize: pageSize)
             items = page.items
             total = page.total
+            loadedPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load receivables."
         }
@@ -352,10 +355,11 @@ private struct ReceivablesTabView: View {
     private func loadMore() async {
         guard !loadingMore, items.count < total else { return }
         loadingMore = true
-        let nextPage = items.count / pageSize + 1
+        let nextPage = loadedPage + 1
         if let page = try? await MoneyAPI().receivables(page: nextPage, pageSize: pageSize) {
-            items.append(contentsOf: page.items)
+            items.appendNewElements(from: page.items)
             total = page.total
+            loadedPage = nextPage
         }
         loadingMore = false
     }
@@ -456,40 +460,51 @@ private struct CollectReceivableSheet: View {
 
     private var canCollect: Bool { auth.has("payments.collect") }
 
-    private var totalApplied: Double {
-        applications.reduce(0) { $0 + $1.amount }
+    /// What the entered allocations add up to, and which rows are unusable.
+    /// Resolved in one pass: the invoice list re-read these per rendered row,
+    /// so drawing N invoices rebuilt both sets N times.
+    private struct AllocationState {
+        var applications: [ReceivableApplication] = []
+        var invalidRows: Set<String> = []
+        var overpaidRows: Set<String> = []
+        var totalApplied = 0.0
     }
 
-    private var applications: [ReceivableApplication] {
-        (detail?.openInvoices ?? []).compactMap { inv in
-            let amount = Double(allocations[inv.id] ?? "") ?? 0
-            return amount.isFinite && amount > 0
-                ? ReceivableApplication(invoiceId: inv.id, amount: amount)
-                : nil
+    private var allocationState: AllocationState {
+        var state = AllocationState()
+        for invoice in detail?.openInvoices ?? [] {
+            let entry = allocations[invoice.id]
+            let amount = Double(entry ?? "") ?? 0
+
+            if amount.isFinite, amount > 0 {
+                state.applications.append(
+                    ReceivableApplication(invoiceId: invoice.id, amount: amount)
+                )
+                state.totalApplied += amount
+            }
+
+            if amount.isFinite, amount - invoice.balance > 0.01 {
+                state.overpaidRows.insert(invoice.id)
+            }
+
+            // Validation reads the trimmed entry, so " 5 " is accepted here
+            // even though it does not parse into an application above.
+            if let raw = entry?.nilIfBlank {
+                guard let typed = Double(raw), typed.isFinite, typed >= 0 else {
+                    state.invalidRows.insert(invoice.id)
+                    continue
+                }
+            }
         }
-    }
-
-    private var invalidAllocationRows: Set<String> {
-        Set((detail?.openInvoices ?? []).compactMap { invoice in
-            let raw = allocations[invoice.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !raw.isEmpty else { return nil }
-            guard let amount = Double(raw), amount.isFinite, amount >= 0 else { return invoice.id }
-            return nil
-        })
-    }
-
-    private var overpaidRows: Set<String> {
-        Set((detail?.openInvoices ?? []).compactMap { invoice in
-            let amount = Double(allocations[invoice.id] ?? "") ?? 0
-            return amount.isFinite && amount - invoice.balance > 0.01 ? invoice.id : nil
-        })
+        return state
     }
 
     var body: some View {
+        let state = allocationState
         NavigationStack {
             Group {
                 if let detail {
-                    form(detail)
+                    form(detail, state: state)
                 } else if let errorMessage {
                     RetryView(message: errorMessage) { Task { await load() } }
                 } else {
@@ -508,10 +523,10 @@ private struct CollectReceivableSheet: View {
                         Button(busy ? "Posting..." : "Collect") { startSubmission() }
                             .disabled(
                                 busy
-                                    || totalApplied <= 0
+                                    || state.totalApplied <= 0
                                     || paymentMethodId.isEmpty
-                                    || !invalidAllocationRows.isEmpty
-                                    || !overpaidRows.isEmpty
+                                    || !state.invalidRows.isEmpty
+                                    || !state.overpaidRows.isEmpty
                             )
                     }
                 }
@@ -534,7 +549,7 @@ private struct CollectReceivableSheet: View {
         }
     }
 
-    private func form(_ detail: ReceivableCustomerDetail) -> some View {
+    private func form(_ detail: ReceivableCustomerDetail, state: AllocationState) -> some View {
         Form {
             if canCollect {
                 Section("Payment") {
@@ -587,11 +602,11 @@ private struct CollectReceivableSheet: View {
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                             }
-                            if overpaidRows.contains(inv.id) {
+                            if state.overpaidRows.contains(inv.id) {
                                 Text("Amount exceeds the remaining balance.")
                                     .font(.caption)
                                     .foregroundStyle(.red)
-                            } else if invalidAllocationRows.contains(inv.id) {
+                            } else if state.invalidRows.contains(inv.id) {
                                 Text("Enter zero or a positive dollar amount.")
                                     .font(.caption)
                                     .foregroundStyle(.red)
@@ -606,13 +621,13 @@ private struct CollectReceivableSheet: View {
                         Text("Total applied")
                             .fontWeight(.semibold)
                         Spacer()
-                        Text(AppFormat.money(totalApplied))
+                        Text(AppFormat.money(state.totalApplied))
                             .fontWeight(.semibold)
                     }
                 }
             }
 
-            if canCollect, let fee = feeNote {
+            if canCollect, let fee = feeNote(totalApplied: state.totalApplied) {
                 Section {
                     Text(fee)
                         .font(.caption)
@@ -628,7 +643,7 @@ private struct CollectReceivableSheet: View {
         }
     }
 
-    private var feeNote: String? {
+    private func feeNote(totalApplied: Double) -> String? {
         guard let method = methods.first(where: { $0.id == paymentMethodId }),
               let rate = method.feeRate.flatMap(Double.init), rate > 0, totalApplied > 0
         else { return nil }
@@ -682,15 +697,16 @@ private struct CollectReceivableSheet: View {
             errorMessage = "You do not have permission to collect payments."
             return
         }
-        guard !applications.isEmpty else {
+        let state = allocationState
+        guard !state.applications.isEmpty else {
             errorMessage = "Enter an amount for at least one invoice."
             return
         }
-        guard invalidAllocationRows.isEmpty else {
+        guard state.invalidRows.isEmpty else {
             errorMessage = "One or more invoice amounts are invalid."
             return
         }
-        guard overpaidRows.isEmpty else {
+        guard state.overpaidRows.isEmpty else {
             errorMessage = "One or more amounts exceed the remaining invoice balance."
             return
         }
@@ -707,7 +723,7 @@ private struct CollectReceivableSheet: View {
             let input = ReceivablesPayInput(
                 customerId: customer.id,
                 paymentMethodId: paymentMethodId,
-                applications: applications,
+                applications: state.applications,
                 reference: reference.nilIfBlank,
                 note: note.nilIfBlank
             )
@@ -746,6 +762,7 @@ private struct PayablesTabView: View {
     @State private var total = 0
     @State private var loaded = false
     @State private var loadingMore = false
+    @State private var loadedPage = 1
     @State private var errorMessage: String?
     @State private var q = ""
     @State private var payTarget: PayableVendor?
@@ -771,6 +788,7 @@ private struct PayablesTabView: View {
             } else if let errorMessage, items.isEmpty {
                 RetryView(message: errorMessage) { Task { await reload() } }
             } else {
+                let rows = filtered
                 List {
                     Section {
                         VStack(alignment: .leading, spacing: Theme.Space.sm) {
@@ -778,14 +796,14 @@ private struct PayablesTabView: View {
                                 .font(.caption2)
                                 .fontWeight(.semibold)
                                 .foregroundStyle(Theme.muted)
-                            Text(AppFormat.money(filtered.reduce(0) { $0 + $1.totalDue }))
+                            Text(AppFormat.money(rows.reduce(0) { $0 + $1.totalDue }))
                                 .font(.title2)
                                 .fontWeight(.bold)
                                 .foregroundStyle(Theme.text)
-                            Text("Across \(filtered.count) vendor\(filtered.count == 1 ? "" : "s")")
+                            Text("Across \(rows.count) vendor\(rows.count == 1 ? "" : "s")")
                                 .font(.caption)
                                 .foregroundStyle(Theme.muted)
-                            AgingStripView(buckets: bucketize(filtered, age: \.ageDays, amount: \.totalDue))
+                            AgingStripView(buckets: bucketize(rows, age: \.ageDays, amount: \.totalDue))
                         }
                         .padding(.vertical, Theme.Space.xs)
                     }
@@ -794,12 +812,12 @@ private struct PayablesTabView: View {
                         if items.isEmpty {
                             Text("Nothing owed. All container costs are settled.")
                                 .foregroundStyle(Theme.muted)
-                        } else if filtered.isEmpty {
+                        } else if rows.isEmpty {
                             Text("No vendors match \"\(q)\".")
                                 .foregroundStyle(Theme.muted)
                         }
 
-                        ForEach(filtered, id: \.vendorKey) { row in
+                        ForEach(rows, id: \.vendorKey) { row in
                             Button {
                                 payTarget = row
                             } label: {
@@ -853,6 +871,7 @@ private struct PayablesTabView: View {
             let page = try await MoneyAPI().payables(page: 1, pageSize: pageSize)
             items = page.items
             total = page.total
+            loadedPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load payables."
         }
@@ -863,10 +882,11 @@ private struct PayablesTabView: View {
     private func loadMore() async {
         guard !loadingMore, items.count < total else { return }
         loadingMore = true
-        let nextPage = items.count / pageSize + 1
+        let nextPage = loadedPage + 1
         if let page = try? await MoneyAPI().payables(page: nextPage, pageSize: pageSize) {
-            items.append(contentsOf: page.items)
+            items.appendNewElements(from: page.items)
             total = page.total
+            loadedPage = nextPage
         }
         loadingMore = false
     }
@@ -902,30 +922,40 @@ private struct PayVendorSheet: View {
         auth.canActOrRequest("payables.pay")
     }
 
-    private var applications: [PayableApplication] {
-        (detail?.items ?? []).compactMap { item in
+    /// What the entered amounts add up to, and which rows overpay. Resolved in
+    /// one pass: the payable list re-read `overpaidRows` per rendered row, so
+    /// drawing N items rebuilt the set N times.
+    private struct PayableState {
+        var applications: [PayableApplication] = []
+        var overpaidRows: Set<String> = []
+        var totalSelected = 0.0
+    }
+
+    private var payableState: PayableState {
+        var state = PayableState()
+        for item in detail?.items ?? [] {
             let amount = Double(amounts[item.id] ?? "") ?? 0
-            return amount > 0 ? PayableApplication(costId: item.id, amount: amount) : nil
-        }
-    }
 
-    private var totalSelected: Double {
-        applications.reduce(0) { $0 + $1.amount }
-    }
+            if amount > 0 {
+                state.applications.append(
+                    PayableApplication(costId: item.id, amount: amount)
+                )
+                state.totalSelected += amount
+            }
 
-    private var overpaidRows: Set<String> {
-        var rows = Set<String>()
-        for item in detail?.items ?? [] where (Double(amounts[item.id] ?? "") ?? 0) - item.remaining > 0.01 {
-            rows.insert(item.id)
+            if amount - item.remaining > 0.01 {
+                state.overpaidRows.insert(item.id)
+            }
         }
-        return rows
+        return state
     }
 
     var body: some View {
+        let state = payableState
         NavigationStack {
             Group {
                 if let detail {
-                    form(detail)
+                    form(detail, state: state)
                 } else if let errorMessage {
                     RetryView(message: errorMessage) { Task { await load() } }
                 } else {
@@ -941,14 +971,14 @@ private struct PayVendorSheet: View {
                 }
                 if canPay {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(busy ? "Saving..." : "Pay \(AppFormat.money(totalSelected))") {
+                        Button(busy ? "Saving..." : "Pay \(AppFormat.money(state.totalSelected))") {
                             startSubmission()
                         }
                         .disabled(
                             busy
-                                || totalSelected <= 0
+                                || state.totalSelected <= 0
                                 || accountId.isEmpty
-                                || !overpaidRows.isEmpty
+                                || !state.overpaidRows.isEmpty
                                 || pendingApproval
                         )
                     }
@@ -977,7 +1007,7 @@ private struct PayVendorSheet: View {
         }
     }
 
-    private func form(_ detail: PayableVendorDetail) -> some View {
+    private func form(_ detail: PayableVendorDetail, state: PayableState) -> some View {
         Form {
             Section("Payment") {
                 DatePicker("Paid on", selection: $paidAt, displayedComponents: .date)
@@ -1043,7 +1073,7 @@ private struct PayVendorSheet: View {
                                     .tint(Theme.muted)
                             }
                         }
-                        if overpaidRows.contains(item.id) {
+                        if state.overpaidRows.contains(item.id) {
                             Text("Amount exceeds the remaining balance.")
                                 .font(.caption)
                                 .foregroundStyle(.red)
@@ -1056,7 +1086,7 @@ private struct PayVendorSheet: View {
                     Text("Total being paid")
                         .fontWeight(.semibold)
                     Spacer()
-                    Text(AppFormat.money(totalSelected))
+                    Text(AppFormat.money(state.totalSelected))
                         .fontWeight(.semibold)
                 }
             }
@@ -1117,11 +1147,12 @@ private struct PayVendorSheet: View {
             errorMessage = "You do not have permission to pay vendors."
             return
         }
-        guard !applications.isEmpty else {
+        let state = payableState
+        guard !state.applications.isEmpty else {
             errorMessage = "Enter an amount for at least one payable."
             return
         }
-        guard overpaidRows.isEmpty else {
+        guard state.overpaidRows.isEmpty else {
             errorMessage = "One or more amounts exceed the remaining balance."
             return
         }
@@ -1136,7 +1167,7 @@ private struct PayVendorSheet: View {
 
         do {
             let input = PayablesPayInput(
-                applications: applications,
+                applications: state.applications,
                 paidAt: FinanceDay.string(paidAt),
                 reference: reference.nilIfBlank,
                 note: note.nilIfBlank,
@@ -1219,6 +1250,7 @@ private struct ReceiptsListView: View {
     @State private var total = 0
     @State private var loaded = false
     @State private var loadingMore = false
+    @State private var loadedPage = 1
     @State private var errorMessage: String?
     @State private var openId: String?
 
@@ -1273,6 +1305,7 @@ private struct ReceiptsListView: View {
             let page = try await MoneyAPI().receipts(page: 1, pageSize: pageSize)
             items = page.items
             total = page.total
+            loadedPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load receipts."
         }
@@ -1283,10 +1316,11 @@ private struct ReceiptsListView: View {
     private func loadMore() async {
         guard !loadingMore, items.count < total else { return }
         loadingMore = true
-        let nextPage = items.count / pageSize + 1
+        let nextPage = loadedPage + 1
         if let page = try? await MoneyAPI().receipts(page: nextPage, pageSize: pageSize) {
-            items.append(contentsOf: page.items)
+            items.appendNewElements(from: page.items)
             total = page.total
+            loadedPage = nextPage
         }
         loadingMore = false
     }
@@ -1428,6 +1462,7 @@ private struct SupplierPaymentsListView: View {
     @State private var total = 0
     @State private var loaded = false
     @State private var loadingMore = false
+    @State private var loadedPage = 1
     @State private var errorMessage: String?
     @State private var openId: String?
 
@@ -1482,6 +1517,7 @@ private struct SupplierPaymentsListView: View {
             let page = try await MoneyAPI().supplierPayments(page: 1, pageSize: pageSize)
             items = page.items
             total = page.total
+            loadedPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load supplier payments."
         }
@@ -1492,10 +1528,11 @@ private struct SupplierPaymentsListView: View {
     private func loadMore() async {
         guard !loadingMore, items.count < total else { return }
         loadingMore = true
-        let nextPage = items.count / pageSize + 1
+        let nextPage = loadedPage + 1
         if let page = try? await MoneyAPI().supplierPayments(page: nextPage, pageSize: pageSize) {
-            items.append(contentsOf: page.items)
+            items.appendNewElements(from: page.items)
             total = page.total
+            loadedPage = nextPage
         }
         loadingMore = false
     }
@@ -1769,6 +1806,7 @@ private struct JournalTabView: View {
     @State private var total = 0
     @State private var loaded = false
     @State private var loadingMore = false
+    @State private var loadedPage = 1
     @State private var errorMessage: String?
 
     private let pageSize = 25
@@ -1802,6 +1840,7 @@ private struct JournalTabView: View {
             let page = try await AccountingAPI().journal(page: 1, pageSize: pageSize)
             items = page.items
             total = page.total
+            loadedPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the journal."
         }
@@ -1812,10 +1851,11 @@ private struct JournalTabView: View {
     private func loadMore() async {
         guard !loadingMore, items.count < total else { return }
         loadingMore = true
-        let nextPage = items.count / pageSize + 1
+        let nextPage = loadedPage + 1
         if let page = try? await AccountingAPI().journal(page: nextPage, pageSize: pageSize) {
-            items.append(contentsOf: page.items)
+            items.appendNewElements(from: page.items)
             total = page.total
+            loadedPage = nextPage
         }
         loadingMore = false
     }
@@ -2216,6 +2256,7 @@ private struct AccountHistorySheet: View {
     @State private var balance: Double?
     @State private var loaded = false
     @State private var loadingMore = false
+    @State private var loadedPage = 1
     @State private var errorMessage: String?
 
     private let pageSize = 50
@@ -2295,6 +2336,7 @@ private struct AccountHistorySheet: View {
             let page = try await AccountingAPI().accountHistory(code: account.code, page: 1, pageSize: pageSize)
             items = page.items
             total = page.total
+            loadedPage = 1
             balance = page.account.balance
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the account history."
@@ -2306,10 +2348,11 @@ private struct AccountHistorySheet: View {
     private func loadMore() async {
         guard !loadingMore, items.count < total else { return }
         loadingMore = true
-        let nextPage = items.count / pageSize + 1
+        let nextPage = loadedPage + 1
         if let page = try? await AccountingAPI().accountHistory(code: account.code, page: nextPage, pageSize: pageSize) {
-            items.append(contentsOf: page.items)
+            items.appendNewElements(from: page.items)
             total = page.total
+            loadedPage = nextPage
         }
         loadingMore = false
     }

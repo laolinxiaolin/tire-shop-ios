@@ -204,9 +204,9 @@ final class QuoteStore: ObservableObject {
         guard target > 0 else { return }
         let effectiveRate = customer?.taxExempt == true ? 0 : taxRate / 100
         guard let plan = Self.roundTotalPlan(lines: lines, taxRate: effectiveRate, target: target) else { return }
-        for index in lines.indices {
-            lines[index].unitPrice = plan.lines[index].unitPrice
-            lines[index].discount = plan.lines[index].discount
+        for (index, planned) in zip(lines.indices, plan.lines) {
+            lines[index].unitPrice = planned.unitPrice
+            lines[index].discount = planned.discount
         }
         taxOverride = plan.taxAmount
     }

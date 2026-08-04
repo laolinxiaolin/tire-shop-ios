@@ -613,12 +613,11 @@ struct InventoryListNativeView: View {
     }
 
     private var totalQuantity: Int {
-        items.reduce(0) { result, sku in
-            let location = selectedLocation.nilIfBlank
-            let quantity = selectForQuote
+        let location = selectedLocation.nilIfBlank
+        return items.reduce(0) { result, sku in
+            result + (selectForQuote
                 ? Self.available(sku, location: location)
-                : Self.onHand(sku, location: location)
-            return result + quantity
+                : Self.onHand(sku, location: location))
         }
     }
 
@@ -627,20 +626,35 @@ struct InventoryListNativeView: View {
             return inventoryTotals
         }
 
+        // One pass over `items`, and one pass over each SKU's inventory rows:
+        // on-hand feeds three of the four totals, so it is resolved once per SKU
+        // rather than recomputed for units, cost value, and retail value.
         let selectedWarehouse = selectedLocation.nilIfBlank
-        let units = items.reduce(0) { $0 + Self.onHand($1, location: selectedWarehouse) }
-        let reserved = items.reduce(0) { result, sku in
+        var units = 0
+        var reserved = 0
+        var costValue = 0.0
+        var retailValue = 0.0
+
+        for sku in items {
+            let skuOnHand: Int
             if let selectedWarehouse {
-                return result + (sku.inventory.first { $0.location == selectedWarehouse }?.qtyReserved ?? 0)
+                let row = sku.inventory.first { $0.location == selectedWarehouse }
+                skuOnHand = row?.qtyOnHand ?? 0
+                reserved += row?.qtyReserved ?? 0
+            } else {
+                var allOnHand = 0
+                for row in sku.inventory {
+                    allOnHand += row.qtyOnHand
+                    reserved += row.qtyReserved
+                }
+                skuOnHand = allOnHand
             }
-            return result + sku.inventory.reduce(0) { $0 + $1.qtyReserved }
+
+            units += skuOnHand
+            costValue += Double(skuOnHand) * (Double(sku.priceCost) ?? 0)
+            retailValue += Double(skuOnHand) * (Double(sku.priceRetail) ?? 0)
         }
-        let costValue = items.reduce(0.0) {
-            $0 + Double(Self.onHand($1, location: selectedWarehouse)) * (Double($1.priceCost) ?? 0)
-        }
-        let retailValue = items.reduce(0.0) {
-            $0 + Double(Self.onHand($1, location: selectedWarehouse)) * (Double($1.priceRetail) ?? 0)
-        }
+
         return InventoryTotals(
             skus: items.count,
             units: units,
@@ -791,12 +805,13 @@ struct InventoryListNativeView: View {
                     Image(systemName: "shippingbox.fill")
                         .foregroundStyle(Theme.primary)
 
+                    let quantity = totalQuantity
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Available inventory")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.muted)
 
-                        Text("\(totalQuantity.formatted()) \(totalQuantity == 1 ? "tire" : "tires")")
+                        Text("\(quantity.formatted()) \(quantity == 1 ? "tire" : "tires")")
                             .font(.headline.monospacedDigit())
                             .foregroundStyle(Theme.text)
                     }

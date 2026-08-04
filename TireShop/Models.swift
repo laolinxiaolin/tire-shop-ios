@@ -2901,3 +2901,20 @@ struct CommissionPayout: Codable, Identifiable, Equatable {
     let entryCount: Int
     let createdAt: String
 }
+
+extension Array where Element: Identifiable {
+    /// Append only the elements whose id is not already present.
+    ///
+    /// Offset pagination can hand back a row that is already loaded when the
+    /// underlying data shifts between page fetches. Duplicate ids break the
+    /// diffing in SwiftUI `List`/`ForEach`, so paginated screens append through
+    /// here instead of `append(contentsOf:)`.
+    mutating func appendNewElements(from newElements: [Element]) {
+        guard !newElements.isEmpty else { return }
+
+        var seen = Set(map(\.id))
+        for element in newElements where seen.insert(element.id).inserted {
+            append(element)
+        }
+    }
+}

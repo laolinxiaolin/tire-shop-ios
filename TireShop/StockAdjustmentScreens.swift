@@ -59,21 +59,28 @@ struct StockAdjustBatchNativeView: View {
         _location = State(initialValue: initialLocation ?? "")
     }
 
-    private var changedLines: [(line: StockAdjustDraftLine, delta: Int)] {
-        lines.compactMap { line in
+    /// The lines that actually move stock, plus what they add up to. Resolved
+    /// in one pass: the editor read the changed set, the net change, and the
+    /// first short line separately, rebuilding the tuple array each time.
+    private struct BatchSummary {
+        var changed: [(line: StockAdjustDraftLine, delta: Int)] = []
+        var totalDelta = 0
+        var shortLine: StockAdjustDraftLine?
+    }
+
+    private var batchSummary: BatchSummary {
+        var summary = BatchSummary()
+        for line in lines {
             let delta = line.delta(mode: mode, location: location)
-            return delta == 0 ? nil : (line, delta)
+            guard delta != 0 else { continue }
+
+            summary.changed.append((line, delta))
+            summary.totalDelta += delta
+            if summary.shortLine == nil, line.onHand(at: location) + delta < 0 {
+                summary.shortLine = line
+            }
         }
-    }
-
-    private var totalDelta: Int {
-        changedLines.reduce(0) { $0 + $1.delta }
-    }
-
-    private var shortLine: StockAdjustDraftLine? {
-        changedLines.first {
-            $0.line.onHand(at: location) + $0.delta < 0
-        }?.line
+        return summary
     }
 
     var body: some View {
@@ -108,7 +115,8 @@ struct StockAdjustBatchNativeView: View {
     }
 
     private var editor: some View {
-        List {
+        let summary = batchSummary
+        return List {
             Section {
                 Text(i18n.t("stockAdjust.description"))
                     .font(.subheadline)
@@ -214,16 +222,16 @@ struct StockAdjustBatchNativeView: View {
                     }
                 }
             } header: {
-                Text(i18n.t("stockAdjust.totals", ["n": changedLines.count]))
+                Text(i18n.t("stockAdjust.totals", ["n": summary.changed.count]))
             } footer: {
-                if let shortLine {
+                if let shortLine = summary.shortLine {
                     Text(i18n.t("stockAdjust.short", [
                         "sku": shortLine.sku.sku,
                         "wh": location
                     ]))
                     .foregroundStyle(Theme.danger)
                 } else if !lines.isEmpty {
-                    Text(i18n.t("stockAdjust.netChange", ["n": signed(totalDelta)]))
+                    Text(i18n.t("stockAdjust.netChange", ["n": signed(summary.totalDelta)]))
                 }
             }
 
@@ -244,7 +252,7 @@ struct StockAdjustBatchNativeView: View {
                             ProgressView()
                         } else {
                             Label(
-                                i18n.t("stockAdjust.post", ["n": changedLines.count]),
+                                i18n.t("stockAdjust.post", ["n": summary.changed.count]),
                                 systemImage: "checkmark.circle.fill"
                             )
                         }
@@ -253,8 +261,8 @@ struct StockAdjustBatchNativeView: View {
                 }
                 .disabled(
                     saving
-                        || changedLines.isEmpty
-                        || shortLine != nil
+                        || summary.changed.isEmpty
+                        || summary.shortLine != nil
                         || !warehouses.contains(where: { $0.code == location })
                 )
             }
@@ -399,14 +407,15 @@ struct StockAdjustBatchNativeView: View {
 
     @MainActor
     private func submit() async {
-        guard !changedLines.isEmpty, shortLine == nil else { return }
+        let summary = batchSummary
+        guard !summary.changed.isEmpty, summary.shortLine == nil else { return }
         saving = true
         errorMessage = nil
         defer { saving = false }
 
         do {
             let outcome = try await InventoryAPI().adjustBatch(StockAdjustBatchInput(
-                lines: changedLines.map {
+                lines: summary.changed.map {
                     StockAdjustBatchLineInput(
                         skuId: $0.line.sku.id,
                         delta: $0.delta,

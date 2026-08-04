@@ -36,14 +36,15 @@ struct UsersNativeView: View {
 
     var body: some View {
         Group {
+            let rows = filtered
             if !loaded {
                 LoadingView(label: "Loading...")
             } else if let errorMessage, users.isEmpty {
                 RetryView(message: errorMessage) { Task { await load() } }
-            } else if filtered.isEmpty {
+            } else if rows.isEmpty {
                 EmptyStateView(text: search.nilIfBlank == nil ? "No users yet." : "No users match \"\(search)\".")
             } else {
-                List(filtered) { user in
+                List(rows) { user in
                     UserRow(user: user)
                         .contentShape(Rectangle())
                         .onTapGesture { if canManage { editing = UserEditTarget(user: user) } }

@@ -180,14 +180,16 @@ struct PaymentSheetNativeView: View {
                     }
 
                     Section("Totals") {
-                        RowLine(title: "Applied to invoice", trailing: AppFormat.money(totalApplied))
-                        if totalSurcharge > 0 {
-                            RowLine(title: "Card fee", trailing: AppFormat.money(totalSurcharge))
-                            RowLine(title: "Customer pays", trailing: AppFormat.money(totalCustomerPays))
+                        let totals = paymentTotals
+                        let remainder = remaining(totals)
+                        RowLine(title: "Applied to invoice", trailing: AppFormat.money(totals.applied))
+                        if totals.surcharge > 0 {
+                            RowLine(title: "Card fee", trailing: AppFormat.money(totals.surcharge))
+                            RowLine(title: "Customer pays", trailing: AppFormat.money(totals.customerPays))
                         }
                         RowLine(
-                            title: remaining >= 0 ? "Remaining balance" : "Overpayment",
-                            trailing: AppFormat.money(abs(remaining))
+                            title: remainder >= 0 ? "Remaining balance" : "Overpayment",
+                            trailing: AppFormat.money(abs(remainder))
                         )
                     }
                 }
@@ -200,10 +202,11 @@ struct PaymentSheetNativeView: View {
                 }
 
                 Section {
-                    Button(recording ? "Recording..." : recordTitle) {
+                    let totals = paymentTotals
+                    Button(recording ? "Recording..." : recordTitle(totals)) {
                         startRecording()
                     }
-                    .disabled(!canRecord)
+                    .disabled(!canRecord(totals))
                 }
             }
             .disabled(recording || cardProcessing)
@@ -231,49 +234,70 @@ struct PaymentSheetNativeView: View {
         }
     }
 
+    private static func isValid(_ row: PaymentRow) -> Bool {
+        row.amountValue > 0 && !row.paymentMethodId.isEmpty
+    }
+
     private var validRows: [PaymentRow] {
-        rows.filter { $0.amountValue > 0 && !$0.paymentMethodId.isEmpty }
+        rows.filter(Self.isValid)
     }
 
     private var effectiveBalance: Double {
         max(0, roundMoney(balance - postedApplied))
     }
 
-    private var totalApplied: Double {
-        roundMoney(validRows.reduce(0) { $0 + $1.amountValue })
+    /// The totals the sheet renders. Resolved in one pass over `rows` with a
+    /// single `methods` lookup per row, because every value here derives from
+    /// the same set of valid rows and the sheet reads all of them together.
+    private struct PaymentTotals {
+        var validRowCount = 0
+        var applied = 0.0
+        var surcharge = 0.0
+        var storeCredit = 0.0
+        var customerPays = 0.0
     }
 
-    private var totalSurcharge: Double {
-        roundMoney(validRows.reduce(0) { $0 + surcharge(for: $1) })
+    private var paymentTotals: PaymentTotals {
+        var totals = PaymentTotals()
+        for row in rows where Self.isValid(row) {
+            let rowMethod = method(for: row)
+            totals.validRowCount += 1
+            totals.applied += row.amountValue
+            totals.surcharge += surcharge(for: row, method: rowMethod)
+            if rowMethod?.account.code == storeCreditCode {
+                totals.storeCredit += row.amountValue
+            }
+        }
+
+        totals.applied = roundMoney(totals.applied)
+        totals.surcharge = roundMoney(totals.surcharge)
+        totals.storeCredit = roundMoney(totals.storeCredit)
+        totals.customerPays = roundMoney(totals.applied + totals.surcharge)
+        return totals
     }
 
-    private var totalCustomerPays: Double {
-        roundMoney(totalApplied + totalSurcharge)
+    private func remaining(_ totals: PaymentTotals) -> Double {
+        roundMoney(effectiveBalance - totals.applied)
     }
 
-    private var remaining: Double {
-        roundMoney(effectiveBalance - totalApplied)
+    private func isOverpay(_ totals: PaymentTotals) -> Bool {
+        totals.applied - effectiveBalance > 0.01
     }
 
-    private var overpay: Bool {
-        totalApplied - effectiveBalance > 0.01
-    }
-
-    private var storeCreditApplied: Double {
-        roundMoney(validRows.filter { method(for: $0)?.account.code == storeCreditCode }.reduce(0) { $0 + $1.amountValue })
-    }
-
-    private var overCredit: Bool {
+    private func isOverCredit(_ totals: PaymentTotals) -> Bool {
         guard let creditBalance else { return false }
-        return storeCreditApplied > creditBalance + 0.005
+        return totals.storeCredit > creditBalance + 0.005
     }
 
-    private var canRecord: Bool {
-        !recording && !cardProcessing && !validRows.isEmpty && !overpay && !overCredit
+    private func canRecord(_ totals: PaymentTotals) -> Bool {
+        !recording && !cardProcessing && totals.validRowCount > 0
+            && !isOverpay(totals) && !isOverCredit(totals)
     }
 
-    private var recordTitle: String {
-        validRows.count <= 1 ? "Record manual payment" : "Record \(validRows.count) manual payments"
+    private func recordTitle(_ totals: PaymentTotals) -> String {
+        totals.validRowCount <= 1
+            ? "Record manual payment"
+            : "Record \(totals.validRowCount) manual payments"
     }
 
     @MainActor
@@ -378,13 +402,14 @@ struct PaymentSheetNativeView: View {
         defer { recording = false }
 
         do {
-            if validRows.isEmpty {
+            let totals = paymentTotals
+            if totals.validRowCount == 0 {
                 throw APIError(status: 0, message: "Add at least one payment.")
             }
-            if overpay {
+            if isOverpay(totals) {
                 throw APIError(status: 0, message: "Payment exceeds the invoice balance.")
             }
-            if overCredit {
+            if isOverCredit(totals) {
                 throw APIError(status: 0, message: "Store credit exceeds the available balance.")
             }
 
@@ -463,7 +488,7 @@ struct PaymentSheetNativeView: View {
     }
 
     private func addRow() {
-        let remainingAmount = max(0, remaining)
+        let remainingAmount = max(0, remaining(paymentTotals))
         rows.append(PaymentRow(
             paymentMethodId: methods.first?.id ?? "",
             amount: remainingAmount > 0 ? String(format: "%.2f", remainingAmount) : "",
@@ -476,8 +501,12 @@ struct PaymentSheetNativeView: View {
     }
 
     private func surcharge(for row: PaymentRow) -> Double {
+        surcharge(for: row, method: method(for: row))
+    }
+
+    private func surcharge(for row: PaymentRow, method: PaymentMethod?) -> Double {
         guard
-            let method = method(for: row),
+            let method,
             method.account.code != storeCreditCode,
             let feeText = method.feeRate,
             let feeRate = Double(feeText),
