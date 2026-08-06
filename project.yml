@@ -38,3 +38,16 @@ targets:
           CODE_SIGN_ENTITLEMENTS: TireShop/TireShopTesting.entitlements
         Release:
           CODE_SIGN_ENTITLEMENTS: TireShop/TireShop.entitlements
+  TireShopTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TireShopTests
+    dependencies:
+      - target: TireShop
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tireforceus.tireshopTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/TireShop.app/TireShop"
+        BUNDLE_LOADER: "$(TEST_HOST)"

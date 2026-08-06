@@ -46,14 +46,14 @@ enum AppFormat {
         return currencyFormatter.string(from: NSNumber(value: value)) ?? "-"
     }
 
-    /// Parse a user-entered amount using the current locale's decimal separator
+    /// Parse a user-entered amount using the given locale's decimal separator
     /// (so `"12,50"` works in comma-decimal locales), falling back to a plain
     /// `Double` parse. Returns `nil` for blank or unparseable input.
-    static func parseAmount(_ text: String) -> Double? {
+    static func parseAmount(_ text: String, locale: Locale = .current) -> Double? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        if let number = amountFormatter(for: Locale.current).number(from: trimmed) {
+        if let number = amountFormatter(for: locale).number(from: trimmed) {
             return number.doubleValue
         }
         return Double(trimmed)
