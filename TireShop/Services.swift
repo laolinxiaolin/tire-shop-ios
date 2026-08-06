@@ -1829,19 +1829,23 @@ struct PaymentMethodCreateInput: Codable {
     let payoutAccountCode: String?
 }
 
+/// Tri-state PATCH body for a payment method. Each field is double-optional:
+/// `.none` = leave the field alone, `.some(nil)` = clear it, `.some(x)` = set it.
+/// Only fields that were supplied are encoded, so a partial PATCH never nulls
+/// fields the caller didn't intend to touch.
 struct PaymentMethodPatchInput: Encodable {
-    let isActive: Bool?
-    let name: String?
-    let accountCode: String?
-    let feeRate: Double?
-    let payoutAccountCode: String?
+    var isActive: Bool?? = nil
+    var name: String?? = nil
+    var accountCode: String?? = nil
+    var feeRate: Double?? = nil
+    var payoutAccountCode: String?? = nil
 
     init(
-        isActive: Bool? = nil,
-        name: String? = nil,
-        accountCode: String? = nil,
-        feeRate: Double? = nil,
-        payoutAccountCode: String? = nil
+        isActive: Bool?? = nil,
+        name: String?? = nil,
+        accountCode: String?? = nil,
+        feeRate: Double?? = nil,
+        payoutAccountCode: String?? = nil
     ) {
         self.isActive = isActive
         self.name = name
@@ -1860,14 +1864,11 @@ struct PaymentMethodPatchInput: Encodable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        // Optional values encode via encodeIfPresent; a deliberate `nil` (clearing a
-        // field) is encoded explicitly so the server removes it instead of keeping
-        // the previous value.
-        try container.encodeNullable(isActive, forKey: .isActive)
-        try container.encodeNullable(name, forKey: .name)
-        try container.encodeNullable(accountCode, forKey: .accountCode)
-        try container.encodeNullable(feeRate, forKey: .feeRate)
-        try container.encodeNullable(payoutAccountCode, forKey: .payoutAccountCode)
+        if let isActive { try container.encodeNullable(isActive, forKey: .isActive) }
+        if let name { try container.encodeNullable(name, forKey: .name) }
+        if let accountCode { try container.encodeNullable(accountCode, forKey: .accountCode) }
+        if let feeRate { try container.encodeNullable(feeRate, forKey: .feeRate) }
+        if let payoutAccountCode { try container.encodeNullable(payoutAccountCode, forKey: .payoutAccountCode) }
     }
 }
 

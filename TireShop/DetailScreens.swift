@@ -23,6 +23,7 @@ struct SaleDetailNativeView: View {
     @State private var hasAppeared = false
     @State private var salespersonOptions: [CustomerSalesperson] = []
     @State private var selectedSalespersonId = ""
+    @State private var salespersonOptionsLoaded = false
     @State private var savingSalesperson = false
     @State private var showPayLink = false
     @State private var payLinkContext: PayLinkContext?
@@ -307,17 +308,22 @@ struct SaleDetailNativeView: View {
             }
         }
 
-        if canAssignSalesperson {
-            if let page = try? await EmployeesAPI().list(pageSize: 200) {
-                salespersonOptions = page.items
-                    .filter { $0.status != "TERMINATED" }
-                    .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
-                    .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
-                selectedSalespersonId = sale.salespersonId ?? ""
-            }
-        }
-
         return SaleDetailData(sale: sale, skusByLineItemId: skusByLineItemId)
+    }
+
+    /// Loads the salesperson picker options once, lazily, only when the row is
+    /// shown (permission-gated) rather than on every sale-detail load.
+    @MainActor
+    private func loadSalespersonOptionsIfNeeded(sale: Sale) async {
+        guard canAssignSalesperson, !salespersonOptionsLoaded else { return }
+        salespersonOptionsLoaded = true
+        if let page = try? await EmployeesAPI().list(pageSize: 200) {
+            salespersonOptions = page.items
+                .filter { $0.status != "TERMINATED" }
+                .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
+                .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
+        }
+        selectedSalespersonId = sale.salespersonId ?? ""
     }
 
     private func salespersonRow(_ sale: Sale) -> some View {
@@ -330,6 +336,7 @@ struct SaleDetailNativeView: View {
                     }
                 }
                 .disabled(savingSalesperson)
+                .task { await loadSalespersonOptionsIfNeeded(sale: sale) }
 
                 Button {
                     Task { await saveSalesperson(for: sale) }
@@ -718,7 +725,7 @@ struct PayLinkSheet: View {
     private var amountValue: Double {
         // Invalid/blank input reads as 0 (invalid) rather than silently
         // defaulting to the full balance while the field shows something else.
-        Double(amountText) ?? 0
+        AppFormat.parseAmount(amountText) ?? 0
     }
 
     private var validAmount: Bool {

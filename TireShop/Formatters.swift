@@ -46,6 +46,22 @@ enum AppFormat {
         return currencyFormatter.string(from: NSNumber(value: value)) ?? "-"
     }
 
+    /// Parse a user-entered amount using the current locale's decimal separator
+    /// (so `"12,50"` works in comma-decimal locales), falling back to a plain
+    /// `Double` parse. Returns `nil` for blank or unparseable input.
+    static func parseAmount(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale.current
+        if let number = formatter.number(from: trimmed) {
+            return number.doubleValue
+        }
+        return Double(trimmed)
+    }
+
     static func shortDate(_ value: String?) -> String {
         guard let date = parseDate(value) else { return "-" }
         return dateFormatter().string(from: date)

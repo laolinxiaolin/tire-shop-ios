@@ -1753,7 +1753,7 @@ struct TapToPayNativeView: View {
                 reloadToken = UUID()
             }
             Button("Apply this amount") {
-                let value = Double(splitAmountText)
+                let value = AppFormat.parseAmount(splitAmountText)
                 guard let value, value > 0, value <= intent.balance + 0.005 else {
                     splitMessage = "Enter an amount between 0.01 and \(AppFormat.money(intent.balance))."
                     return

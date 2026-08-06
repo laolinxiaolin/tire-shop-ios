@@ -116,8 +116,6 @@ struct PaymentSheetNativeView: View {
     @State private var rows: [PaymentRow] = []
     @State private var loading = false
     @State private var recording = false
-    @State private var cardProcessing = false
-    @State private var cardNotice: String?
     @State private var errorMessage: String?
     @State private var postedApplied = 0.0
     @State private var recordingTask: Task<Void, Never>?
@@ -134,20 +132,9 @@ struct PaymentSheetNativeView: View {
                     Button {
                         showCardSheet = true
                     } label: {
-                        HStack {
-                            Label("Enter card number", systemImage: "creditcard")
-                            if cardProcessing {
-                                Spacer()
-                                ProgressView()
-                            }
-                        }
+                        Label("Enter card number", systemImage: "creditcard")
                     }
-                    .disabled(cardProcessing || recording || effectiveBalance <= 0)
-
-                    if let cardNotice {
-                        Text(cardNotice)
-                            .foregroundStyle(Theme.muted)
-                    }
+                    .disabled(recording || effectiveBalance <= 0)
                 }
 
                 if loading {
@@ -168,7 +155,7 @@ struct PaymentSheetNativeView: View {
                                 creditBalance: creditBalance,
                                 storeCreditCode: storeCreditCode
                             )
-                            .disabled(recording || cardProcessing)
+                            .disabled(recording)
                         }
                         .onDelete { offsets in
                             rows.remove(atOffsets: offsets)
@@ -177,7 +164,7 @@ struct PaymentSheetNativeView: View {
                         Button("Add manual payment method") {
                             addRow()
                         }
-                        .disabled(recording || cardProcessing)
+                        .disabled(recording)
                     }
 
                     Section("Totals") {
@@ -210,7 +197,7 @@ struct PaymentSheetNativeView: View {
                     .disabled(!canRecord(totals))
                 }
             }
-            .disabled(recording || cardProcessing)
+            .disabled(recording)
             .navigationTitle("Take payment")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -220,7 +207,7 @@ struct PaymentSheetNativeView: View {
                         }
                         dismiss()
                     }
-                    .disabled(recording || cardProcessing)
+                    .disabled(recording)
                 }
             }
             .task {
@@ -237,7 +224,7 @@ struct PaymentSheetNativeView: View {
                     }
                 )
             }
-            .interactiveDismissDisabled(recording || cardProcessing)
+            .interactiveDismissDisabled(recording)
             .onDisappear {
                 if recording {
                     recordingTask?.cancel()
@@ -302,7 +289,7 @@ struct PaymentSheetNativeView: View {
     }
 
     private func canRecord(_ totals: PaymentTotals) -> Bool {
-        !recording && !cardProcessing && totals.validRowCount > 0
+        !recording && totals.validRowCount > 0
             && !isOverpay(totals) && !isOverCredit(totals)
     }
 
@@ -502,7 +489,7 @@ private struct KeyedCardSplitSheet: View {
     @State private var errorMessage: String?
 
     private var amountValue: Double {
-        Double(amountText) ?? 0
+        AppFormat.parseAmount(amountText) ?? 0
     }
 
     private var validAmount: Bool {

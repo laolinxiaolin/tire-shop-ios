@@ -318,7 +318,6 @@ struct EmployeeDetailNativeView: View {
     @State private var commissions: [CommissionEntry] = []
     @State private var payouts: [CommissionPayoutRecord] = []
     @State private var loading = false
-    @State private var paying = false
     @State private var errorMessage: String?
     @State private var actionError: String?
     @State private var editing: EmployeeEditorTarget?
@@ -389,11 +388,7 @@ struct EmployeeDetailNativeView: View {
                 ])
 
                 if canPay {
-                    PrimaryButton(
-                        title: "Pay out by period",
-                        loading: false,
-                        disabled: false
-                    ) {
+                    PrimaryButton(title: "Pay out by period") {
                         showPayoutSheet = true
                     }
                 }
@@ -880,11 +875,7 @@ private struct CommissionPayoutSheet: View {
                             .tint(Theme.text)
                         }
                         Button("Select all") {
-                            if selected.count == eligible.count {
-                                selected.removeAll()
-                            } else {
-                                selected = Set(eligible.map(\.id))
-                            }
+                            setSelection(selected.count == eligible.count ? [] : Set(eligible.map(\.id)))
                         }
                         .font(.caption)
                     }
@@ -941,7 +932,18 @@ private struct CommissionPayoutSheet: View {
         } else {
             selected.insert(id)
         }
-        // A changed selection invalidates the confirmed preview total.
+        invalidateSelection()
+    }
+
+    /// Any change to the selection invalidates the confirmed preview total and
+    /// the idempotency key, so the button can't show a total that differs from
+    /// what's posted and a materially different payout gets a fresh key.
+    private func setSelection(_ newSelection: Set<String>) {
+        selected = newSelection
+        invalidateSelection()
+    }
+
+    private func invalidateSelection() {
         preview = nil
         idempotencyKey = nil
     }
