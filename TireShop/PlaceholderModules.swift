@@ -113,11 +113,9 @@ struct MonthlySalesNativeView: View {
     @State private var exporting = false
     @State private var exportTarget: ExportTarget?
 
-    private enum ExportMode: String, Identifiable {
+    private enum ExportMode: String {
         case all = "All columns"
         case asShown = "As shown"
-
-        var id: String { rawValue }
     }
 
     var body: some View {
@@ -176,9 +174,7 @@ struct MonthlySalesNativeView: View {
             await loadPreferences()
         }
         .sheet(isPresented: $showingColumns) {
-            MonthlySalesColumnsSheet(columns: $selectedColumns) {
-                Task { await savePreferences() }
-            }
+            MonthlySalesColumnsSheet(columns: $selectedColumns)
         }
         .sheet(item: $exportTarget) { target in
             QuickLookSheet(url: target.url)
@@ -189,8 +185,8 @@ struct MonthlySalesNativeView: View {
         String(format: value == value.rounded() ? "%.0f" : "%.2f", value)
     }
 
-    private func activeColumns(_ all: Bool) -> [String] {
-        guard !all else { return [] }
+    private func exportColumns(includeAll: Bool) -> [String] {
+        guard !includeAll else { return [] }
         return selectedColumns.map(\.key)
     }
 
@@ -220,13 +216,6 @@ struct MonthlySalesNativeView: View {
     }
 
     @MainActor
-    private func savePreferences() async {
-        _ = try? await UsersAPI().updatePreferences(
-            UserPreferencesPatch(monthlySalesColumns: selectedColumns.map(\.key))
-        )
-    }
-
-    @MainActor
     private func export(_ mode: ExportMode) async {
         exporting = true
         errorMessage = nil
@@ -234,7 +223,7 @@ struct MonthlySalesNativeView: View {
             let url = try await MonthlySalesAPI().export(
                 from: DayFormat.string(from),
                 to: DayFormat.string(to),
-                columns: activeColumns(mode == .all)
+                columns: exportColumns(includeAll: mode == .all)
             )
             exportTarget = ExportTarget(url: url)
         } catch {
@@ -298,27 +287,27 @@ enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
         }
     }
 
-    var value: (MonthlySalesRow) -> String {
+    func value(_ row: MonthlySalesRow) -> String {
         switch self {
-        case .date: return { AppFormat.shortDate($0.date) }
-        case .itemCode: return { $0.itemCode }
-        case .productCode: return { $0.productCode }
-        case .invoiceNo: return { $0.invoiceNo }
-        case .brand: return { $0.brand }
-        case .pattern: return { $0.pattern }
-        case .size: return { $0.size }
-        case .pr: return { $0.pr }
-        case .loadIndex: return { $0.loadIndex }
-        case .salesPrice: return { AppFormat.money($0.salesPrice) }
-        case .qty: return { Self.trimmedNum($0.qty) }
-        case .amount: return { AppFormat.money($0.amount) }
-        case .taxRate: return { String(format: "%.2f%%", $0.taxRate * 100) }
-        case .salesTax: return { AppFormat.money($0.salesTax) }
-        case .unitCost: return { AppFormat.money($0.unitCost) }
-        case .totalCost: return { AppFormat.money($0.totalCost) }
-        case .paymentMethod: return { $0.paymentMethod }
-        case .unitFet: return { AppFormat.money($0.unitFet) }
-        case .totalFet: return { AppFormat.money($0.totalFet) }
+        case .date: return AppFormat.shortDate(row.date)
+        case .itemCode: return row.itemCode
+        case .productCode: return row.productCode
+        case .invoiceNo: return row.invoiceNo
+        case .brand: return row.brand
+        case .pattern: return row.pattern
+        case .size: return row.size
+        case .pr: return row.pr
+        case .loadIndex: return row.loadIndex
+        case .salesPrice: return AppFormat.money(row.salesPrice)
+        case .qty: return Self.trimmedNum(row.qty)
+        case .amount: return AppFormat.money(row.amount)
+        case .taxRate: return String(format: "%.2f%%", row.taxRate * 100)
+        case .salesTax: return AppFormat.money(row.salesTax)
+        case .unitCost: return AppFormat.money(row.unitCost)
+        case .totalCost: return AppFormat.money(row.totalCost)
+        case .paymentMethod: return row.paymentMethod
+        case .unitFet: return AppFormat.money(row.unitFet)
+        case .totalFet: return AppFormat.money(row.totalFet)
         }
     }
 
@@ -371,9 +360,11 @@ private struct MonthlySalesRowView: View {
 
 private struct MonthlySalesColumnsSheet: View {
     @Binding var columns: [MonthlySalesColumnKey]
-    let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var snapshot: [MonthlySalesColumnKey] = []
+    @State private var saving = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -412,19 +403,32 @@ private struct MonthlySalesColumnsSheet: View {
                         }
                     }
                 }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                    }
+                }
             }
             .navigationTitle("Columns")
             .navigationBarTitleDisplayMode(.inline)
             .environment(\.editMode, .constant(.active))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        onSaved()
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        // Revert local edits; only Done persists.
+                        columns = snapshot
                         dismiss()
                     }
-                    .disabled(columns.isEmpty)
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving..." : "Done") {
+                        Task { await save() }
+                    }
+                    .disabled(saving || columns.isEmpty)
+                }
+            }
+            .onAppear {
+                snapshot = columns
             }
         }
     }
@@ -440,6 +444,22 @@ private struct MonthlySalesColumnsSheet: View {
 
     private func move(from source: IndexSet, to destination: Int) {
         columns.move(fromOffsets: source, toOffset: destination)
+    }
+
+    @MainActor
+    private func save() async {
+        saving = true
+        errorMessage = nil
+        do {
+            _ = try await UsersAPI().updatePreferences(
+                UserPreferencesPatch(monthlySalesColumns: columns.map(\.key))
+            )
+            snapshot = columns
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save column preferences."
+        }
+        saving = false
     }
 }
 

@@ -830,11 +830,13 @@ private struct CommissionPayoutSheet: View {
     @State private var selected = Set<String>()
     @State private var preview: CommissionPayoutPreview?
     @State private var methodId: String?
-    @State private var note = ""
     @State private var loading = false
     @State private var previewing = false
     @State private var creating = false
     @State private var errorMessage: String?
+    // Stable across retries of the same payout composition; reset whenever the
+    // selection/rollovers change so a different payout gets a fresh key.
+    @State private var idempotencyKey: String?
 
     var body: some View {
         NavigationStack {
@@ -939,6 +941,9 @@ private struct CommissionPayoutSheet: View {
         } else {
             selected.insert(id)
         }
+        // A changed selection invalidates the confirmed preview total.
+        preview = nil
+        idempotencyKey = nil
     }
 
     @MainActor
@@ -955,6 +960,7 @@ private struct CommissionPayoutSheet: View {
             )
             selected = Set(eligible.map(\.id))
             preview = nil
+            idempotencyKey = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load eligible commissions."
         }
@@ -970,6 +976,7 @@ private struct CommissionPayoutSheet: View {
             if methodId == nil, let first = preview?.availableMethods.first {
                 methodId = first.id
             }
+            idempotencyKey = UUID().uuidString
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not preview the payout."
         }
@@ -981,17 +988,18 @@ private struct CommissionPayoutSheet: View {
         creating = true
         errorMessage = nil
         do {
-            var input = createInput()
-            input = CommissionPayoutCreateInput(
-                employeeId: input.employeeId,
-                from: input.from,
-                to: input.to,
-                entryIds: input.entryIds,
-                rolloverIds: input.rolloverIds,
+            let base = createInput()
+            let input = CommissionPayoutCreateInput(
+                employeeId: base.employeeId,
+                from: base.from,
+                to: base.to,
+                entryIds: base.entryIds,
+                rolloverIds: base.rolloverIds,
                 methodId: methodId,
-                note: note.nilIfBlank
+                note: nil
             )
-            _ = try await CommissionsAPI().createPayout(input, idempotencyKey: UUID().uuidString)
+            let key = idempotencyKey ?? UUID().uuidString
+            _ = try await CommissionsAPI().createPayout(input, idempotencyKey: key)
             onDone()
             dismiss()
         } catch {

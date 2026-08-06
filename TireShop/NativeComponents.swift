@@ -313,59 +313,6 @@ struct PaymentSheetNativeView: View {
     }
 
     @MainActor
-    private func chargeCard() async {
-        guard !cardProcessing else { return }
-
-        cardProcessing = true
-        cardNotice = nil
-        errorMessage = nil
-        defer { cardProcessing = false }
-
-        do {
-            let status = try await PaymentsAPI().gatewayStatus()
-            guard status.enabled, status.provider.lowercased() == "stripe" else {
-                throw APIError(status: 0, message: "Stripe payments are not enabled.")
-            }
-
-            guard let publishableKey = status.publishableKey?.nilIfBlank else {
-                throw APIError(status: 0, message: "Stripe publishable key is not configured.")
-            }
-
-            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId)
-            guard let clientSecret = intent.clientSecret?.nilIfBlank else {
-                throw APIError(status: 0, message: "The server did not return a card payment client secret.")
-            }
-
-            STPAPIClient.shared.publishableKey = publishableKey
-
-            var configuration = PaymentSheet.Configuration()
-            configuration.merchantDisplayName = "Tire Force US"
-            configuration.allowsDelayedPaymentMethods = false
-
-            let paymentSheet = PaymentSheet(
-                paymentIntentClientSecret: clientSecret,
-                configuration: configuration
-            )
-            let result = try await present(paymentSheet: paymentSheet)
-
-            switch result {
-            case .completed:
-                if let paymentIntentId = intent.paymentIntentId?.nilIfBlank {
-                    _ = try? await PaymentsAPI().settleManual(paymentIntentId: paymentIntentId)
-                }
-                onPaid()
-                dismiss()
-            case .canceled:
-                cardNotice = "Card entry canceled."
-            case .failed(let error):
-                throw error
-            }
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Card payment failed."
-        }
-    }
-
-    @MainActor
     private func present(paymentSheet: PaymentSheet) async throws -> PaymentSheetResult {
         guard let controller = UIApplication.shared.tireShopTopViewController else {
             throw APIError(status: 0, message: "Card entry could not open.")
@@ -637,6 +584,12 @@ private struct KeyedCardSplitSheet: View {
                     amountText = String(format: "%.2f", balance)
                 }
             }
+            .onChange(of: amountText) { _, _ in
+                checked = false
+                preflight = nil
+                acknowledgedWarnings = false
+            }
+            .interactiveDismissDisabled(charging)
         }
     }
 

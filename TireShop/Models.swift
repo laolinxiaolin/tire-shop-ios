@@ -1253,7 +1253,7 @@ struct CustomerUserActiveInput: Encodable {
     let active: Bool
 }
 
-private extension KeyedEncodingContainer {
+extension KeyedEncodingContainer {
     mutating func encodeNullable<T: Encodable>(_ value: T?, forKey key: Key) throws {
         if let value {
             try encode(value, forKey: key)
@@ -2421,10 +2421,10 @@ struct PaymentMethod: Codable, Identifiable, Equatable {
         isActive = try container.decode(Bool.self, forKey: .isActive)
         processor = try container.decodeIfPresent(String.self, forKey: .processor)
         account = try container.decode(JournalLine.AccountInfo.self, forKey: .account)
-        // Older servers nest the outgoing payout account under `account`; newer
-        // ones expose it separately as `payoutAccount`. Decode tolerantly.
-        payoutAccount = (try? container.decodeIfPresent(JournalLine.AccountInfo.self, forKey: .payoutAccount))
-            ?? (try? container.decodeIfPresent(JournalLine.AccountInfo.self, forKey: .account))
+        // The outgoing payout account is optional and only present on newer
+        // servers; decoding is kept at the field layer so an unset value stays
+        // nil (callers fall back to the deposit account for display only).
+        payoutAccount = try container.decodeIfPresent(JournalLine.AccountInfo.self, forKey: .payoutAccount)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -3131,13 +3131,6 @@ struct CommissionEntry: Codable, Identifiable, Equatable {
     let createdAt: String
     let employee: CommissionEmployeeRef?
     let sale: CommissionSaleRef?
-}
-
-struct CommissionPayout: Codable, Identifiable, Equatable {
-    let id: String
-    let amount: Double
-    let entryCount: Int
-    let createdAt: String
 }
 
 // MARK: - Pay-period commission payouts

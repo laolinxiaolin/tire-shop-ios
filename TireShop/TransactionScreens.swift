@@ -1548,6 +1548,7 @@ struct TapToPayNativeView: View {
     @State private var splitAmount: Double?
     @State private var preflight: ChargePreflight?
     @State private var acknowledgedWarnings = false
+    @State private var splitMessage: String?
     @State private var reloadToken = UUID()
 
     let invoiceId: String
@@ -1747,16 +1748,24 @@ struct TapToPayNativeView: View {
             Button("Use full balance") {
                 splitAmountText = ""
                 splitAmount = nil
+                preflight = nil
+                acknowledgedWarnings = false
                 reloadToken = UUID()
             }
             Button("Apply this amount") {
                 let value = Double(splitAmountText)
                 guard let value, value > 0, value <= intent.balance + 0.005 else {
-                    preflight = nil
+                    splitMessage = "Enter an amount between 0.01 and \(AppFormat.money(intent.balance))."
                     return
                 }
+                splitMessage = nil
                 splitAmount = value
                 Task { await checkPreflight(amount: value) }
+            }
+            if let splitMessage {
+                Text(splitMessage)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
             }
 
             if let preflight {

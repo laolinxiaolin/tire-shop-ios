@@ -100,9 +100,7 @@ struct SaleDetailNativeView: View {
                             } label: {
                                 Label("Email invoice", systemImage: "envelope")
                             }
-                        }
 
-                        if canSend {
                             Button {
                                 payLinkContext = PayLinkContext(invoice: invoice, saleRef: sale.ref)
                             } label: {
@@ -288,6 +286,7 @@ struct SaleDetailNativeView: View {
         confirming = false
     }
 
+    @MainActor
     private func loadDetail() async throws -> SaleDetailData {
         let sale = try await SalesAPI().get(id: id)
         var skusByLineItemId: [String: TireSku] = [:]
@@ -717,7 +716,9 @@ struct PayLinkSheet: View {
     }
 
     private var amountValue: Double {
-        Double(amountText) ?? balance
+        // Invalid/blank input reads as 0 (invalid) rather than silently
+        // defaulting to the full balance while the field shows something else.
+        Double(amountText) ?? 0
     }
 
     private var validAmount: Bool {

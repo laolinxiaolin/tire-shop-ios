@@ -2223,16 +2223,17 @@ struct CashAccountsNativeView: View {
                 Text("No payment methods.").foregroundStyle(Theme.muted)
             }
             ForEach(methods) { method in
-                Button {
-                    if canManage {
-                        editingMethod = method
-                    }
-                } label: {
-                    HStack {
+                HStack {
+                    Button {
+                        if canManage {
+                            editingMethod = method
+                        }
+                    } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(method.name)
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
+                                .foregroundStyle(Theme.text)
                             Text("\(method.account.code) \(method.account.name)\(feeLabel(method))")
                                 .font(.caption)
                                 .foregroundStyle(Theme.muted)
@@ -2242,14 +2243,28 @@ struct CashAccountsNativeView: View {
                                     .foregroundStyle(Theme.muted)
                             }
                         }
-                        Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "pencil")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!canManage)
+
+                    if canManage {
+                        Button {
+                            Task { await toggleMethod(method) }
+                        } label: {
+                            Text(method.isActive ? "Active" : "Off")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(method.isActive ? Theme.primary : Theme.muted)
+                        }
+                        .buttonStyle(.borderless)
+                    } else {
                         Text(method.isActive ? "Active" : "Off")
                             .font(.caption)
-                            .fontWeight(.semibold)
                             .foregroundStyle(method.isActive ? Theme.primary : Theme.muted)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(Theme.muted)
                     }
                 }
                 .swipeActions {
@@ -2280,30 +2295,35 @@ struct CashAccountsNativeView: View {
     private func load() async {
         errorMessage = nil
         do {
-            accounts = try await CashAccountsAPI().list()
-            // Reset every tab's pagination and load its first page.
             resetPagination()
-            await loadFirstTransfers()
-            await loadFirstExpenses()
-            await loadFirstMethods()
+            async let accountsTask = CashAccountsAPI().list()
+            async let transfersTask = CashAccountsAPI().transfersPaged(page: 1, pageSize: pageSize)
+            async let expensesTask = CashAccountsAPI().expenses(page: 1, pageSize: pageSize)
+            async let methodsTask = CashAccountsAPI().methodsPaged(page: 1, pageSize: pageSize)
+            let (loadedAccounts, transfersPage, expensesPage, methodsPage) = try await (
+                accountsTask, transfersTask, expensesTask, methodsTask
+            )
+            accounts = loadedAccounts
+            transfers = transfersPage.items
+            transfersTotal = transfersPage.total
+            self.transfersPage = 1
+            expenses = expensesPage.items
+            expensesTotal = expensesPage.total
+            self.expensesPage = 1
+            methods = methodsPage.items
+            methodsTotal = methodsPage.total
+            self.methodsPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load cash accounts."
         }
         loaded = true
     }
 
+    @MainActor
     private func resetPagination() {
         transfers = []; transfersTotal = 0; transfersPage = 0
         expenses = []; expensesTotal = 0; expensesPage = 0
         methods = []; methodsTotal = 0; methodsPage = 0
-    }
-
-    @MainActor
-    private func loadFirstTransfers() async {
-        guard let page = try? await CashAccountsAPI().transfersPaged(page: 1, pageSize: pageSize) else { return }
-        transfers = page.items
-        transfersTotal = page.total
-        transfersPage = 1
     }
 
     @MainActor
@@ -2318,14 +2338,6 @@ struct CashAccountsNativeView: View {
     }
 
     @MainActor
-    private func loadFirstExpenses() async {
-        guard let page = try? await CashAccountsAPI().expenses(page: 1, pageSize: pageSize) else { return }
-        expenses = page.items
-        expensesTotal = page.total
-        expensesPage = 1
-    }
-
-    @MainActor
     private func loadMoreExpenses() async {
         guard !expensesLoadingMore, expensesPage * pageSize < expensesTotal else { return }
         expensesLoadingMore = true
@@ -2334,14 +2346,6 @@ struct CashAccountsNativeView: View {
         expenses.appendNewElements(from: page.items)
         expensesPage += 1
         expensesTotal = page.total
-    }
-
-    @MainActor
-    private func loadFirstMethods() async {
-        guard let page = try? await CashAccountsAPI().methodsPaged(page: 1, pageSize: pageSize) else { return }
-        methods = page.items
-        methodsTotal = page.total
-        methodsPage = 1
     }
 
     @MainActor
@@ -2877,7 +2881,7 @@ private struct AddPaymentMethodSheet: View {
         self.onDone = onDone
         _name = State(initialValue: editing?.name ?? "")
         _accountCode = State(initialValue: editing?.account.code ?? "")
-        _payoutAccountCode = State(initialValue: editing?.payoutAccount?.code ?? editing?.account.code ?? "")
+        _payoutAccountCode = State(initialValue: editing?.payoutAccount?.code ?? "")
         _feeRatePercent = State(initialValue: editing.flatMap { $0.feeRate.flatMap(Double.init) }.map { String(format: "%.2f", $0 * 100) } ?? "")
     }
 

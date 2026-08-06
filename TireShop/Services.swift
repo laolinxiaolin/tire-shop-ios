@@ -750,14 +750,6 @@ struct EmployeesAPI {
         try await client.request("/employees/\(id)", method: "PATCH", body: body)
     }
 
-    func payouts(id: String) async throws -> [CommissionPayout] {
-        try await client.request("/employees/\(id)/payouts")
-    }
-
-    func payout(id: String) async throws -> CommissionPayout {
-        try await client.request("/employees/\(id)/payout", method: "POST")
-    }
-
     /// Enriched pay-period payout history.
     func payoutRecords(id: String) async throws -> [CommissionPayoutRecord] {
         try await client.request("/employees/\(id)/payouts/records")
@@ -1837,7 +1829,7 @@ struct PaymentMethodCreateInput: Codable {
     let payoutAccountCode: String?
 }
 
-struct PaymentMethodPatchInput: Codable {
+struct PaymentMethodPatchInput: Encodable {
     let isActive: Bool?
     let name: String?
     let accountCode: String?
@@ -1857,6 +1849,26 @@ struct PaymentMethodPatchInput: Codable {
         self.feeRate = feeRate
         self.payoutAccountCode = payoutAccountCode
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case isActive
+        case name
+        case accountCode
+        case feeRate
+        case payoutAccountCode
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // Optional values encode via encodeIfPresent; a deliberate `nil` (clearing a
+        // field) is encoded explicitly so the server removes it instead of keeping
+        // the previous value.
+        try container.encodeNullable(isActive, forKey: .isActive)
+        try container.encodeNullable(name, forKey: .name)
+        try container.encodeNullable(accountCode, forKey: .accountCode)
+        try container.encodeNullable(feeRate, forKey: .feeRate)
+        try container.encodeNullable(payoutAccountCode, forKey: .payoutAccountCode)
+    }
 }
 
 struct CashAccountsAPI {
@@ -1864,10 +1876,6 @@ struct CashAccountsAPI {
 
     func list() async throws -> [CashAccount] {
         try await client.request("/accounting/cash-accounts")
-    }
-
-    func transfers(limit: Int? = nil) async throws -> [CashTransfer] {
-        try await client.request("/accounting/transfers\(query(["limit": limit]))")
     }
 
     /// Paged transfer history for the Funds & Accounts screen.
@@ -2229,10 +2237,6 @@ struct PaymentsAPI {
 
     func payLink(invoiceId: String, body: PayLinkCreateInput) async throws -> PayLink {
         try await client.request("/invoices/\(invoiceId)/pay-link", method: "POST", body: body)
-    }
-
-    func payLinks(invoiceId: String) async throws -> [PayLink] {
-        try await client.request("/invoices/\(invoiceId)/pay-links")
     }
 
     func emailPayLink(invoiceId: String, body: InvoiceEmailInput) async throws -> InvoiceEmailResult {
