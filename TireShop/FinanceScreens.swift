@@ -1926,10 +1926,14 @@ private struct JournalEntryRow: View {
 struct CashAccountsNativeView: View {
     @EnvironmentObject private var auth: AuthStore
 
+    enum Tab: String, CaseIterable {
+        case transfers = "Transfers"
+        case expenses = "Expenses"
+        case methods = "Payment Methods"
+    }
+
     @State private var accounts: [CashAccount] = []
-    @State private var transfers: [CashTransfer] = []
-    @State private var methods: [PaymentMethod] = []
-    @State private var expenses: [ExpensePayment] = []
+    @State private var tab: Tab = .transfers
     @State private var loaded = false
     @State private var errorMessage: String?
 
@@ -1941,6 +1945,25 @@ struct CashAccountsNativeView: View {
     @State private var reverseTransferTarget: CashTransfer?
     @State private var reverseExpenseTarget: ExpensePayment?
     @State private var deleteMethodTarget: PaymentMethod?
+    @State private var editingMethod: PaymentMethod?
+
+    // Independent infinite-scroll pagination state per tab.
+    @State private var transfers: [CashTransfer] = []
+    @State private var transfersTotal = 0
+    @State private var transfersPage = 0
+    @State private var transfersLoadingMore = false
+
+    @State private var expenses: [ExpensePayment] = []
+    @State private var expensesTotal = 0
+    @State private var expensesPage = 0
+    @State private var expensesLoadingMore = false
+
+    @State private var methods: [PaymentMethod] = []
+    @State private var methodsTotal = 0
+    @State private var methodsPage = 0
+    @State private var methodsLoadingMore = false
+
+    private let pageSize = 30
 
     private var canManage: Bool { auth.has("accounting.manage") }
     private var totalCash: Double { accounts.reduce(0) { $0 + $1.balance } }
@@ -1978,6 +2001,9 @@ struct CashAccountsNativeView: View {
         }
         .sheet(isPresented: $showingAddMethod) {
             AddPaymentMethodSheet(accounts: accounts) { Task { await load() } }
+        }
+        .sheet(item: $editingMethod) { method in
+            AddPaymentMethodSheet(accounts: accounts, editing: method) { Task { await load() } }
         }
         .sheet(item: $historyAccount) { account in
             AccountHistorySheet(account: account)
@@ -2058,126 +2084,206 @@ struct CashAccountsNativeView: View {
                 }
             }
 
-            Section("Transfer history") {
-                if transfers.isEmpty {
-                    Text("No transfers yet.").foregroundStyle(Theme.muted)
-                }
-                ForEach(transfers) { transfer in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text("\(transfer.fromAccount.name) → \(transfer.toAccount.name)")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(AppFormat.money(transfer.amount))
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                        }
-                        HStack {
-                            Text(AppFormat.shortDate(transfer.createdAt))
-                            if let fee = Double(transfer.fee), fee > 0 {
-                                Text("· fee \(AppFormat.money(fee))")
-                            }
-                            if let note = transfer.note?.nilIfBlank {
-                                Text("· \(note)").lineLimit(1)
-                            }
-                            Spacer()
-                        }
-                        .font(.caption)
-                        .foregroundStyle(Theme.muted)
-                    }
-                    .swipeActions {
-                        if canManage {
-                            Button("Reverse", role: .destructive) { reverseTransferTarget = transfer }
-                        }
+            Section {
+                Picker("Category", selection: $tab) {
+                    ForEach(Tab.allCases, id: \.self) { t in
+                        Text(t.rawValue).tag(t)
                     }
                 }
+                .pickerStyle(.segmented)
             }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
 
-            Section("Operating expenses") {
-                if expenses.isEmpty {
-                    Text("No expenses recorded.").foregroundStyle(Theme.muted)
-                }
-                ForEach(expenses) { expense in
-                    Button {
-                        receiptsExpense = expense
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text("\(expense.expenseCode) \(expense.expenseName)")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(Theme.text)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(AppFormat.money(expense.amount))
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(Theme.text)
-                            }
-                            HStack {
-                                Text(AppFormat.shortDate(expense.date))
-                                if let payee = expense.payee?.nilIfBlank {
-                                    Text("· \(payee)").lineLimit(1)
-                                }
-                                Text("· from \(expense.paidFromCode)")
-                                Spacer()
-                                Text(expense.receiptCount > 0 ? "\(expense.receiptCount) receipt\(expense.receiptCount == 1 ? "" : "s")" : "No receipts")
-                            }
-                            .font(.caption)
-                            .foregroundStyle(Theme.muted)
-                        }
-                    }
-                    .swipeActions {
-                        if canManage {
-                            Button("Reverse", role: .destructive) { reverseExpenseTarget = expense }
-                        }
-                    }
-                }
-            }
-
-            Section("Payment methods") {
-                if methods.isEmpty {
-                    Text("No payment methods.").foregroundStyle(Theme.muted)
-                }
-                ForEach(methods) { method in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(method.name)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Text("\(method.account.code) \(method.account.name)\(feeLabel(method))")
-                                .font(.caption)
-                                .foregroundStyle(Theme.muted)
-                        }
-                        Spacer()
-                        if canManage {
-                            Button {
-                                Task { await toggleMethod(method) }
-                            } label: {
-                                Text(method.isActive ? "Active" : "Off")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(method.isActive ? Theme.primary : Theme.muted)
-                            }
-                            .buttonStyle(.borderless)
-                        } else {
-                            Text(method.isActive ? "Active" : "Off")
-                                .font(.caption)
-                                .foregroundStyle(method.isActive ? Theme.primary : Theme.muted)
-                        }
-                    }
-                    .swipeActions {
-                        if canManage {
-                            Button("Delete", role: .destructive) { deleteMethodTarget = method }
-                        }
-                    }
-                }
+            switch tab {
+            case .transfers:
+                transfersSection
+            case .expenses:
+                expensesSection
+            case .methods:
+                methodsSection
             }
         }
         .listStyle(.insetGrouped)
         .refreshable { await load() }
+    }
+
+    private var transfersSection: some View {
+        Section("Transfer history") {
+            if transfers.isEmpty && !loaded {
+                Text("Loading...").foregroundStyle(Theme.muted)
+            } else if transfers.isEmpty {
+                Text("No transfers yet.").foregroundStyle(Theme.muted)
+            }
+            ForEach(transfers) { transfer in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("\(transfer.fromAccount.name) → \(transfer.toAccount.name)")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(AppFormat.money(transfer.amount))
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    HStack {
+                        Text(AppFormat.shortDate(transfer.createdAt))
+                        if let fee = Double(transfer.fee), fee > 0 {
+                            Text("· fee \(AppFormat.money(fee))")
+                        }
+                        if let note = transfer.note?.nilIfBlank {
+                            Text("· \(note)").lineLimit(1)
+                        }
+                        Spacer()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                }
+                .swipeActions {
+                    if canManage {
+                        Button("Reverse", role: .destructive) { reverseTransferTarget = transfer }
+                    }
+                }
+                .onAppear {
+                    if transfer.id == transfers.last?.id { Task { await loadMoreTransfers() } }
+                }
+            }
+            if transfersLoadingMore {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var expensesSection: some View {
+        Section("Operating expenses") {
+            if expenses.isEmpty && !loaded {
+                Text("Loading...").foregroundStyle(Theme.muted)
+            } else if expenses.isEmpty {
+                Text("No expenses recorded.").foregroundStyle(Theme.muted)
+            }
+            ForEach(expenses) { expense in
+                Button {
+                    receiptsExpense = expense
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("\(expense.expenseCode) \(expense.expenseName)")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.text)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(AppFormat.money(expense.amount))
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.text)
+                        }
+                        HStack {
+                            Text(AppFormat.shortDate(expense.date))
+                            if let payee = expense.payee?.nilIfBlank {
+                                Text("· \(payee)").lineLimit(1)
+                            }
+                            Text("· from \(expense.paidFromCode)")
+                            Spacer()
+                            Text(expense.receiptCount > 0 ? "\(expense.receiptCount) receipt\(expense.receiptCount == 1 ? "" : "s")" : "No receipts")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                    }
+                }
+                .swipeActions {
+                    if canManage {
+                        Button("Reverse", role: .destructive) { reverseExpenseTarget = expense }
+                    }
+                }
+                .onAppear {
+                    if expense.id == expenses.last?.id { Task { await loadMoreExpenses() } }
+                }
+            }
+            if expensesLoadingMore {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var methodsSection: some View {
+        Section("Payment methods") {
+            if methods.isEmpty && !loaded {
+                Text("Loading...").foregroundStyle(Theme.muted)
+            } else if methods.isEmpty {
+                Text("No payment methods.").foregroundStyle(Theme.muted)
+            }
+            ForEach(methods) { method in
+                HStack {
+                    Button {
+                        if canManage {
+                            editingMethod = method
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(method.name)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.text)
+                            Text("\(method.account.code) \(method.account.name)\(feeLabel(method))")
+                                .font(.caption)
+                                .foregroundStyle(Theme.muted)
+                            if let payout = method.payoutAccount {
+                                Text("Pays out to \(payout.code) \(payout.name)")
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "pencil")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!canManage)
+
+                    if canManage {
+                        Button {
+                            Task { await toggleMethod(method) }
+                        } label: {
+                            Text(method.isActive ? "Active" : "Off")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(method.isActive ? Theme.primary : Theme.muted)
+                        }
+                        .buttonStyle(.borderless)
+                    } else {
+                        Text(method.isActive ? "Active" : "Off")
+                            .font(.caption)
+                            .foregroundStyle(method.isActive ? Theme.primary : Theme.muted)
+                    }
+                }
+                .swipeActions {
+                    if canManage {
+                        Button("Delete", role: .destructive) { deleteMethodTarget = method }
+                    }
+                }
+                .onAppear {
+                    if method.id == methods.last?.id { Task { await loadMoreMethods() } }
+                }
+            }
+            if methodsLoadingMore {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            }
+        }
     }
 
     private func feeLabel(_ method: PaymentMethod) -> String {
@@ -2189,15 +2295,68 @@ struct CashAccountsNativeView: View {
     private func load() async {
         errorMessage = nil
         do {
-            async let a = CashAccountsAPI().list()
-            async let t = CashAccountsAPI().transfers(limit: 50)
-            async let m = CashAccountsAPI().methods()
-            async let x = CashAccountsAPI().expenses(limit: 50)
-            (accounts, transfers, methods, expenses) = try await (a, t, m, x)
+            resetPagination()
+            async let accountsTask = CashAccountsAPI().list()
+            async let transfersTask = CashAccountsAPI().transfersPaged(page: 1, pageSize: pageSize)
+            async let expensesTask = CashAccountsAPI().expenses(page: 1, pageSize: pageSize)
+            async let methodsTask = CashAccountsAPI().methodsPaged(page: 1, pageSize: pageSize)
+            let (loadedAccounts, transfersPage, expensesPage, methodsPage) = try await (
+                accountsTask, transfersTask, expensesTask, methodsTask
+            )
+            accounts = loadedAccounts
+            transfers = transfersPage.items
+            transfersTotal = transfersPage.total
+            self.transfersPage = 1
+            expenses = expensesPage.items
+            expensesTotal = expensesPage.total
+            self.expensesPage = 1
+            methods = methodsPage.items
+            methodsTotal = methodsPage.total
+            self.methodsPage = 1
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load cash accounts."
         }
         loaded = true
+    }
+
+    @MainActor
+    private func resetPagination() {
+        transfers = []; transfersTotal = 0; transfersPage = 0
+        expenses = []; expensesTotal = 0; expensesPage = 0
+        methods = []; methodsTotal = 0; methodsPage = 0
+    }
+
+    @MainActor
+    private func loadMoreTransfers() async {
+        guard !transfersLoadingMore, transfersPage * pageSize < transfersTotal else { return }
+        transfersLoadingMore = true
+        defer { transfersLoadingMore = false }
+        guard let page = try? await CashAccountsAPI().transfersPaged(page: transfersPage + 1, pageSize: pageSize) else { return }
+        transfers.appendNewElements(from: page.items)
+        transfersPage += 1
+        transfersTotal = page.total
+    }
+
+    @MainActor
+    private func loadMoreExpenses() async {
+        guard !expensesLoadingMore, expensesPage * pageSize < expensesTotal else { return }
+        expensesLoadingMore = true
+        defer { expensesLoadingMore = false }
+        guard let page = try? await CashAccountsAPI().expenses(page: expensesPage + 1, pageSize: pageSize) else { return }
+        expenses.appendNewElements(from: page.items)
+        expensesPage += 1
+        expensesTotal = page.total
+    }
+
+    @MainActor
+    private func loadMoreMethods() async {
+        guard !methodsLoadingMore, methodsPage * pageSize < methodsTotal else { return }
+        methodsLoadingMore = true
+        defer { methodsLoadingMore = false }
+        guard let page = try? await CashAccountsAPI().methodsPaged(page: methodsPage + 1, pageSize: pageSize) else { return }
+        methods.appendNewElements(from: page.items)
+        methodsPage += 1
+        methodsTotal = page.total
     }
 
     @MainActor
@@ -2713,14 +2872,43 @@ private struct RecordExpenseSheet: View {
 
 private struct AddPaymentMethodSheet: View {
     let accounts: [CashAccount]
+    var editing: PaymentMethod?
     let onDone: () -> Void
 
+    init(accounts: [CashAccount], editing: PaymentMethod? = nil, onDone: @escaping () -> Void) {
+        self.accounts = accounts
+        self.editing = editing
+        self.onDone = onDone
+        _name = State(initialValue: editing?.name ?? "")
+        _accountCode = State(initialValue: editing?.account.code ?? "")
+        _payoutAccountCode = State(initialValue: editing?.payoutAccount?.code ?? "")
+        _feeRatePercent = State(initialValue: editing.flatMap { $0.feeRate.flatMap(Double.init) }.map { String(format: "%.2f", $0 * 100) } ?? "")
+    }
+
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var accountCode = ""
-    @State private var feeRatePercent = ""
+    @State private var name: String
+    @State private var accountCode: String
+    @State private var payoutAccountCode: String
+    @State private var feeRatePercent: String
     @State private var saving = false
     @State private var errorMessage: String?
+
+    private var isEditing: Bool { editing != nil }
+
+    /// Parsed fee rate (fraction) or `nil` when the field is blank.
+    private var feeRateValue: Double? {
+        guard let trimmed = feeRatePercent.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank else { return nil }
+        return AppFormat.parseAmount(trimmed).map { $0 / 100 }
+    }
+
+    /// True when the fee field has content that can't be parsed as a number or
+    /// falls outside the accepted 0–100% range.
+    private var feeRateInvalid: Bool {
+        let trimmed = feeRatePercent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard let value = AppFormat.parseAmount(trimmed) else { return true }
+        return value < 0 || value > 100
+    }
 
     var body: some View {
         NavigationStack {
@@ -2733,10 +2921,16 @@ private struct AddPaymentMethodSheet: View {
                             Text("\(a.code) — \(a.name)").tag(a.code)
                         }
                     }
+                    Picker("Pays out to", selection: $payoutAccountCode) {
+                        Text("Select...").tag("")
+                        ForEach(accounts) { a in
+                            Text("\(a.code) — \(a.name)").tag(a.code)
+                        }
+                    }
                     TextField("Fee rate % (optional)", text: $feeRatePercent)
                         .keyboardType(.decimalPad)
                 } footer: {
-                    Text("Payments taken with this method post to the linked cash account.")
+                    Text("Payments taken with this method post to the linked cash account; outgoing commission/refund payouts use the pays-out-to account.")
                 }
 
                 if let errorMessage {
@@ -2745,13 +2939,13 @@ private struct AddPaymentMethodSheet: View {
                     }
                 }
             }
-            .navigationTitle("Add payment method")
+            .navigationTitle(isEditing ? "Edit payment method" : "Add payment method")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Adding..." : "Add") { Task { await submit() } }
-                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty || accountCode.isEmpty)
+                    Button(saving ? "Saving..." : (isEditing ? "Save" : "Add")) { Task { await submit() } }
+                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty || accountCode.isEmpty || feeRateInvalid)
                 }
             }
         }
@@ -2762,17 +2956,30 @@ private struct AddPaymentMethodSheet: View {
         saving = true
         errorMessage = nil
         do {
-            _ = try await CashAccountsAPI().createMethod(
-                PaymentMethodCreateInput(
-                    name: name.trimmingCharacters(in: .whitespaces),
-                    accountCode: accountCode,
-                    feeRate: Double(feeRatePercent).map { $0 / 100 }
+            if let editing {
+                _ = try await CashAccountsAPI().updateMethod(
+                    id: editing.id,
+                    body: PaymentMethodPatchInput(
+                        name: name.trimmingCharacters(in: .whitespaces),
+                        accountCode: accountCode,
+                        feeRate: feeRateValue,
+                        payoutAccountCode: payoutAccountCode.nilIfBlank
+                    )
                 )
-            )
+            } else {
+                _ = try await CashAccountsAPI().createMethod(
+                    PaymentMethodCreateInput(
+                        name: name.trimmingCharacters(in: .whitespaces),
+                        accountCode: accountCode,
+                        feeRate: feeRateValue,
+                        payoutAccountCode: payoutAccountCode.nilIfBlank
+                    )
+                )
+            }
             onDone()
             dismiss()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not add the payment method."
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save the payment method."
         }
         saving = false
     }

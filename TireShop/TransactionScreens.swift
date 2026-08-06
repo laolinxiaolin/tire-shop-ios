@@ -1544,6 +1544,12 @@ struct TapToPayNativeView: View {
     @ObservedObject private var terminal = TapToPayTerminalController.shared
     @State private var emailInvoice: SaleInvoice?
     @State private var receiptShare: TapToPayReceiptShare?
+    @State private var splitAmountText = ""
+    @State private var splitAmount: Double?
+    @State private var preflight: ChargePreflight?
+    @State private var acknowledgedWarnings = false
+    @State private var splitMessage: String?
+    @State private var charging = false
 
     let invoiceId: String
     let amount: Double
@@ -1555,6 +1561,7 @@ struct TapToPayNativeView: View {
     private var invoiceOutcome: TapToPayOutcome? { terminal.outcome(for: invoiceId) }
     private var invoiceSucceeded: Bool { terminal.succeeded(for: invoiceId) }
     private var invoiceIsProcessing: Bool { terminal.isProcessing(invoiceId: invoiceId) }
+    private var hasWarnings: Bool { (preflight?.warnings.isEmpty ?? true) == false }
 
     var body: some View {
         AsyncContentView(load: loadIntent) { intent in
@@ -1570,9 +1577,15 @@ struct TapToPayNativeView: View {
                         RowLine(title: "Customer", trailing: customerName)
                     }
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
-                    RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
-                    RowLine(title: "Customer pays", trailing: AppFormat.money(intent.amount))
+                    if let preflight {
+                        RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                    } else if splitAmount == nil {
+                        RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
+                    }
+                    RowLine(title: "Customer pays", trailing: AppFormat.money(chargeAmount(intent)))
                 }
+
+                splitSection(intent: intent)
 
                 Section("Before charging") {
                     ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
@@ -1728,7 +1741,79 @@ struct TapToPayNativeView: View {
     }
 
     private func loadIntent() async throws -> TerminalIntent {
-        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
+    }
+
+    private func splitSection(intent: TerminalIntent) -> some View {
+        Section("Split amount") {
+            TextField("Amount (blank = full balance)", text: $splitAmountText)
+                .keyboardType(.decimalPad)
+                .onChange(of: splitAmountText) { _, _ in
+                    // Editing the field invalidates the applied preflight until
+                    // it's re-applied, so the breakdown/button can't disagree
+                    // with the typed amount.
+                    preflight = nil
+                    acknowledgedWarnings = false
+                }
+            Button("Use full balance") {
+                splitAmountText = ""
+                splitAmount = nil
+                preflight = nil
+                acknowledgedWarnings = false
+                // Reverting to the full balance clears any stale split error so
+                // it can't linger over a now-valid, chargeable state.
+                splitMessage = nil
+            }
+            Button("Apply this amount") {
+                let value = AppFormat.parseAmount(splitAmountText)
+                guard let value, value > 0, value <= intent.balance + 0.005 else {
+                    splitMessage = "Enter an amount between 0.01 and \(AppFormat.money(intent.balance))."
+                    return
+                }
+                splitMessage = nil
+                splitAmount = value
+                Task { await checkPreflight(amount: value) }
+            }
+            if let splitMessage {
+                Text(splitMessage)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+            }
+
+            if let preflight {
+                RowLine(title: "You'll be charged", trailing: AppFormat.money(preflight.requestAmount))
+                RowLine(title: "Applied to invoice", trailing: AppFormat.money(preflight.applied))
+                if preflight.fee > 0 {
+                    RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                }
+                RowLine(title: "Remaining balance", trailing: AppFormat.money(preflight.remaining))
+            }
+
+            if hasWarnings {
+                ForEach(preflight?.warnings ?? [], id: \.self) { warning in
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.danger)
+                }
+                Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
+                    acknowledgedWarnings = true
+                }
+                .disabled(acknowledgedWarnings)
+            }
+        }
+    }
+
+    @MainActor
+    private func checkPreflight(amount: Double) async {
+        acknowledgedWarnings = false
+        do {
+            preflight = try await PaymentsAPI().chargePreflight(
+                invoiceId: invoiceId,
+                body: ChargePreflightInput(amount: amount, paymentMethodId: nil)
+            )
+        } catch {
+            preflight = nil
+            splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not check this amount."
+        }
     }
 
     private func chargeBar(intent: TerminalIntent) -> some View {
@@ -1739,14 +1824,14 @@ struct TapToPayNativeView: View {
                 }
             } else {
                 Button {
-                    terminal.startCharge(invoiceId: invoiceId, intent: intent)
+                    Task { await chargeWithIntent(intent: intent) }
                 } label: {
                     HStack {
-                        if invoiceIsProcessing {
+                        if invoiceIsProcessing || charging {
                             ProgressView()
                                 .tint(Theme.primaryText)
                         }
-                        Text(invoiceIsProcessing ? "Processing..." : "Charge \(AppFormat.money(intent.amount))")
+                        Text(invoiceIsProcessing ? "Processing..." : "Charge \(AppFormat.money(chargeAmount(intent)))")
                             .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity)
@@ -1755,7 +1840,7 @@ struct TapToPayNativeView: View {
                     .foregroundStyle(canCharge(intent) ? Theme.primaryText : Theme.muted)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                 }
-                .disabled(!canCharge(intent))
+                .disabled(!canCharge(intent) || charging)
 
                 if invoiceIsProcessing {
                     Button("Cancel payment", role: .destructive) {
@@ -1770,7 +1855,46 @@ struct TapToPayNativeView: View {
     }
 
     private func canCharge(_ intent: TerminalIntent) -> Bool {
-        canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent)
+        guard canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent) else { return false }
+        // A split charge requires a completed preflight and acknowledged warnings.
+        if splitAmount != nil {
+            guard let preflight else { return false }
+            if hasWarnings && !acknowledgedWarnings {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The amount the charge button should show: the split amount once a
+    /// preflight has confirmed it, otherwise the loaded intent's amount.
+    private func chargeAmount(_ intent: TerminalIntent) -> Double {
+        preflight?.requestAmount ?? splitAmount ?? intent.amount
+    }
+
+    /// Starts the terminal charge. For a plain full-balance charge the already-
+    /// loaded intent is reused; a split amount creates a fresh intent at charge
+    /// time (so adjusting a split doesn't orphan a PaymentIntent per apply).
+    @MainActor
+    private func chargeWithIntent(intent: TerminalIntent) async {
+        guard !charging else { return }
+        charging = true
+        defer { charging = false }
+        do {
+            let chargeIntent: TerminalIntent
+            if splitAmount == nil {
+                chargeIntent = intent
+            } else {
+                chargeIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
+            }
+            guard chargeIntent.clientSecret?.nilIfBlank != nil, chargeIntent.amount > 0 else {
+                splitMessage = "The server did not return a chargeable payment intent."
+                return
+            }
+            terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent)
+        } catch {
+            splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not start the charge."
+        }
     }
 
     private func shareText(for outcome: TapToPayOutcome) -> String {

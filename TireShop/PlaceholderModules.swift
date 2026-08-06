@@ -108,6 +108,15 @@ struct MonthlySalesNativeView: View {
     @State private var report: MonthlySalesReport?
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var showingColumns = false
+    @State private var selectedColumns: [MonthlySalesColumnKey] = []
+    @State private var exporting = false
+    @State private var exportTarget: ExportTarget?
+
+    private enum ExportMode: String {
+        case all = "All columns"
+        case asShown = "As shown"
+    }
 
     var body: some View {
         ScrollView {
@@ -126,6 +135,19 @@ struct MonthlySalesNativeView: View {
                 }
 
                 if let report {
+                    HStack {
+                        Button("Customize columns") { showingColumns = true }
+                        Spacer()
+                        Menu {
+                            Button("All columns") { Task { await export(.all) } }
+                            Button("As shown") { Task { await export(.asShown) } }
+                        } label: {
+                            Label(exporting ? "Exporting..." : "Export", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(exporting)
+                    }
+                    .font(.subheadline)
+
                     StatGrid(stats: [
                         ("Tires sold", trimmed(report.summary.qty)),
                         ("Amount", AppFormat.money(report.summary.amount)),
@@ -138,7 +160,7 @@ struct MonthlySalesNativeView: View {
 
                     VStack(spacing: 0) {
                         ForEach(Array(report.rows.enumerated()), id: \.offset) { _, row in
-                            MonthlySalesRowView(row: row)
+                            MonthlySalesRowView(row: row, columns: selectedColumns)
                             Divider()
                         }
                     }
@@ -149,11 +171,23 @@ struct MonthlySalesNativeView: View {
         .background(Theme.background)
         .task {
             if report == nil { await load() }
+            await loadPreferences()
+        }
+        .sheet(isPresented: $showingColumns) {
+            MonthlySalesColumnsSheet(columns: $selectedColumns)
+        }
+        .sheet(item: $exportTarget) { target in
+            QuickLookSheet(url: target.url)
         }
     }
 
     private func trimmed(_ value: Double) -> String {
         String(format: value == value.rounded() ? "%.0f" : "%.2f", value)
+    }
+
+    private func exportColumns(includeAll: Bool) -> [String] {
+        guard !includeAll else { return [] }
+        return selectedColumns.map(\.key)
     }
 
     @MainActor
@@ -167,10 +201,128 @@ struct MonthlySalesNativeView: View {
         }
         loading = false
     }
+
+    @MainActor
+    private func loadPreferences() async {
+        guard let prefs = try? await UsersAPI().preferences(),
+              let keys = prefs.monthlySalesColumns, !keys.isEmpty else {
+            selectedColumns = MonthlySalesColumnKey.defaults
+            return
+        }
+        selectedColumns = keys.compactMap { MonthlySalesColumnKey(rawValue: $0) }
+        if selectedColumns.isEmpty {
+            selectedColumns = MonthlySalesColumnKey.defaults
+        }
+    }
+
+    @MainActor
+    private func export(_ mode: ExportMode) async {
+        exporting = true
+        errorMessage = nil
+        do {
+            let url = try await MonthlySalesAPI().export(
+                from: DayFormat.string(from),
+                to: DayFormat.string(to),
+                columns: exportColumns(includeAll: mode == .all)
+            )
+            exportTarget = ExportTarget(url: url)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not export the report."
+        }
+        exporting = false
+    }
+}
+
+private struct ExportTarget: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
+    case date = "date"
+    case itemCode = "itemCode"
+    case productCode = "productCode"
+    case invoiceNo = "invoiceNo"
+    case brand = "brand"
+    case pattern = "pattern"
+    case size = "size"
+    case pr = "pr"
+    case loadIndex = "loadIndex"
+    case salesPrice = "salesPrice"
+    case qty = "qty"
+    case amount = "amount"
+    case taxRate = "taxRate"
+    case salesTax = "salesTax"
+    case unitCost = "unitCost"
+    case totalCost = "totalCost"
+    case paymentMethod = "paymentMethod"
+    case unitFet = "unitFet"
+    case totalFet = "totalFet"
+
+    var id: String { rawValue }
+
+    var key: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .date: return "Date"
+        case .itemCode: return "Item"
+        case .productCode: return "Product"
+        case .invoiceNo: return "Invoice #"
+        case .brand: return "Brand"
+        case .pattern: return "Pattern"
+        case .size: return "Size"
+        case .pr: return "PR"
+        case .loadIndex: return "Load index"
+        case .salesPrice: return "Sales price"
+        case .qty: return "Qty"
+        case .amount: return "Amount"
+        case .taxRate: return "Tax rate"
+        case .salesTax: return "Sales tax"
+        case .unitCost: return "Unit cost"
+        case .totalCost: return "Total cost"
+        case .paymentMethod: return "Payment"
+        case .unitFet: return "Unit FET"
+        case .totalFet: return "Total FET"
+        }
+    }
+
+    func value(_ row: MonthlySalesRow) -> String {
+        switch self {
+        case .date: return AppFormat.shortDate(row.date)
+        case .itemCode: return row.itemCode
+        case .productCode: return row.productCode
+        case .invoiceNo: return row.invoiceNo
+        case .brand: return row.brand
+        case .pattern: return row.pattern
+        case .size: return row.size
+        case .pr: return row.pr
+        case .loadIndex: return row.loadIndex
+        case .salesPrice: return AppFormat.money(row.salesPrice)
+        case .qty: return Self.trimmedNum(row.qty)
+        case .amount: return AppFormat.money(row.amount)
+        case .taxRate: return String(format: "%.2f%%", row.taxRate * 100)
+        case .salesTax: return AppFormat.money(row.salesTax)
+        case .unitCost: return AppFormat.money(row.unitCost)
+        case .totalCost: return AppFormat.money(row.totalCost)
+        case .paymentMethod: return row.paymentMethod
+        case .unitFet: return AppFormat.money(row.unitFet)
+        case .totalFet: return AppFormat.money(row.totalFet)
+        }
+    }
+
+    static var defaults: [MonthlySalesColumnKey] {
+        [.date, .invoiceNo, .brand, .size, .pattern, .amount, .paymentMethod]
+    }
+
+    private static func trimmedNum(_ value: Double) -> String {
+        String(format: value == value.rounded() ? "%.0f" : "%.2f", value)
+    }
 }
 
 private struct MonthlySalesRowView: View {
     let row: MonthlySalesRow
+    let columns: [MonthlySalesColumnKey]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
@@ -188,15 +340,126 @@ private struct MonthlySalesRowView: View {
             Text("\(row.brand) \(row.size) \(row.pattern)".trimmingCharacters(in: .whitespaces))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
-            HStack {
-                Text(AppFormat.shortDate(row.date))
-                Spacer()
-                Text("Qty \(String(format: "%.0f", row.qty)) @ \(AppFormat.money(row.salesPrice))")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 6) {
+                ForEach(columns) { column in
+                    HStack(alignment: .top, spacing: 4) {
+                        Text(column.label)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.muted)
+                        Text(column.value(row))
+                            .font(.caption)
+                            .foregroundStyle(Theme.text)
+                    }
+                }
             }
-            .font(.caption)
-            .foregroundStyle(Theme.muted)
+            .padding(.top, 2)
         }
         .padding(.vertical, Theme.Space.sm)
+    }
+}
+
+private struct MonthlySalesColumnsSheet: View {
+    @Binding var columns: [MonthlySalesColumnKey]
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var snapshot: [MonthlySalesColumnKey] = []
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Columns render in the order listed. The last visible column can't be hidden.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
+                ForEach(columns) { column in
+                    HStack {
+                        Image(systemName: "line.3.horizontal")
+                            .foregroundStyle(Theme.muted)
+                        Text(column.label)
+                        Spacer()
+                        Button {
+                            remove(column)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundStyle(canRemove ? Theme.danger : Theme.muted)
+                        }
+                        .disabled(!canRemove)
+                    }
+                }
+                .onMove(perform: move)
+                Section("Add column") {
+                    let available = MonthlySalesColumnKey.allCases.filter { !columns.contains($0) }
+                    if available.isEmpty {
+                        Text("All columns are shown.").foregroundStyle(Theme.muted)
+                    }
+                    ForEach(available) { column in
+                        Button {
+                            columns.append(column)
+                        } label: {
+                            Label(column.label, systemImage: "plus")
+                        }
+                    }
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                    }
+                }
+            }
+            .navigationTitle("Columns")
+            .navigationBarTitleDisplayMode(.inline)
+            .environment(\.editMode, .constant(.active))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        // Revert local edits; only Done persists.
+                        columns = snapshot
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving..." : "Done") {
+                        Task { await save() }
+                    }
+                    .disabled(saving || columns.isEmpty)
+                }
+            }
+            .onAppear {
+                snapshot = columns
+            }
+        }
+    }
+
+    private var canRemove: Bool {
+        columns.count > 1
+    }
+
+    private func remove(_ column: MonthlySalesColumnKey) {
+        guard canRemove else { return }
+        columns.removeAll { $0 == column }
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        columns.move(fromOffsets: source, toOffset: destination)
+    }
+
+    @MainActor
+    private func save() async {
+        saving = true
+        errorMessage = nil
+        do {
+            _ = try await UsersAPI().updatePreferences(
+                UserPreferencesPatch(monthlySalesColumns: columns.map(\.key))
+            )
+            snapshot = columns
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save column preferences."
+        }
+        saving = false
     }
 }
 

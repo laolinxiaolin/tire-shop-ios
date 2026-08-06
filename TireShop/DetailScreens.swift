@@ -21,9 +21,25 @@ struct SaleDetailNativeView: View {
     @State private var confirming = false
     @State private var reloadToken = UUID()
     @State private var hasAppeared = false
+    @State private var salespersonOptions: [CustomerSalesperson] = []
+    @State private var selectedSalespersonId = ""
+    @State private var salespersonOptionsLoaded = false
+    @State private var salespersonOptionsLoading = false
+    @State private var salespersonSeeded = false
+    @State private var savingSalesperson = false
+    @State private var showPayLink = false
+    @State private var payLinkContext: PayLinkContext?
 
     private var canSend: Bool {
         auth.has("sales.manage")
+    }
+
+    private var canAssignSalesperson: Bool {
+        auth.has("sales.salesperson.assign") && auth.has("employees.view")
+    }
+
+    private func invoiceNumber(for sale: Sale, invoice: SaleInvoice?) -> String {
+        sale.ref?.nilIfBlank ?? invoice?.ref?.nilIfBlank ?? invoice?.id ?? ""
     }
 
     var body: some View {
@@ -35,6 +51,9 @@ struct SaleDetailNativeView: View {
                     RowLine(title: "Status", subtitle: sale.status)
                     RowLine(title: "Warehouse", subtitle: sale.location)
                     RowLine(title: "Tax", subtitle: AppFormat.money(sale.taxAmount), trailing: sale.taxRate)
+                    if canAssignSalesperson || sale.salesperson != nil {
+                        salespersonRow(sale)
+                    }
                 }
 
                 Section("Lines") {
@@ -47,13 +66,13 @@ struct SaleDetailNativeView: View {
                     let balance = max(0, (Double(invoice.amountDue) ?? 0) - (Double(invoice.paidTotal) ?? 0))
                     Section("Invoice") {
                         RowLine(
-                            title: "Invoice # \(invoice.ref ?? invoice.id)",
+                            title: "Invoice # \(invoiceNumber(for: sale, invoice: invoice))",
                             subtitle: "Paid \(AppFormat.money(invoice.paidTotal))",
                             trailing: AppFormat.money(balance)
                         )
 
                         Button {
-                            Task { await downloadPDF(invoice: invoice) }
+                            Task { await downloadPDF(invoice: invoice, number: invoiceNumber(for: sale, invoice: invoice)) }
                         } label: {
                             HStack {
                                 Label("View invoice PDF", systemImage: "doc.text")
@@ -66,7 +85,7 @@ struct SaleDetailNativeView: View {
                         .disabled(downloadingPDF || printingPDF)
 
                         Button {
-                            Task { await printPDF(invoice: invoice) }
+                            Task { await printPDF(invoice: invoice, number: invoiceNumber(for: sale, invoice: invoice)) }
                         } label: {
                             HStack {
                                 Label("Print invoice", systemImage: "printer")
@@ -80,9 +99,15 @@ struct SaleDetailNativeView: View {
 
                         if canSend {
                             Button {
-                                emailContext = EmailContext(invoice: invoice)
+                                emailContext = EmailContext(invoice: invoice, saleRef: sale.ref)
                             } label: {
                                 Label("Email invoice", systemImage: "envelope")
+                            }
+
+                            Button {
+                                payLinkContext = PayLinkContext(invoice: invoice, saleRef: sale.ref)
+                            } label: {
+                                Label("Create / share pay link", systemImage: "link")
                             }
                         }
 
@@ -187,7 +212,10 @@ struct SaleDetailNativeView: View {
             QuickLookSheet(url: preview.url)
         }
         .sheet(item: $emailContext) { context in
-            InvoiceEmailView(invoice: context.invoice)
+            InvoiceEmailView(invoice: context.invoice, saleRef: context.saleRef)
+        }
+        .sheet(item: $payLinkContext) { context in
+            PayLinkSheet(invoice: context.invoice, saleRef: context.saleRef)
         }
         .alert("Return to draft?", isPresented: $showReverseConfirm) {
             Button("Return to draft", role: .destructive) {
@@ -261,6 +289,7 @@ struct SaleDetailNativeView: View {
         confirming = false
     }
 
+    @MainActor
     private func loadDetail() async throws -> SaleDetailData {
         let sale = try await SalesAPI().get(id: id)
         var skusByLineItemId: [String: TireSku] = [:]
@@ -284,6 +313,75 @@ struct SaleDetailNativeView: View {
         return SaleDetailData(sale: sale, skusByLineItemId: skusByLineItemId)
     }
 
+    /// Loads the salesperson picker options once, lazily, only when the row is
+    /// shown (permission-gated) rather than on every sale-detail load. The
+    /// current selection is seeded synchronously before any `await` so the Save
+    /// button can't be tapped against an empty picker mid-fetch.
+    @MainActor
+    private func loadSalespersonOptionsIfNeeded(sale: Sale) async {
+        guard canAssignSalesperson else { return }
+        if !salespersonSeeded {
+            salespersonSeeded = true
+            selectedSalespersonId = sale.salespersonId ?? ""
+        }
+        guard !salespersonOptionsLoading, !salespersonOptionsLoaded else { return }
+        salespersonOptionsLoading = true
+        defer { salespersonOptionsLoading = false }
+        if let page = try? await EmployeesAPI().list(pageSize: 200) {
+            salespersonOptions = page.items
+                .filter { $0.status != "TERMINATED" }
+                .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
+                .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
+            // Only mark loaded on success so a transient failure can be retried.
+            salespersonOptionsLoaded = true
+        }
+    }
+
+    private func salespersonRow(_ sale: Sale) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            if canAssignSalesperson {
+                Picker("Salesperson", selection: $selectedSalespersonId) {
+                    Text("None").tag("")
+                    ForEach(salespersonOptions) { person in
+                        Text(person.fullName).tag(person.id)
+                    }
+                }
+                .disabled(savingSalesperson)
+                .task { await loadSalespersonOptionsIfNeeded(sale: sale) }
+
+                Button {
+                    Task { await saveSalesperson(for: sale) }
+                } label: {
+                    Label(savingSalesperson ? "Saving..." : "Save salesperson", systemImage: "person.crop.circle")
+                }
+                .disabled(savingSalesperson || salespersonOptionsLoading || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
+            } else if let salesperson = sale.salesperson {
+                RowLine(title: "Salesperson", subtitle: salesperson.fullName)
+            }
+
+            Text("Commissions are attributed to the assigned salesperson. Leave empty to attribute the sale's credit to the store.")
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
+        }
+    }
+
+    @MainActor
+    private func saveSalesperson(for sale: Sale) async {
+        savingSalesperson = true
+        actionError = nil
+        do {
+            let patched = try await SalesAPI().assignSalesperson(
+                id: id,
+                body: SaleSalespersonPatch(salespersonId: selectedSalespersonId.nilIfBlank)
+            )
+            selectedSalespersonId = patched.salespersonId ?? ""
+            reloadToken = UUID()
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "Could not save the salesperson."
+        }
+        savingSalesperson = false
+    }
+
     private func findSku(idOrSku: String) async throws -> TireSku {
         if let sku = try? await InventoryAPI().getSku(id: idOrSku) {
             return sku
@@ -299,17 +397,17 @@ struct SaleDetailNativeView: View {
         return first
     }
 
-    private func fetchPDF(invoice: SaleInvoice) async throws -> URL {
-        let fileName = "invoice-\(invoice.ref ?? invoice.id).pdf"
+    private func fetchPDF(invoice: SaleInvoice, number: String) async throws -> URL {
+        let fileName = "invoice-\(number).pdf"
         return try await InvoicesAPI().downloadPDF(invoiceId: invoice.id, fileName: fileName)
     }
 
     @MainActor
-    private func downloadPDF(invoice: SaleInvoice) async {
+    private func downloadPDF(invoice: SaleInvoice, number: String) async {
         downloadingPDF = true
         actionError = nil
         do {
-            pdfPreview = PreviewFile(url: try await fetchPDF(invoice: invoice))
+            pdfPreview = PreviewFile(url: try await fetchPDF(invoice: invoice, number: number))
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The invoice PDF could not be downloaded."
         }
@@ -317,12 +415,12 @@ struct SaleDetailNativeView: View {
     }
 
     @MainActor
-    private func printPDF(invoice: SaleInvoice) async {
+    private func printPDF(invoice: SaleInvoice, number: String) async {
         printingPDF = true
         actionError = nil
         do {
-            let url = try await fetchPDF(invoice: invoice)
-            DocumentPrinter.print(url: url, jobName: "Invoice \(invoice.ref ?? invoice.id)")
+            let url = try await fetchPDF(invoice: invoice, number: number)
+            DocumentPrinter.print(url: url, jobName: "Invoice \(number)")
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The invoice PDF could not be printed."
         }
@@ -338,6 +436,14 @@ struct SaleDetailNativeView: View {
 
     private struct EmailContext: Identifiable {
         let invoice: SaleInvoice
+        let saleRef: String?
+
+        var id: String { invoice.id }
+    }
+
+    private struct PayLinkContext: Identifiable {
+        let invoice: SaleInvoice
+        let saleRef: String?
 
         var id: String { invoice.id }
     }
@@ -533,6 +639,11 @@ struct InvoiceEmailView: View {
     @Environment(\.dismiss) private var dismiss
 
     let invoice: SaleInvoice
+    var saleRef: String? = nil
+
+    private var number: String {
+        saleRef?.nilIfBlank ?? invoice.ref?.nilIfBlank ?? invoice.id
+    }
 
     @State private var email = ""
     @State private var sending = false
@@ -553,7 +664,7 @@ struct InvoiceEmailView: View {
                             .foregroundStyle(Theme.muted)
                     }
                 } header: {
-                    Text("Invoice \(invoice.ref ?? invoice.id)")
+                    Text("Invoice \(number)")
                 }
 
                 if let errorMessage {
@@ -599,6 +710,162 @@ struct InvoiceEmailView: View {
         }
         sending = false
     }
+}
+
+// MARK: - Pay links
+
+struct PayLinkSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let invoice: SaleInvoice
+    let saleRef: String?
+
+    @State private var amountText = ""
+    @State private var created: PayLink?
+    @State private var email = ""
+    @State private var creating = false
+    @State private var emailing = false
+    @State private var errorMessage: String?
+    @State private var shareItem: ShareText?
+    @State private var emailSent = false
+
+    private var balance: Double {
+        max(0, (Double(invoice.amountDue) ?? 0) - (Double(invoice.paidTotal) ?? 0))
+    }
+
+    private var amountValue: Double {
+        // Invalid/blank input reads as 0 (invalid) rather than silently
+        // defaulting to the full balance while the field shows something else.
+        AppFormat.parseAmount(amountText) ?? 0
+    }
+
+    private var validAmount: Bool {
+        amountValue > 0 && amountValue <= balance + 0.005
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    RowLine(title: "Invoice", trailing: saleRef?.nilIfBlank ?? invoice.id)
+                    RowLine(title: "Balance", trailing: AppFormat.money(balance))
+                }
+
+                if created == nil {
+                    Section {
+                        TextField("Amount (defaults to full balance)", text: $amountText)
+                            .keyboardType(.decimalPad)
+                        Button("Use full balance") {
+                            amountText = String(format: "%.2f", balance)
+                        }
+                    } header: {
+                        Text("Link amount")
+                    } footer: {
+                        Text("The customer can pay up to this amount with the link. Partial amounts are validated by the server.")
+                    }
+                }
+
+                if let created {
+                    Section("Pay link") {
+                        Text(created.url)
+                            .font(.footnote)
+                            .textSelection(.enabled)
+                        Button {
+                            shareItem = ShareText(text: created.url)
+                        } label: {
+                            Label("Share link", systemImage: "square.and.arrow.up")
+                        }
+                    }
+
+                    Section("Email link") {
+                        if emailSent {
+                            Label("Pay link emailed", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(Theme.success)
+                        } else {
+                            AppTextField(label: "Recipient email", text: $email, placeholder: "name@example.com", keyboardType: .emailAddress, textContentType: .emailAddress)
+                            Button(emailing ? "Sending..." : "Email link") {
+                                Task { await emailLink() }
+                            }
+                            .disabled(emailing || email.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                    }
+                }
+            }
+            .navigationTitle("Pay link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(created == nil ? "Cancel" : "Done") { dismiss() }
+                }
+                if created == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(creating ? "Creating..." : "Create link") { Task { await create() } }
+                            .disabled(creating || !validAmount)
+                    }
+                }
+            }
+            .task {
+                if amountText.isEmpty {
+                    amountText = String(format: "%.2f", balance)
+                }
+            }
+            .sheet(item: $shareItem) { item in
+                ActivityShareSheet(items: [item.text])
+            }
+        }
+    }
+
+    @MainActor
+    private func create() async {
+        creating = true
+        errorMessage = nil
+        do {
+            created = try await PaymentsAPI().payLink(
+                invoiceId: invoice.id,
+                body: PayLinkCreateInput(amount: amountValue)
+            )
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not create the pay link."
+        }
+        creating = false
+    }
+
+    @MainActor
+    private func emailLink() async {
+        emailing = true
+        errorMessage = nil
+        do {
+            _ = try await PaymentsAPI().emailPayLink(
+                invoiceId: invoice.id,
+                body: InvoiceEmailInput(to: email.trimmingCharacters(in: .whitespacesAndNewlines))
+            )
+            emailSent = true
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not email the pay link."
+        }
+        emailing = false
+    }
+}
+
+private struct ShareText: Identifiable {
+    let text: String
+    let id = UUID()
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 struct WorkOrderDetailNativeView: View {

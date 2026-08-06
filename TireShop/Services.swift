@@ -314,6 +314,11 @@ struct InvoiceIdInput: Codable {
     let invoiceId: String
 }
 
+struct PaymentIntentAmountInput: Codable {
+    let invoiceId: String
+    let amount: Double?
+}
+
 struct PaymentIntentIdInput: Codable {
     let paymentIntentId: String
 }
@@ -420,19 +425,22 @@ struct UserCreateInput: Codable {
     let fullName: String
     let roleId: String
     let homeWarehouse: String?
+    let demo: Bool?
 
     init(
         email: String,
         password: String,
         fullName: String,
         roleId: String,
-        homeWarehouse: String? = nil
+        homeWarehouse: String? = nil,
+        demo: Bool? = nil
     ) {
         self.email = email
         self.password = password
         self.fullName = fullName
         self.roleId = roleId
         self.homeWarehouse = homeWarehouse
+        self.demo = demo
     }
 }
 
@@ -441,12 +449,14 @@ struct UserPatchInput: Codable {
     let roleId: String?
     let active: Bool?
     let homeWarehouse: String?
+    let demo: Bool?
 
-    init(fullName: String?, roleId: String?, active: Bool?, homeWarehouse: String? = nil) {
+    init(fullName: String?, roleId: String?, active: Bool?, homeWarehouse: String? = nil, demo: Bool? = nil) {
         self.fullName = fullName
         self.roleId = roleId
         self.active = active
         self.homeWarehouse = homeWarehouse
+        self.demo = demo
     }
 }
 
@@ -633,6 +643,21 @@ struct MonthlySalesAPI {
     func report(from: String, to: String) async throws -> MonthlySalesReport {
         try await client.request("/accounting/reports/monthly-sales\(query(["from": from, "to": to]))")
     }
+
+    /// Spreadsheet export of the Monthly Sales report. `columns` selects which
+    /// columns to include (empty = all columns).
+    func export(
+        from: String,
+        to: String,
+        columns: [String]? = nil,
+        fileName: String = "monthly-sales.xlsx"
+    ) async throws -> URL {
+        var params: [String: Any?] = ["from": from, "to": to]
+        if let columns, !columns.isEmpty {
+            params["columns"] = columns.joined(separator: ",")
+        }
+        return try await client.download("/accounting/reports/monthly-sales/export\(query(params))", fileName: fileName)
+    }
 }
 
 struct EmployeeSaveInput: Encodable {
@@ -725,12 +750,9 @@ struct EmployeesAPI {
         try await client.request("/employees/\(id)", method: "PATCH", body: body)
     }
 
-    func payouts(id: String) async throws -> [CommissionPayout] {
-        try await client.request("/employees/\(id)/payouts")
-    }
-
-    func payout(id: String) async throws -> CommissionPayout {
-        try await client.request("/employees/\(id)/payout", method: "POST")
+    /// Enriched pay-period payout history.
+    func payoutRecords(id: String) async throws -> [CommissionPayoutRecord] {
+        try await client.request("/employees/\(id)/payouts/records")
     }
 }
 
@@ -750,6 +772,27 @@ struct CommissionsAPI {
             "pageSize": pageSize
         ])
         return try await client.request("/employees/commissions\(qs)")
+    }
+
+    /// Entries eligible for a pay-period payout between `from` and `to`.
+    func eligible(_ body: CommissionPayoutEligibleRequest) async throws -> [CommissionPayoutEligibleEntry] {
+        try await client.request("/employees/commissions/payout/eligible", method: "POST", body: body)
+    }
+
+    /// Server preview of a proposed pay-period payout (selection + rollovers +
+    /// payout-capable tender totals).
+    func payoutPreview(_ body: CommissionPayoutCreateInput) async throws -> CommissionPayoutPreview {
+        try await client.request("/employees/commissions/payout/preview", method: "POST", body: body)
+    }
+
+    /// Create (post) a pay-period commission payout.
+    func createPayout(_ body: CommissionPayoutCreateInput, idempotencyKey: String? = nil) async throws -> CommissionPayoutRecord {
+        try await client.request(
+            "/employees/commissions/payout",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
     }
 }
 
@@ -1146,6 +1189,11 @@ struct SalesAPI {
 
     func update(id: String, body: SaleUpsertInput) async throws -> Sale {
         try await client.request("/sales/\(id)", method: "PATCH", body: body)
+    }
+
+    /// Reassign (or clear, via explicit `null`) a confirmed sale's salesperson.
+    func assignSalesperson(id: String, body: SaleSalespersonPatch) async throws -> Sale {
+        try await client.request("/sales/\(id)/salesperson", method: "PATCH", body: body)
     }
 
     func promoteToQuote(id: String) async throws -> Sale {
@@ -1778,10 +1826,50 @@ struct PaymentMethodCreateInput: Codable {
     let name: String
     let accountCode: String
     let feeRate: Double?
+    let payoutAccountCode: String?
 }
 
-struct PaymentMethodPatchInput: Codable {
-    let isActive: Bool
+/// Tri-state PATCH body for a payment method. Each field is double-optional:
+/// `.none` = leave the field alone, `.some(nil)` = clear it, `.some(x)` = set it.
+/// Only fields that were supplied are encoded, so a partial PATCH never nulls
+/// fields the caller didn't intend to touch.
+struct PaymentMethodPatchInput: Encodable {
+    var isActive: Bool?? = nil
+    var name: String?? = nil
+    var accountCode: String?? = nil
+    var feeRate: Double?? = nil
+    var payoutAccountCode: String?? = nil
+
+    init(
+        isActive: Bool?? = nil,
+        name: String?? = nil,
+        accountCode: String?? = nil,
+        feeRate: Double?? = nil,
+        payoutAccountCode: String?? = nil
+    ) {
+        self.isActive = isActive
+        self.name = name
+        self.accountCode = accountCode
+        self.feeRate = feeRate
+        self.payoutAccountCode = payoutAccountCode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isActive
+        case name
+        case accountCode
+        case feeRate
+        case payoutAccountCode
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let isActive { try container.encodeNullable(isActive, forKey: .isActive) }
+        if let name { try container.encodeNullable(name, forKey: .name) }
+        if let accountCode { try container.encodeNullable(accountCode, forKey: .accountCode) }
+        if let feeRate { try container.encodeNullable(feeRate, forKey: .feeRate) }
+        if let payoutAccountCode { try container.encodeNullable(payoutAccountCode, forKey: .payoutAccountCode) }
+    }
 }
 
 struct CashAccountsAPI {
@@ -1791,8 +1879,9 @@ struct CashAccountsAPI {
         try await client.request("/accounting/cash-accounts")
     }
 
-    func transfers(limit: Int? = nil) async throws -> [CashTransfer] {
-        try await client.request("/accounting/transfers\(query(["limit": limit]))")
+    /// Paged transfer history for the Funds & Accounts screen.
+    func transfersPaged(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<CashTransfer> {
+        try await client.request("/accounting/transfers\(query(["page": page, "pageSize": pageSize]))")
     }
 
     func createTransfer(
@@ -1815,8 +1904,10 @@ struct CashAccountsAPI {
         try await client.request("/accounting/undeposited-checks")
     }
 
-    func expenses(limit: Int? = nil) async throws -> [ExpensePayment] {
-        try await client.request("/accounting/expenses\(query(["limit": limit]))")
+    /// Paged expense history. The backend returns a paged envelope, so this is
+    /// used by Funds & Accounts; legacy flat loading is removed.
+    func expenses(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<ExpensePayment> {
+        try await client.request("/accounting/expenses\(query(["page": page, "pageSize": pageSize]))")
     }
 
     func createExpense(
@@ -1858,6 +1949,11 @@ struct CashAccountsAPI {
 
     func methods() async throws -> [PaymentMethod] {
         try await client.request("/accounting/payment-methods")
+    }
+
+    /// Paged payment methods for the Funds & Accounts screen.
+    func methodsPaged(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<PaymentMethod> {
+        try await client.request("/accounting/payment-methods\(query(["page": page, "pageSize": pageSize]))")
     }
 
     func createMethod(_ body: PaymentMethodCreateInput) async throws -> PaymentMethod {
@@ -1980,6 +2076,14 @@ struct UsersAPI {
 
     func resetMfa(id: String) async throws -> EmptyResponse {
         try await client.request("/users/\(id)/reset-mfa", method: "POST")
+    }
+
+    func preferences() async throws -> UserPreferences {
+        try await client.request("/users/me/preferences")
+    }
+
+    func updatePreferences(_ body: UserPreferencesPatch) async throws -> UserPreferences {
+        try await client.request("/users/me/preferences", method: "PATCH", body: body)
     }
 }
 
@@ -2111,12 +2215,33 @@ struct PaymentsAPI {
         try await client.request("/payments/stripe/connection-token", method: "POST")
     }
 
-    func terminalIntent(invoiceId: String) async throws -> TerminalIntent {
-        try await client.request("/payments/stripe/terminal/intent", method: "POST", body: InvoiceIdInput(invoiceId: invoiceId))
+    func terminalIntent(invoiceId: String, amount: Double? = nil) async throws -> TerminalIntent {
+        try await client.request(
+            "/payments/stripe/terminal/intent",
+            method: "POST",
+            body: PaymentIntentAmountInput(invoiceId: invoiceId, amount: amount)
+        )
     }
 
-    func cardIntent(invoiceId: String) async throws -> CardPaymentIntent {
-        try await client.request("/payments/stripe/card/intent", method: "POST", body: InvoiceIdInput(invoiceId: invoiceId))
+    func cardIntent(invoiceId: String, amount: Double? = nil) async throws -> CardPaymentIntent {
+        try await client.request(
+            "/payments/stripe/card/intent",
+            method: "POST",
+            body: PaymentIntentAmountInput(invoiceId: invoiceId, amount: amount)
+        )
+    }
+
+    /// Server preflight validation for a split card / Tap to Pay charge.
+    func chargePreflight(invoiceId: String, body: ChargePreflightInput) async throws -> ChargePreflight {
+        try await client.request("/invoices/\(invoiceId)/payments/preflight", method: "POST", body: body)
+    }
+
+    func payLink(invoiceId: String, body: PayLinkCreateInput) async throws -> PayLink {
+        try await client.request("/invoices/\(invoiceId)/pay-link", method: "POST", body: body)
+    }
+
+    func emailPayLink(invoiceId: String, body: InvoiceEmailInput) async throws -> InvoiceEmailResult {
+        try await client.request("/invoices/\(invoiceId)/pay-link/email", method: "POST", body: body)
     }
 
     /// Book a confirmed keyed-card intent immediately; idempotent with the

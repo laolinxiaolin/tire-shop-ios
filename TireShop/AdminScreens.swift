@@ -172,6 +172,10 @@ private struct UserRow: View {
                     if user.mfaMethod != nil {
                         Label("MFA", systemImage: "lock.fill")
                     }
+                    if user.demo == true {
+                        Label("Demo", systemImage: "flask")
+                            .foregroundStyle(Theme.primary)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
@@ -198,6 +202,7 @@ private struct UserEditorView: View {
     @State private var roleId = ""
     @State private var homeWarehouse = ""
     @State private var active = true
+    @State private var demo = false
     @State private var saving = false
     @State private var errorMessage: String?
 
@@ -268,6 +273,12 @@ private struct UserEditorView: View {
                     }
                 }
 
+                Section {
+                    Toggle("Demo mode", isOn: $demo)
+                } footer: {
+                    Text("Demo users operate on masked data and can't export or run real accounting mutations.")
+                }
+
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red).font(.subheadline)
                 }
@@ -297,6 +308,7 @@ private struct UserEditorView: View {
         roleId = user.roleId
         homeWarehouse = user.homeWarehouse ?? ""
         active = user.active
+        demo = user.demo ?? false
     }
 
     @MainActor
@@ -311,7 +323,8 @@ private struct UserEditorView: View {
                         fullName: fullName.nilIfBlank,
                         roleId: roleId.nilIfBlank,
                         active: active,
-                        homeWarehouse: homeWarehouse
+                        homeWarehouse: homeWarehouse,
+                        demo: demo
                     )
                 )
             } else {
@@ -325,7 +338,8 @@ private struct UserEditorView: View {
                         password: password,
                         fullName: name,
                         roleId: roleId,
-                        homeWarehouse: homeWarehouse.nilIfBlank
+                        homeWarehouse: homeWarehouse.nilIfBlank,
+                        demo: demo
                     )
                 )
             }

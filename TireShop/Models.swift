@@ -722,6 +722,106 @@ struct Sale: Codable, Identifiable, Equatable {
     let createdAt: String
     let lines: [SaleLine]
     let invoice: SaleInvoice?
+    let salespersonId: String?
+    let salesperson: CustomerSalesperson?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case ref
+        case status
+        case location
+        case customer
+        case customerId
+        case subtotal
+        case taxRate
+        case taxAmount
+        case total
+        case createdAt
+        case lines
+        case invoice
+        case salespersonId
+        case salesperson
+        case soldBy
+    }
+
+    init(
+        id: String,
+        ref: String?,
+        status: SaleStatus,
+        location: String,
+        customer: CustomerSummary,
+        customerId: String,
+        subtotal: String,
+        taxRate: String,
+        taxAmount: String,
+        total: String,
+        createdAt: String,
+        lines: [SaleLine],
+        invoice: SaleInvoice?,
+        salespersonId: String? = nil,
+        salesperson: CustomerSalesperson? = nil
+    ) {
+        self.id = id
+        self.ref = ref
+        self.status = status
+        self.location = location
+        self.customer = customer
+        self.customerId = customerId
+        self.subtotal = subtotal
+        self.taxRate = taxRate
+        self.taxAmount = taxAmount
+        self.total = total
+        self.createdAt = createdAt
+        self.lines = lines
+        self.invoice = invoice
+        self.salespersonId = salespersonId
+        self.salesperson = salesperson
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        ref = try container.decodeIfPresent(String.self, forKey: .ref)
+        status = try container.decode(SaleStatus.self, forKey: .status)
+        location = try container.decode(String.self, forKey: .location)
+        customer = try container.decode(CustomerSummary.self, forKey: .customer)
+        customerId = try container.decode(String.self, forKey: .customerId)
+        subtotal = try container.decode(String.self, forKey: .subtotal)
+        taxRate = try container.decode(String.self, forKey: .taxRate)
+        taxAmount = try container.decode(String.self, forKey: .taxAmount)
+        total = try container.decode(String.self, forKey: .total)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        lines = try container.decode([SaleLine].self, forKey: .lines)
+        invoice = try container.decodeIfPresent(SaleInvoice.self, forKey: .invoice)
+        salespersonId = try container.decodeIfPresent(String.self, forKey: .salespersonId)
+        // Some servers nest the salesperson under `soldBy` with the same shape.
+        if let salesperson = try? container.decodeIfPresent(CustomerSalesperson.self, forKey: .salesperson) {
+            self.salesperson = salesperson
+        } else if let soldBy = try? container.decodeIfPresent(CustomerSalesperson.self, forKey: .soldBy) {
+            self.salesperson = soldBy
+        } else {
+            self.salesperson = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(ref, forKey: .ref)
+        try container.encode(status, forKey: .status)
+        try container.encode(location, forKey: .location)
+        try container.encode(customer, forKey: .customer)
+        try container.encode(customerId, forKey: .customerId)
+        try container.encode(subtotal, forKey: .subtotal)
+        try container.encode(taxRate, forKey: .taxRate)
+        try container.encode(taxAmount, forKey: .taxAmount)
+        try container.encode(total, forKey: .total)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(lines, forKey: .lines)
+        try container.encodeIfPresent(invoice, forKey: .invoice)
+        try container.encodeIfPresent(salespersonId, forKey: .salespersonId)
+        try container.encodeIfPresent(salesperson, forKey: .salesperson)
+    }
 }
 
 struct SaleListItem: Codable, Identifiable, Equatable {
@@ -742,6 +842,83 @@ struct SaleListItem: Codable, Identifiable, Equatable {
     let sampleDescription: String?
     let extraLineCount: Int
     let grossProfit: String
+    let salespersonId: String?
+    let salesperson: CustomerSalesperson?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case ref
+        case status
+        case location
+        case customer
+        case customerId
+        case subtotal
+        case taxRate
+        case taxAmount
+        case total
+        case createdAt
+        case lines
+        case invoice
+        case tireQty
+        case sampleDescription
+        case extraLineCount
+        case grossProfit
+        case salespersonId
+        case salesperson
+        case soldBy
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        ref = try container.decodeIfPresent(String.self, forKey: .ref)
+        status = try container.decode(SaleStatus.self, forKey: .status)
+        location = try container.decode(String.self, forKey: .location)
+        customer = try container.decode(CustomerSummary.self, forKey: .customer)
+        customerId = try container.decode(String.self, forKey: .customerId)
+        subtotal = try container.decode(String.self, forKey: .subtotal)
+        taxRate = try container.decode(String.self, forKey: .taxRate)
+        taxAmount = try container.decode(String.self, forKey: .taxAmount)
+        total = try container.decode(String.self, forKey: .total)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        lines = try container.decode([SaleLine].self, forKey: .lines)
+        invoice = try container.decodeIfPresent(SaleInvoice.self, forKey: .invoice)
+        tireQty = try container.decode(Int.self, forKey: .tireQty)
+        sampleDescription = try container.decodeIfPresent(String.self, forKey: .sampleDescription)
+        extraLineCount = try container.decode(Int.self, forKey: .extraLineCount)
+        grossProfit = try container.decode(String.self, forKey: .grossProfit)
+        salespersonId = try container.decodeIfPresent(String.self, forKey: .salespersonId)
+        if let salesperson = try? container.decodeIfPresent(CustomerSalesperson.self, forKey: .salesperson) {
+            self.salesperson = salesperson
+        } else if let soldBy = try? container.decodeIfPresent(CustomerSalesperson.self, forKey: .soldBy) {
+            self.salesperson = soldBy
+        } else {
+            self.salesperson = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(ref, forKey: .ref)
+        try container.encode(status, forKey: .status)
+        try container.encode(location, forKey: .location)
+        try container.encode(customer, forKey: .customer)
+        try container.encode(customerId, forKey: .customerId)
+        try container.encode(subtotal, forKey: .subtotal)
+        try container.encode(taxRate, forKey: .taxRate)
+        try container.encode(taxAmount, forKey: .taxAmount)
+        try container.encode(total, forKey: .total)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(lines, forKey: .lines)
+        try container.encodeIfPresent(invoice, forKey: .invoice)
+        try container.encode(tireQty, forKey: .tireQty)
+        try container.encodeIfPresent(sampleDescription, forKey: .sampleDescription)
+        try container.encode(extraLineCount, forKey: .extraLineCount)
+        try container.encode(grossProfit, forKey: .grossProfit)
+        try container.encodeIfPresent(salespersonId, forKey: .salespersonId)
+        try container.encodeIfPresent(salesperson, forKey: .salesperson)
+    }
 }
 
 struct SalesSummary: Codable, Equatable {
@@ -1076,7 +1253,7 @@ struct CustomerUserActiveInput: Encodable {
     let active: Bool
 }
 
-private extension KeyedEncodingContainer {
+extension KeyedEncodingContainer {
     mutating func encodeNullable<T: Encodable>(_ value: T?, forKey key: Key) throws {
         if let value {
             try encode(value, forKey: key)
@@ -2205,6 +2382,61 @@ struct PaymentMethod: Codable, Identifiable, Equatable {
     let isActive: Bool
     let processor: String?
     let account: JournalLine.AccountInfo
+    let payoutAccount: JournalLine.AccountInfo?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case feeRate
+        case isActive
+        case processor
+        case account
+        case payoutAccount
+        case payoutAccountId
+    }
+
+    init(
+        id: String,
+        name: String,
+        feeRate: String?,
+        isActive: Bool,
+        processor: String?,
+        account: JournalLine.AccountInfo,
+        payoutAccount: JournalLine.AccountInfo? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.feeRate = feeRate
+        self.isActive = isActive
+        self.processor = processor
+        self.account = account
+        self.payoutAccount = payoutAccount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        feeRate = try container.decodeIfPresent(String.self, forKey: .feeRate)
+        isActive = try container.decode(Bool.self, forKey: .isActive)
+        processor = try container.decodeIfPresent(String.self, forKey: .processor)
+        account = try container.decode(JournalLine.AccountInfo.self, forKey: .account)
+        // The outgoing payout account is optional and only present on newer
+        // servers; decoding is kept at the field layer so an unset value stays
+        // nil (callers fall back to the deposit account for display only).
+        payoutAccount = try container.decodeIfPresent(JournalLine.AccountInfo.self, forKey: .payoutAccount)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(feeRate, forKey: .feeRate)
+        try container.encode(isActive, forKey: .isActive)
+        try container.encodeIfPresent(processor, forKey: .processor)
+        try container.encode(account, forKey: .account)
+        try container.encodeIfPresent(payoutAccount, forKey: .payoutAccount)
+    }
 }
 
 struct UndepositedCheck: Codable, Identifiable, Equatable {
@@ -2463,6 +2695,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
     let active: Bool
     let homeWarehouse: String?
     let mfaMethod: String?
+    let demo: Bool?
     let createdAt: String
 
     private struct RoleRef: Codable, Equatable {
@@ -2480,6 +2713,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         case active
         case homeWarehouse
         case mfaMethod
+        case demo
         case createdAt
     }
 
@@ -2492,7 +2726,8 @@ struct UserAccount: Codable, Identifiable, Equatable {
         active: Bool,
         mfaMethod: String?,
         createdAt: String,
-        homeWarehouse: String? = nil
+        homeWarehouse: String? = nil,
+        demo: Bool? = nil
     ) {
         self.id = id
         self.email = email
@@ -2502,6 +2737,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         self.active = active
         self.homeWarehouse = homeWarehouse
         self.mfaMethod = mfaMethod
+        self.demo = demo
         self.createdAt = createdAt
     }
 
@@ -2516,6 +2752,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         active = try container.decode(Bool.self, forKey: .active)
         homeWarehouse = try container.decodeIfPresent(String.self, forKey: .homeWarehouse)
         mfaMethod = try container.decodeIfPresent(String.self, forKey: .mfaMethod)
+        demo = try container.decodeIfPresent(Bool.self, forKey: .demo)
         createdAt = try container.decode(String.self, forKey: .createdAt)
     }
 
@@ -2529,6 +2766,7 @@ struct UserAccount: Codable, Identifiable, Equatable {
         try container.encode(active, forKey: .active)
         try container.encodeIfPresent(homeWarehouse, forKey: .homeWarehouse)
         try container.encodeIfPresent(mfaMethod, forKey: .mfaMethod)
+        try container.encodeIfPresent(demo, forKey: .demo)
         try container.encode(createdAt, forKey: .createdAt)
     }
 }
@@ -2895,11 +3133,134 @@ struct CommissionEntry: Codable, Identifiable, Equatable {
     let sale: CommissionSaleRef?
 }
 
-struct CommissionPayout: Codable, Identifiable, Equatable {
+// MARK: - Pay-period commission payouts
+
+/// A single commission entry available to include in a pay-period payout.
+struct CommissionPayoutEligibleEntry: Codable, Identifiable, Equatable {
     let id: String
+    let employeeId: String
+    let employeeName: String
+    let saleId: String?
+    let saleRef: String?
+    let basis: CommissionBasis
+    let basisAmount: Double
+    let rate: Double
+    let amount: Double
+    let note: String?
+    let createdAt: String
+}
+
+/// Server preview of a proposed pay-period payout: selected entries plus any
+/// automatic rollover lines that fall into the period.
+struct CommissionPayoutPreview: Codable, Equatable {
+    let entries: [CommissionPayoutEligibleEntry]
+    let rollovers: [CommissionPayoutEligibleEntry]
+    let entryTotal: Double
+    let rolloverTotal: Double
+    let total: Double
+    let availableMethods: [PaymentMethod]
+}
+
+/// Enriched payout history row returned by the pay-period endpoint.
+struct CommissionPayoutRecord: Codable, Identifiable, Equatable {
+    let id: String
+    let periodFrom: String
+    let periodTo: String
     let amount: Double
     let entryCount: Int
+    let rolloverCount: Int
+    let methodId: String?
+    let methodName: String?
+    let note: String?
     let createdAt: String
+    let employeeName: String?
+}
+
+struct CommissionPayoutCreateInput: Codable, Equatable {
+    let employeeId: String?
+    let from: String
+    let to: String
+    let entryIds: [String]
+    let rolloverIds: [String]
+    let methodId: String?
+    let note: String?
+}
+
+struct CommissionPayoutEligibleRequest: Codable, Equatable {
+    let from: String
+    let to: String
+    let employeeId: String?
+}
+
+// MARK: - Charge preflights
+
+/// Server-side preflight validation for a split (partial) card / Tap to Pay
+/// charge. Warnings must be acknowledged before creating the Stripe intent.
+struct ChargePreflight: Codable, Equatable {
+    let requestAmount: Double
+    let applied: Double
+    let fee: Double
+    let remaining: Double
+    let warnings: [String]
+}
+
+struct ChargePreflightInput: Codable, Equatable {
+    let amount: Double
+    let paymentMethodId: String?
+}
+
+// MARK: - Pay links
+
+/// A shareable/email pay link for an unpaid invoice.
+struct PayLink: Codable, Identifiable, Equatable {
+    let id: String
+    let invoiceId: String
+    let url: String
+    let amount: Double
+    let token: String?
+    let active: Bool
+    let createdAt: String
+}
+
+struct PayLinkCreateInput: Codable, Equatable {
+    let amount: Double
+}
+
+// MARK: - Monthly Sales preferences
+
+/// Configurable, ordered columns for the Monthly Sales report, persisted through
+/// `/users/me/preferences`.
+struct MonthlySalesPreference: Codable, Equatable {
+    let key: String
+    let label: String
+}
+
+struct MonthlySalesPreferences: Codable, Equatable {
+    let columns: [MonthlySalesPreference]
+}
+
+struct UserPreferences: Codable, Equatable {
+    let monthlySalesColumns: [String]?
+}
+
+struct UserPreferencesPatch: Encodable {
+    let monthlySalesColumns: [String]?
+}
+
+// MARK: - Sale salesperson assignment
+
+struct SaleSalespersonPatch: Encodable {
+    let salespersonId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case salespersonId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // Deliberate `null` clears the assigned salesperson.
+        try container.encodeNullable(salespersonId, forKey: .salespersonId)
+    }
 }
 
 extension Array where Element: Identifiable {

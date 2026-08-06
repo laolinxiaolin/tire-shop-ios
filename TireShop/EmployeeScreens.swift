@@ -316,13 +316,12 @@ struct EmployeeDetailNativeView: View {
 
     @State private var employee: Employee?
     @State private var commissions: [CommissionEntry] = []
-    @State private var payouts: [CommissionPayout] = []
+    @State private var payouts: [CommissionPayoutRecord] = []
     @State private var loading = false
-    @State private var paying = false
     @State private var errorMessage: String?
     @State private var actionError: String?
     @State private var editing: EmployeeEditorTarget?
-    @State private var confirmPayout = false
+    @State private var showPayoutSheet = false
 
     private var canManage: Bool {
         auth.has("employees.manage")
@@ -368,13 +367,11 @@ struct EmployeeDetailNativeView: View {
                 Task { await load() }
             }
         }
-        .alert("Pay out commissions?", isPresented: $confirmPayout) {
-            Button("Cancel", role: .cancel) {}
-            Button("Pay out") {
-                Task { await payout() }
+        .sheet(isPresented: $showPayoutSheet) {
+            CommissionPayoutSheet(employeeId: id) {
+                showPayoutSheet = false
+                Task { await load() }
             }
-        } message: {
-            Text("This will pay out \(AppFormat.money(summary.accrued)) in accrued commission.")
         }
         .task {
             if employee == nil { await load() }
@@ -391,12 +388,8 @@ struct EmployeeDetailNativeView: View {
                 ])
 
                 if canPay {
-                    PrimaryButton(
-                        title: "Pay out \(AppFormat.money(summary.accrued))",
-                        loading: paying,
-                        disabled: paying || summary.accrued <= 0
-                    ) {
-                        confirmPayout = true
+                    PrimaryButton(title: "Pay out by period") {
+                        showPayoutSheet = true
                     }
                 }
 
@@ -447,12 +440,25 @@ struct EmployeeDetailNativeView: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(payouts) { payout in
-                            RowLine(
-                                title: AppFormat.shortDate(payout.createdAt),
-                                subtitle: "\(payout.entryCount) lines",
-                                trailing: AppFormat.money(payout.amount)
-                            )
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(AppFormat.shortDate(payout.createdAt))
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    Spacer()
+                                    Text(AppFormat.money(payout.amount))
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                }
+                                Text("\(payout.entryCount) entries\(payout.rolloverCount > 0 ? " · \(payout.rolloverCount) rollovers" : "") · \(payout.methodName ?? "-")")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.muted)
+                                if let note = payout.note?.nilIfBlank {
+                                    Text(note).font(.caption).foregroundStyle(Theme.muted)
+                                }
+                            }
                             .padding(.horizontal, Theme.Space.md)
+                            .padding(.vertical, Theme.Space.sm)
                             Divider()
                         }
                     }
@@ -475,7 +481,7 @@ struct EmployeeDetailNativeView: View {
         do {
             async let employeeTask = EmployeesAPI().get(id: id)
             async let commissionTask = CommissionsAPI().list(employeeId: id, pageSize: 50)
-            async let payoutTask = EmployeesAPI().payouts(id: id)
+            async let payoutTask = EmployeesAPI().payoutRecords(id: id)
             let (loadedEmployee, commissionPage, loadedPayouts) = try await (employeeTask, commissionTask, payoutTask)
             employee = loadedEmployee
             commissions = commissionPage.items
@@ -484,19 +490,6 @@ struct EmployeeDetailNativeView: View {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load employee."
         }
         loading = false
-    }
-
-    @MainActor
-    private func payout() async {
-        paying = true
-        actionError = nil
-        do {
-            _ = try await EmployeesAPI().payout(id: id)
-            await load()
-        } catch {
-            actionError = (error as? LocalizedError)?.errorDescription ?? "Could not pay out commissions."
-        }
-        paying = false
     }
 }
 
@@ -816,5 +809,216 @@ struct EmployeeEditorView: View {
             throw APIError(status: 0, message: "Commission percent must be between 0 and 100.")
         }
         return percent
+    }
+}
+
+// MARK: - Pay-period commission payout sheet
+
+private struct CommissionPayoutSheet: View {
+    let employeeId: String
+    let onDone: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var from = ShopClock.monthStart()
+    @State private var to = Date()
+    @State private var eligible: [CommissionPayoutEligibleEntry] = []
+    @State private var selected = Set<String>()
+    @State private var preview: CommissionPayoutPreview?
+    @State private var methodId: String?
+    @State private var loading = false
+    @State private var previewing = false
+    @State private var creating = false
+    @State private var errorMessage: String?
+    // Stable across retries of the same payout composition; reset whenever the
+    // selection/rollovers change so a different payout gets a fresh key.
+    @State private var idempotencyKey: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Period") {
+                    DatePicker("From", selection: $from, displayedComponents: .date)
+                    DatePicker("To", selection: $to, displayedComponents: .date)
+                    Button("Load eligible commissions") { Task { await loadEligible() } }
+                        .disabled(loading)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                    }
+                }
+
+                if !eligible.isEmpty {
+                    Section("Eligible entries") {
+                        ForEach(eligible) { entry in
+                            Button {
+                                toggle(entry.id)
+                            } label: {
+                                HStack {
+                                    Image(systemName: selected.contains(entry.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(selected.contains(entry.id) ? Theme.primary : Theme.muted)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(entry.saleRef ?? (entry.note?.nilIfBlank ?? "Commission"))
+                                            .font(.subheadline)
+                                            .foregroundStyle(Theme.text)
+                                        Text("\(entry.employeeName) · \(AppFormat.shortDate(entry.createdAt))")
+                                            .font(.caption)
+                                            .foregroundStyle(Theme.muted)
+                                    }
+                                    Spacer()
+                                    Text(AppFormat.money(entry.amount))
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            .tint(Theme.text)
+                        }
+                        Button("Select all") {
+                            setSelection(selected.count == eligible.count ? [] : Set(eligible.map(\.id)))
+                        }
+                        .font(.caption)
+                    }
+
+                    Section {
+                        Button(previewing ? "Previewing..." : "Preview payout") { Task { await loadPreview() } }
+                            .disabled(selected.isEmpty || previewing)
+                    }
+                }
+
+                if let preview {
+                    Section("Preview") {
+                        RowLine(title: "Selected entries", trailing: "\(preview.entries.count) · \(AppFormat.money(preview.entryTotal))")
+                        if !preview.rollovers.isEmpty {
+                            RowLine(title: "Automatic rollovers", trailing: "\(preview.rollovers.count) · \(AppFormat.money(preview.rolloverTotal))")
+                            ForEach(preview.rollovers) { rollover in
+                                Label((rollover.saleRef ?? rollover.note ?? "Rollover") + " · " + AppFormat.money(rollover.amount), systemImage: "arrow.uturn.forward")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
+                        RowLine(title: "Total", trailing: AppFormat.money(preview.total))
+
+                        if !preview.availableMethods.isEmpty {
+                            Picker("Pay out via", selection: Binding(
+                                get: { methodId ?? preview.availableMethods.first?.id ?? "" },
+                                set: { methodId = $0 }
+                            )) {
+                                ForEach(preview.availableMethods) { method in
+                                    Text(method.name).tag(method.id)
+                                }
+                            }
+                        }
+                    }
+
+                    Section {
+                        Button(creating ? "Posting..." : "Confirm & pay out \(AppFormat.money(preview.total))") { Task { await create() } }
+                            .disabled(creating)
+                    }
+                }
+            }
+            .navigationTitle("Pay out by period")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .task { if eligible.isEmpty { await loadEligible() } }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if selected.contains(id) {
+            selected.remove(id)
+        } else {
+            selected.insert(id)
+        }
+        invalidateSelection()
+    }
+
+    /// Any change to the selection invalidates the confirmed preview total and
+    /// the idempotency key, so the button can't show a total that differs from
+    /// what's posted and a materially different payout gets a fresh key.
+    private func setSelection(_ newSelection: Set<String>) {
+        selected = newSelection
+        invalidateSelection()
+    }
+
+    private func invalidateSelection() {
+        preview = nil
+        idempotencyKey = nil
+    }
+
+    @MainActor
+    private func loadEligible() async {
+        loading = true
+        errorMessage = nil
+        do {
+            eligible = try await CommissionsAPI().eligible(
+                CommissionPayoutEligibleRequest(
+                    from: ShopClock.dayString(from: from),
+                    to: ShopClock.dayString(from: to),
+                    employeeId: employeeId
+                )
+            )
+            selected = Set(eligible.map(\.id))
+            preview = nil
+            idempotencyKey = nil
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load eligible commissions."
+        }
+        loading = false
+    }
+
+    @MainActor
+    private func loadPreview() async {
+        previewing = true
+        errorMessage = nil
+        do {
+            preview = try await CommissionsAPI().payoutPreview(createInput())
+            if methodId == nil, let first = preview?.availableMethods.first {
+                methodId = first.id
+            }
+            idempotencyKey = UUID().uuidString
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not preview the payout."
+        }
+        previewing = false
+    }
+
+    @MainActor
+    private func create() async {
+        creating = true
+        errorMessage = nil
+        do {
+            let base = createInput()
+            let input = CommissionPayoutCreateInput(
+                employeeId: base.employeeId,
+                from: base.from,
+                to: base.to,
+                entryIds: base.entryIds,
+                rolloverIds: base.rolloverIds,
+                methodId: methodId,
+                note: nil
+            )
+            let key = idempotencyKey ?? UUID().uuidString
+            _ = try await CommissionsAPI().createPayout(input, idempotencyKey: key)
+            onDone()
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not post the payout."
+        }
+        creating = false
+    }
+
+    private func createInput() -> CommissionPayoutCreateInput {
+        CommissionPayoutCreateInput(
+            employeeId: employeeId,
+            from: ShopClock.dayString(from: from),
+            to: ShopClock.dayString(from: to),
+            entryIds: Array(selected),
+            rolloverIds: preview?.rollovers.map(\.id) ?? [],
+            methodId: methodId,
+            note: nil
+        )
     }
 }
