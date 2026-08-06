@@ -1802,10 +1802,15 @@ struct TapToPayNativeView: View {
     @MainActor
     private func checkPreflight(amount: Double) async {
         acknowledgedWarnings = false
-        preflight = try? await PaymentsAPI().chargePreflight(
-            invoiceId: invoiceId,
-            body: ChargePreflightInput(amount: amount, paymentMethodId: nil)
-        )
+        do {
+            preflight = try await PaymentsAPI().chargePreflight(
+                invoiceId: invoiceId,
+                body: ChargePreflightInput(amount: amount, paymentMethodId: nil)
+            )
+        } catch {
+            preflight = nil
+            splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not check this amount."
+        }
     }
 
     private func chargeBar(intent: TerminalIntent) -> some View {
