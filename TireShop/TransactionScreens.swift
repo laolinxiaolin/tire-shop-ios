@@ -1577,8 +1577,8 @@ struct TapToPayNativeView: View {
                         RowLine(title: "Customer", trailing: customerName)
                     }
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
-                    RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
-                    RowLine(title: "Customer pays", trailing: AppFormat.money(intent.amount))
+                    RowLine(title: "Card fee", trailing: AppFormat.money(preflight?.fee ?? intent.surcharge))
+                    RowLine(title: "Customer pays", trailing: AppFormat.money(chargeAmount(intent)))
                 }
 
                 splitSection(intent: intent)
@@ -1744,6 +1744,13 @@ struct TapToPayNativeView: View {
         Section("Split amount") {
             TextField("Amount (blank = full balance)", text: $splitAmountText)
                 .keyboardType(.decimalPad)
+                .onChange(of: splitAmountText) { _, _ in
+                    // Editing the field invalidates the applied preflight until
+                    // it's re-applied, so the breakdown/button can't disagree
+                    // with the typed amount.
+                    preflight = nil
+                    acknowledgedWarnings = false
+                }
             Button("Use full balance") {
                 splitAmountText = ""
                 splitAmount = nil
@@ -1805,7 +1812,7 @@ struct TapToPayNativeView: View {
                 }
             } else {
                 Button {
-                    Task { await chargeWithIntent() }
+                    Task { await chargeWithIntent(intent: intent) }
                 } label: {
                     HStack {
                         if invoiceIsProcessing || charging {
@@ -1853,17 +1860,26 @@ struct TapToPayNativeView: View {
         preflight?.requestAmount ?? splitAmount ?? intent.amount
     }
 
-    /// Creates the Stripe intent only at charge time (with the chosen amount) and
-    /// starts the terminal charge. Adjusting a split amount no longer orphans a
-    /// fresh PaymentIntent per apply.
+    /// Starts the terminal charge. For a plain full-balance charge the already-
+    /// loaded intent is reused; a split amount creates a fresh intent at charge
+    /// time (so adjusting a split doesn't orphan a PaymentIntent per apply).
     @MainActor
-    private func chargeWithIntent() async {
+    private func chargeWithIntent(intent: TerminalIntent) async {
         guard !charging else { return }
         charging = true
         defer { charging = false }
         do {
-            let freshIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
-            terminal.startCharge(invoiceId: invoiceId, intent: freshIntent)
+            let chargeIntent: TerminalIntent
+            if splitAmount == nil {
+                chargeIntent = intent
+            } else {
+                chargeIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
+            }
+            guard chargeIntent.clientSecret?.nilIfBlank != nil, chargeIntent.amount > 0 else {
+                splitMessage = "The server did not return a chargeable payment intent."
+                return
+            }
+            terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent)
         } catch {
             splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not start the charge."
         }
