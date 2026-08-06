@@ -1577,7 +1577,11 @@ struct TapToPayNativeView: View {
                         RowLine(title: "Customer", trailing: customerName)
                     }
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
-                    RowLine(title: "Card fee", trailing: AppFormat.money(preflight?.fee ?? intent.surcharge))
+                    if let preflight {
+                        RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                    } else if splitAmount == nil {
+                        RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
+                    }
                     RowLine(title: "Customer pays", trailing: AppFormat.money(chargeAmount(intent)))
                 }
 
