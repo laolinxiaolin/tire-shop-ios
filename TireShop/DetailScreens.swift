@@ -24,6 +24,7 @@ struct SaleDetailNativeView: View {
     @State private var salespersonOptions: [CustomerSalesperson] = []
     @State private var selectedSalespersonId = ""
     @State private var salespersonOptionsLoaded = false
+    @State private var salespersonOptionsLoading = false
     @State private var salespersonSeeded = false
     @State private var savingSalesperson = false
     @State private var showPayLink = false
@@ -323,16 +324,17 @@ struct SaleDetailNativeView: View {
             salespersonSeeded = true
             selectedSalespersonId = sale.salespersonId ?? ""
         }
-        guard !salespersonOptionsLoaded else { return }
+        guard !salespersonOptionsLoading, !salespersonOptionsLoaded else { return }
+        salespersonOptionsLoading = true
+        defer { salespersonOptionsLoading = false }
         if let page = try? await EmployeesAPI().list(pageSize: 200) {
             salespersonOptions = page.items
                 .filter { $0.status != "TERMINATED" }
                 .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
                 .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
+            // Only mark loaded on success so a transient failure can be retried.
+            salespersonOptionsLoaded = true
         }
-        // Set only after the fetch so the Save button's `!salespersonOptionsLoaded`
-        // gate stays engaged for the whole request.
-        salespersonOptionsLoaded = true
     }
 
     private func salespersonRow(_ sale: Sale) -> some View {
@@ -352,7 +354,7 @@ struct SaleDetailNativeView: View {
                 } label: {
                     Label(savingSalesperson ? "Saving..." : "Save salesperson", systemImage: "person.crop.circle")
                 }
-                .disabled(savingSalesperson || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
+                .disabled(savingSalesperson || salespersonOptionsLoading || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
             } else if let salesperson = sale.salesperson {
                 RowLine(title: "Salesperson", subtitle: salesperson.fullName)
             }
