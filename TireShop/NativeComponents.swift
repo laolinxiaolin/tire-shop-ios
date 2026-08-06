@@ -121,6 +121,7 @@ struct PaymentSheetNativeView: View {
     @State private var errorMessage: String?
     @State private var postedApplied = 0.0
     @State private var recordingTask: Task<Void, Never>?
+    @State private var showCardSheet = false
 
     var body: some View {
         NavigationStack {
@@ -131,7 +132,7 @@ struct PaymentSheetNativeView: View {
 
                 Section("Card") {
                     Button {
-                        Task { await chargeCard() }
+                        showCardSheet = true
                     } label: {
                         HStack {
                             Label("Enter card number", systemImage: "creditcard")
@@ -224,6 +225,17 @@ struct PaymentSheetNativeView: View {
             }
             .task {
                 await load()
+            }
+            .sheet(isPresented: $showCardSheet) {
+                KeyedCardSplitSheet(
+                    invoiceId: invoiceId,
+                    balance: effectiveBalance,
+                    onPaid: {
+                        showCardSheet = false
+                        onPaid()
+                        dismiss()
+                    }
+                )
             }
             .interactiveDismissDisabled(recording || cardProcessing)
             .onDisappear {
@@ -516,6 +528,203 @@ struct PaymentSheetNativeView: View {
         }
 
         return roundMoney(row.amountValue * feeRate)
+    }
+
+    private func roundMoney(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+}
+
+// MARK: - Keyed card split charge (partial amounts + preflight)
+
+/// Collects a split (partial) keyed-card charge: defaults to the full balance,
+/// validates the partial amount, shows the server's applied/fee/remaining
+/// breakdown, requires acknowledgement of any preflight warnings, and only then
+/// creates the Stripe intent.
+private struct KeyedCardSplitSheet: View {
+    let invoiceId: String
+    let balance: Double
+    let onPaid: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var amountText = ""
+    @State private var preflight: ChargePreflight?
+    @State private var checked = false
+    @State private var acknowledgedWarnings = false
+    @State private var charging = false
+    @State private var errorMessage: String?
+
+    private var amountValue: Double {
+        Double(amountText) ?? 0
+    }
+
+    private var validAmount: Bool {
+        amountValue > 0 && amountValue <= balance + 0.005
+    }
+
+    private var hasWarnings: Bool {
+        (preflight?.warnings.isEmpty ?? true) == false
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    RowLine(title: "Invoice balance", trailing: AppFormat.money(balance))
+                }
+
+                Section {
+                    TextField("Amount", text: $amountText)
+                        .keyboardType(.decimalPad)
+                    Button("Use full balance") {
+                        amountText = String(format: "%.2f", balance)
+                    }
+                } header: {
+                    Text("Charge amount")
+                } footer: {
+                    Text("Defaults to the full balance. Enter a lower amount to split this charge.")
+                }
+
+                if checked {
+                    if let preflight {
+                        Section("Breakdown") {
+                            RowLine(title: "You'll be charged", trailing: AppFormat.money(preflight.requestAmount))
+                            RowLine(title: "Applied to invoice", trailing: AppFormat.money(preflight.applied))
+                            if preflight.fee > 0 {
+                                RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                            }
+                            RowLine(title: "Remaining balance", trailing: AppFormat.money(preflight.remaining))
+                        }
+
+                        if hasWarnings {
+                            Section("Warnings") {
+                                ForEach(preflight.warnings, id: \.self) { warning in
+                                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(Theme.danger)
+                                }
+                                Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
+                                    acknowledgedWarnings = true
+                                }
+                                .disabled(acknowledgedWarnings)
+                            }
+                        }
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                    }
+                }
+
+                Section {
+                    Button(checked ? (charging ? "Charging..." : "Charge \(AppFormat.money(preflight?.requestAmount ?? amountValue))") : "Check charge") {
+                        Task { await continueFlow() }
+                    }
+                    .disabled(charging || !validAmount || (checked && hasWarnings && !acknowledgedWarnings))
+                }
+            }
+            .navigationTitle("Card payment")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(charging)
+                }
+            }
+            .task {
+                if amountText.isEmpty {
+                    amountText = String(format: "%.2f", balance)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func continueFlow() async {
+        errorMessage = nil
+        if !checked {
+            await checkPreflight()
+            return
+        }
+        await charge()
+    }
+
+    @MainActor
+    private func checkPreflight() async {
+        charging = true
+        defer { charging = false }
+        do {
+            preflight = try await PaymentsAPI().chargePreflight(
+                invoiceId: invoiceId,
+                body: ChargePreflightInput(amount: roundMoney(amountValue), paymentMethodId: nil)
+            )
+            checked = true
+            acknowledgedWarnings = false
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not check this charge."
+        }
+    }
+
+    @MainActor
+    private func charge() async {
+        charging = true
+        errorMessage = nil
+        defer { charging = false }
+        do {
+            let status = try await PaymentsAPI().gatewayStatus()
+            guard status.enabled, status.provider.lowercased() == "stripe" else {
+                throw APIError(status: 0, message: "Stripe payments are not enabled.")
+            }
+            guard let publishableKey = status.publishableKey?.nilIfBlank else {
+                throw APIError(status: 0, message: "Stripe publishable key is not configured.")
+            }
+
+            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId, amount: preflight?.requestAmount ?? roundMoney(amountValue))
+            guard let clientSecret = intent.clientSecret?.nilIfBlank else {
+                throw APIError(status: 0, message: "The server did not return a card payment client secret.")
+            }
+
+            STPAPIClient.shared.publishableKey = publishableKey
+
+            var configuration = PaymentSheet.Configuration()
+            configuration.merchantDisplayName = "Tire Force US"
+            configuration.allowsDelayedPaymentMethods = false
+
+            let paymentSheet = PaymentSheet(
+                paymentIntentClientSecret: clientSecret,
+                configuration: configuration
+            )
+            let result = try await present(paymentSheet: paymentSheet)
+
+            switch result {
+            case .completed:
+                if let paymentIntentId = intent.paymentIntentId?.nilIfBlank {
+                    _ = try? await PaymentsAPI().settleManual(paymentIntentId: paymentIntentId)
+                }
+                onPaid()
+                dismiss()
+            case .canceled:
+                errorMessage = "Card entry canceled."
+            case .failed(let error):
+                throw error
+            }
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Card payment failed."
+        }
+    }
+
+    @MainActor
+    private func present(paymentSheet: PaymentSheet) async throws -> PaymentSheetResult {
+        guard let controller = UIApplication.shared.tireShopTopViewController else {
+            throw APIError(status: 0, message: "Card entry could not open.")
+        }
+
+        return await withCheckedContinuation { continuation in
+            paymentSheet.present(from: controller) { result in
+                continuation.resume(returning: result)
+            }
+        }
     }
 
     private func roundMoney(_ value: Double) -> Double {

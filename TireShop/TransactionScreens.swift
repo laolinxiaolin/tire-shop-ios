@@ -1544,6 +1544,11 @@ struct TapToPayNativeView: View {
     @ObservedObject private var terminal = TapToPayTerminalController.shared
     @State private var emailInvoice: SaleInvoice?
     @State private var receiptShare: TapToPayReceiptShare?
+    @State private var splitAmountText = ""
+    @State private var splitAmount: Double?
+    @State private var preflight: ChargePreflight?
+    @State private var acknowledgedWarnings = false
+    @State private var reloadToken = UUID()
 
     let invoiceId: String
     let amount: Double
@@ -1555,6 +1560,7 @@ struct TapToPayNativeView: View {
     private var invoiceOutcome: TapToPayOutcome? { terminal.outcome(for: invoiceId) }
     private var invoiceSucceeded: Bool { terminal.succeeded(for: invoiceId) }
     private var invoiceIsProcessing: Bool { terminal.isProcessing(invoiceId: invoiceId) }
+    private var hasWarnings: Bool { (preflight?.warnings.isEmpty ?? true) == false }
 
     var body: some View {
         AsyncContentView(load: loadIntent) { intent in
@@ -1573,6 +1579,8 @@ struct TapToPayNativeView: View {
                     RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
                     RowLine(title: "Customer pays", trailing: AppFormat.money(intent.amount))
                 }
+
+                splitSection(intent: intent)
 
                 Section("Before charging") {
                     ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
@@ -1711,6 +1719,7 @@ struct TapToPayNativeView: View {
         }
         .navigationTitle("Tap to Pay on iPhone")
         .navigationBarBackButtonHidden(invoiceIsProcessing)
+        .id(reloadToken)
         .onAppear {
             terminal.prepare(invoiceId: invoiceId)
         }
@@ -1728,7 +1737,58 @@ struct TapToPayNativeView: View {
     }
 
     private func loadIntent() async throws -> TerminalIntent {
-        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
+    }
+
+    private func splitSection(intent: TerminalIntent) -> some View {
+        Section("Split amount") {
+            TextField("Amount (blank = full balance)", text: $splitAmountText)
+                .keyboardType(.decimalPad)
+            Button("Use full balance") {
+                splitAmountText = ""
+                splitAmount = nil
+                reloadToken = UUID()
+            }
+            Button("Apply this amount") {
+                let value = Double(splitAmountText)
+                guard let value, value > 0, value <= intent.balance + 0.005 else {
+                    preflight = nil
+                    return
+                }
+                splitAmount = value
+                Task { await checkPreflight(amount: value) }
+            }
+
+            if let preflight {
+                RowLine(title: "You'll be charged", trailing: AppFormat.money(preflight.requestAmount))
+                RowLine(title: "Applied to invoice", trailing: AppFormat.money(preflight.applied))
+                if preflight.fee > 0 {
+                    RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                }
+                RowLine(title: "Remaining balance", trailing: AppFormat.money(preflight.remaining))
+            }
+
+            if hasWarnings {
+                ForEach(preflight?.warnings ?? [], id: \.self) { warning in
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.danger)
+                }
+                Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
+                    acknowledgedWarnings = true
+                }
+                .disabled(acknowledgedWarnings)
+            }
+        }
+    }
+
+    @MainActor
+    private func checkPreflight(amount: Double) async {
+        acknowledgedWarnings = false
+        preflight = try? await PaymentsAPI().chargePreflight(
+            invoiceId: invoiceId,
+            body: ChargePreflightInput(amount: amount, paymentMethodId: nil)
+        )
+        reloadToken = UUID()
     }
 
     private func chargeBar(intent: TerminalIntent) -> some View {
@@ -1770,7 +1830,12 @@ struct TapToPayNativeView: View {
     }
 
     private func canCharge(_ intent: TerminalIntent) -> Bool {
-        canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent)
+        guard canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent) else { return false }
+        // A split charge with unacknowledged preflight warnings cannot proceed.
+        if splitAmount != nil && hasWarnings && !acknowledgedWarnings {
+            return false
+        }
+        return true
     }
 
     private func shareText(for outcome: TapToPayOutcome) -> String {
