@@ -53,13 +53,31 @@ enum AppFormat {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = Locale.current
-        if let number = formatter.number(from: trimmed) {
+        if let number = amountFormatter(for: Locale.current).number(from: trimmed) {
             return number.doubleValue
         }
         return Double(trimmed)
+    }
+
+    // Cached per-locale formatters so view-body computed properties that call
+    // parseAmount on every keystroke don't allocate a NumberFormatter each time.
+    // Keyed on the locale identifier so a region change without relaunch is picked
+    // up rather than captured once in a `static let`.
+    private static let amountFormatterLock = NSLock()
+    private static var amountFormatterCache: [String: NumberFormatter] = [:]
+
+    private static func amountFormatter(for locale: Locale) -> NumberFormatter {
+        let key = locale.identifier
+        amountFormatterLock.lock()
+        defer { amountFormatterLock.unlock() }
+        if let cached = amountFormatterCache[key] {
+            return cached
+        }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = locale
+        amountFormatterCache[key] = formatter
+        return formatter
     }
 
     static func shortDate(_ value: String?) -> String {

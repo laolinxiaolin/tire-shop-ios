@@ -324,13 +324,15 @@ struct SaleDetailNativeView: View {
             selectedSalespersonId = sale.salespersonId ?? ""
         }
         guard !salespersonOptionsLoaded else { return }
-        salespersonOptionsLoaded = true
         if let page = try? await EmployeesAPI().list(pageSize: 200) {
             salespersonOptions = page.items
                 .filter { $0.status != "TERMINATED" }
                 .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
                 .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
         }
+        // Set only after the fetch so the Save button's `!salespersonOptionsLoaded`
+        // gate stays engaged for the whole request.
+        salespersonOptionsLoaded = true
     }
 
     private func salespersonRow(_ sale: Sale) -> some View {

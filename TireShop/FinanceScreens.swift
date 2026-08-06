@@ -2901,10 +2901,13 @@ private struct AddPaymentMethodSheet: View {
         return AppFormat.parseAmount(trimmed).map { $0 / 100 }
     }
 
-    /// True when the fee field has content that can't be parsed as a number.
+    /// True when the fee field has content that can't be parsed as a number or
+    /// falls outside the accepted 0–100% range.
     private var feeRateInvalid: Bool {
         let trimmed = feeRatePercent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && AppFormat.parseAmount(trimmed) == nil
+        guard !trimmed.isEmpty else { return false }
+        guard let value = AppFormat.parseAmount(trimmed) else { return true }
+        return value < 0 || value > 100
     }
 
     var body: some View {
