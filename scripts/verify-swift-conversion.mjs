@@ -59,6 +59,23 @@ if (fs.existsSync(generatedSchemePath)) {
   check('generated scheme points at TireShop target', generatedScheme.includes('BlueprintName = "TireShop"') && generatedScheme.includes('BuildableName = "TireShop.app"'));
 }
 
+// The unit-test target must exist in the generated project and be wired into the
+// scheme's TestAction, or a later generator edit could silently drop it while
+// both `build` and the rest of these checks stay green.
+const testDir = path.join(repoRoot, 'TireShopTests');
+const testFiles = fs.existsSync(testDir) ? fs.readdirSync(testDir).filter((file) => file.endsWith('.swift')).sort() : [];
+check('test target sources exist', testFiles.length > 0, `${testFiles.length} test files`);
+if (fs.existsSync(generatedPbxprojPath)) {
+  const generatedProject = fs.readFileSync(generatedPbxprojPath, 'utf8');
+  const missingTestFiles = testFiles.filter((file) => !generatedProject.includes(`/* ${file} */`));
+  check('generated xcode project includes test files', missingTestFiles.length === 0, missingTestFiles.join(', ') || `${testFiles.length} test files`);
+  check('generated xcode project has test target', generatedProject.includes('TireShopTests') && generatedProject.includes('com.apple.product-type.bundle.unit-test'));
+}
+if (fs.existsSync(generatedSchemePath)) {
+  const generatedScheme = fs.readFileSync(generatedSchemePath, 'utf8');
+  check('generated scheme has test action', generatedScheme.includes('TestableReference') && generatedScheme.includes('BlueprintName = "TireShopTests"'));
+}
+
 check('xcodegen project spec exists', fs.existsSync(path.join(repoRoot, 'project.yml')));
 check('xcode project generator exists', fs.existsSync(path.join(repoRoot, 'scripts/generate-xcodeproj.mjs')));
 

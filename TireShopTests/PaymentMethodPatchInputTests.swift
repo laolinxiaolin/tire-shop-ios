@@ -35,13 +35,31 @@ final class PaymentMethodPatchInputTests: XCTestCase {
     }
 
     func testBlankFieldEncodesExplicitNullToClear() throws {
-        // `.some(nil)` is the tri-state "clear" — a bare `nil` would mean
-        // "leave alone" and omit the key entirely.
+        // `.some(nil)` is the tri-state "clear". A *literal* `nil` would mean
+        // "leave alone" and omit the key entirely, but an optional expression
+        // (like `feeRateValue`) is implicitly promoted to `.some(...)`.
         let json = try encode(
             PaymentMethodPatchInput(feeRate: .some(nil), payoutAccountCode: .some(nil))
         )
         XCTAssertTrue(json["feeRate"] is NSNull)
         XCTAssertTrue(json["payoutAccountCode"] is NSNull)
+    }
+
+    func testOptionalExpressionEncodesExplicitNullToClear() throws {
+        // The call-site shape: `feeRateValue` is a `Double?` that is nil for an
+        // empty field. Passing the optional expression promotes it to `.some(nil)`,
+        // which encodes an explicit null (clear) rather than omitting the key.
+        let blankFee: Double? = nil
+        let blankPayout: String? = nil
+        let json = try encode(PaymentMethodPatchInput(feeRate: blankFee, payoutAccountCode: blankPayout))
+        XCTAssertTrue(json["feeRate"] is NSNull)
+        XCTAssertTrue(json["payoutAccountCode"] is NSNull)
+    }
+
+    func testLiteralNilLeavesFieldAlone() throws {
+        // A literal `nil` means "leave alone" — the key is omitted entirely.
+        let json = try encode(PaymentMethodPatchInput(feeRate: nil))
+        XCTAssertNil(json["feeRate"])
     }
 
     func testEmptyPatchEncodesEmptyObject() throws {
