@@ -24,6 +24,7 @@ struct SaleDetailNativeView: View {
     @State private var salespersonOptions: [CustomerSalesperson] = []
     @State private var selectedSalespersonId = ""
     @State private var salespersonOptionsLoaded = false
+    @State private var salespersonSeeded = false
     @State private var savingSalesperson = false
     @State private var showPayLink = false
     @State private var payLinkContext: PayLinkContext?
@@ -312,10 +313,17 @@ struct SaleDetailNativeView: View {
     }
 
     /// Loads the salesperson picker options once, lazily, only when the row is
-    /// shown (permission-gated) rather than on every sale-detail load.
+    /// shown (permission-gated) rather than on every sale-detail load. The
+    /// current selection is seeded synchronously before any `await` so the Save
+    /// button can't be tapped against an empty picker mid-fetch.
     @MainActor
     private func loadSalespersonOptionsIfNeeded(sale: Sale) async {
-        guard canAssignSalesperson, !salespersonOptionsLoaded else { return }
+        guard canAssignSalesperson else { return }
+        if !salespersonSeeded {
+            salespersonSeeded = true
+            selectedSalespersonId = sale.salespersonId ?? ""
+        }
+        guard !salespersonOptionsLoaded else { return }
         salespersonOptionsLoaded = true
         if let page = try? await EmployeesAPI().list(pageSize: 200) {
             salespersonOptions = page.items
@@ -323,7 +331,6 @@ struct SaleDetailNativeView: View {
                 .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
                 .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
         }
-        selectedSalespersonId = sale.salespersonId ?? ""
     }
 
     private func salespersonRow(_ sale: Sale) -> some View {
@@ -343,7 +350,7 @@ struct SaleDetailNativeView: View {
                 } label: {
                     Label(savingSalesperson ? "Saving..." : "Save salesperson", systemImage: "person.crop.circle")
                 }
-                .disabled(savingSalesperson || selectedSalespersonId == (sale.salespersonId ?? ""))
+                .disabled(savingSalesperson || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
             } else if let salesperson = sale.salesperson {
                 RowLine(title: "Salesperson", subtitle: salesperson.fullName)
             }

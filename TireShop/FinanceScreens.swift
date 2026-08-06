@@ -2895,6 +2895,18 @@ private struct AddPaymentMethodSheet: View {
 
     private var isEditing: Bool { editing != nil }
 
+    /// Parsed fee rate (fraction) or `nil` when the field is blank.
+    private var feeRateValue: Double? {
+        guard let trimmed = feeRatePercent.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank else { return nil }
+        return AppFormat.parseAmount(trimmed).map { $0 / 100 }
+    }
+
+    /// True when the fee field has content that can't be parsed as a number.
+    private var feeRateInvalid: Bool {
+        let trimmed = feeRatePercent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && AppFormat.parseAmount(trimmed) == nil
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -2930,7 +2942,7 @@ private struct AddPaymentMethodSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving..." : (isEditing ? "Save" : "Add")) { Task { await submit() } }
-                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty || accountCode.isEmpty)
+                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty || accountCode.isEmpty || feeRateInvalid)
                 }
             }
         }
@@ -2947,7 +2959,7 @@ private struct AddPaymentMethodSheet: View {
                     body: PaymentMethodPatchInput(
                         name: name.trimmingCharacters(in: .whitespaces),
                         accountCode: accountCode,
-                        feeRate: Double(feeRatePercent).map { $0 / 100 },
+                        feeRate: feeRateValue,
                         payoutAccountCode: payoutAccountCode.nilIfBlank
                     )
                 )
@@ -2956,7 +2968,7 @@ private struct AddPaymentMethodSheet: View {
                     PaymentMethodCreateInput(
                         name: name.trimmingCharacters(in: .whitespaces),
                         accountCode: accountCode,
-                        feeRate: Double(feeRatePercent).map { $0 / 100 },
+                        feeRate: feeRateValue,
                         payoutAccountCode: payoutAccountCode.nilIfBlank
                     )
                 )
