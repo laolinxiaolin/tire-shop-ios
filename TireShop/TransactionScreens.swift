@@ -1760,6 +1760,9 @@ struct TapToPayNativeView: View {
                 splitAmount = nil
                 preflight = nil
                 acknowledgedWarnings = false
+                // Reverting to the full balance clears any stale split error so
+                // it can't linger over a now-valid, chargeable state.
+                splitMessage = nil
             }
             Button("Apply this amount") {
                 let value = AppFormat.parseAmount(splitAmountText)
