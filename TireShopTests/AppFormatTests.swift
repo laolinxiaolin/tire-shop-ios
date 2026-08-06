@@ -25,6 +25,12 @@ final class AppFormatTests: XCTestCase {
         XCTAssertEqual(AppFormat.parseAmount("  12.50  ", locale: enUS), 12.5)
     }
 
+    func testParseAmountDefaultsToCurrentLocale() {
+        // The one-argument form is what production calls; it must default to the
+        // current locale so a change to the default parameter can't go unnoticed.
+        XCTAssertEqual(AppFormat.parseAmount("12"), AppFormat.parseAmount("12", locale: .current))
+    }
+
     // MARK: - Locale-specific parsing (deterministic via explicit locale)
 
     func testParseAmountEnUS() {
