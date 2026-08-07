@@ -797,7 +797,7 @@ struct EmployeeEditorView: View {
 
     private func parseAmount(_ value: String, label: String) throws -> Double {
         guard let trimmed = value.nilIfBlank else { return 0 }
-        guard let amount = Double(trimmed), amount >= 0 else {
+        guard let amount = AppFormat.parseAmount(trimmed), amount >= 0 else {
             throw APIError(status: 0, message: "\(label) must be a positive number.")
         }
         return amount
@@ -805,7 +805,7 @@ struct EmployeeEditorView: View {
 
     private func parsePercent(_ value: String) throws -> Double {
         guard let trimmed = value.nilIfBlank else { return 0 }
-        guard let percent = Double(trimmed), percent >= 0, percent <= 100 else {
+        guard let percent = AppFormat.parseAmount(trimmed), percent >= 0, percent <= 100 else {
             throw APIError(status: 0, message: "Commission percent must be between 0 and 100.")
         }
         return percent

@@ -15,6 +15,11 @@ const swiftFiles = fs
   .filter((file) => file.endsWith('.swift'))
   .sort();
 
+const testDir = path.join(appRoot, 'TireShopTests');
+const testFiles = fs.existsSync(testDir)
+  ? fs.readdirSync(testDir).filter((file) => file.endsWith('.swift')).sort()
+  : [];
+
 function id(label) {
   return crypto.createHash('sha1').update(label).digest('hex').slice(0, 24).toUpperCase();
 }
@@ -53,11 +58,24 @@ const ids = {
   stripeBuild: id('stripeBuild'),
   stripePaymentSheetPackage: id('stripePaymentSheetPackage'),
   stripePaymentSheetProduct: id('stripePaymentSheetProduct'),
-  stripePaymentSheetBuild: id('stripePaymentSheetBuild')
+  stripePaymentSheetBuild: id('stripePaymentSheetBuild'),
+  testGroup: id('testGroup'),
+  testNativeTarget: id('testNativeTarget'),
+  testProduct: id('testProduct'),
+  testSourcesPhase: id('testSourcesPhase'),
+  testFrameworksPhase: id('testFrameworksPhase'),
+  testTargetConfigList: id('testTargetConfigList'),
+  testDebug: id('testDebug'),
+  testRelease: id('testRelease'),
+  testDependency: id('testDependency'),
+  testDependencyProxy: id('testDependencyProxy')
 };
 
 const fileIds = new Map(swiftFiles.map((file) => [file, id(`file:${file}`)]));
 const buildIds = new Map(swiftFiles.map((file) => [file, id(`build:${file}`)]));
+
+const testFileIds = new Map(testFiles.map((file) => [file, id(`file:${file}`)]));
+const testBuildIds = new Map(testFiles.map((file) => [file, id(`build:${file}`)]));
 
 const fileRefs = swiftFiles
   .map((file) => `		${fileIds.get(file)} /* ${file} */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ${q(file)}; sourceTree = "<group>"; };`)
@@ -73,6 +91,22 @@ const sourceChildren = swiftFiles
 
 const sourceBuildFiles = swiftFiles
   .map((file) => `				${buildIds.get(file)} /* ${file} in Sources */,`)
+  .join('\n');
+
+const testFileRefs = testFiles
+  .map((file) => `		${testFileIds.get(file)} /* ${file} */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ${q(file)}; sourceTree = "<group>"; };`)
+  .join('\n');
+
+const testBuildFiles = testFiles
+  .map((file) => `		${testBuildIds.get(file)} /* ${file} in Sources */ = {isa = PBXBuildFile; fileRef = ${testFileIds.get(file)} /* ${file} */; };`)
+  .join('\n');
+
+const testSourceChildren = testFiles
+  .map((file) => `				${testFileIds.get(file)} /* ${file} */,`)
+  .join('\n');
+
+const testSourceBuildFiles = testFiles
+  .map((file) => `				${testBuildIds.get(file)} /* ${file} in Sources */,`)
   .join('\n');
 
 const commonProjectSettings = `
@@ -151,6 +185,7 @@ const pbxproj = `// !$*UTF8*$!
 
 /* Begin PBXBuildFile section */
 ${buildFiles}
+${testBuildFiles}
 		${ids.stripeBuild} /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripeProduct} /* StripeTerminal */; };
 		${ids.stripePaymentSheetBuild} /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = ${ids.stripePaymentSheetProduct} /* StripePaymentSheet */; };
 		${ids.assetsBuild} /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ${ids.assetsFile} /* Assets.xcassets */; };
@@ -160,7 +195,9 @@ ${buildFiles}
 
 /* Begin PBXFileReference section */
 ${fileRefs}
+${testFileRefs}
 		${ids.product} /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		${ids.testProduct} /* TireShopTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TireShopTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		${ids.assetsFile} /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		${ids.localizableCatalogFile} /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		${ids.privacyManifestFile} /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -179,6 +216,13 @@ ${fileRefs}
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		${ids.testFrameworksPhase} /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -186,6 +230,7 @@ ${fileRefs}
 			isa = PBXGroup;
 			children = (
 				${ids.sourceGroup} /* TireShop */,
+				${ids.testGroup} /* TireShopTests */,
 				${ids.productGroup} /* Products */,
 			);
 			sourceTree = "<group>";
@@ -204,10 +249,19 @@ ${sourceChildren}
 			path = TireShop;
 			sourceTree = "<group>";
 		};
+		${ids.testGroup} /* TireShopTests */ = {
+			isa = PBXGroup;
+			children = (
+${testSourceChildren}
+			);
+			path = TireShopTests;
+			sourceTree = "<group>";
+		};
 		${ids.productGroup} /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				${ids.product} /* TireShop.app */,
+				${ids.testProduct} /* TireShopTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -236,7 +290,34 @@ ${sourceChildren}
 			productReference = ${ids.product} /* TireShop.app */;
 			productType = "com.apple.product-type.application";
 		};
+		${ids.testNativeTarget} /* TireShopTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ${ids.testTargetConfigList} /* Build configuration list for PBXNativeTarget "TireShopTests" */;
+			buildPhases = (
+				${ids.testSourcesPhase} /* Sources */,
+				${ids.testFrameworksPhase} /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				${ids.testDependency} /* PBXTargetDependency */,
+			);
+			name = TireShopTests;
+			productName = TireShopTests;
+			productReference = ${ids.testProduct} /* TireShopTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		${ids.testDependencyProxy} /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ${ids.project} /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = ${ids.nativeTarget};
+			remoteInfo = TireShop;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXProject section */
 		${ids.project} /* Project object */ = {
@@ -248,6 +329,10 @@ ${sourceChildren}
 				TargetAttributes = {
 					${ids.nativeTarget} = {
 						CreatedOnToolsVersion = 15.4;
+					};
+					${ids.testNativeTarget} = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = ${ids.nativeTarget};
 					};
 				};
 			};
@@ -270,6 +355,7 @@ ${sourceChildren}
 			projectRoot = "";
 			targets = (
 				${ids.nativeTarget} /* TireShop */,
+				${ids.testNativeTarget} /* TireShopTests */,
 			);
 		};
 /* End PBXProject section */
@@ -296,7 +382,23 @@ ${sourceBuildFiles}
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		${ids.testSourcesPhase} /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+${testSourceBuildFiles}
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		${ids.testDependency} /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = ${ids.nativeTarget} /* TireShop */;
+			targetProxy = ${ids.testDependencyProxy} /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		${ids.projectDebug} /* Debug */ = {
@@ -342,6 +444,52 @@ ${commonTargetSettings}
 			};
 			name = Release;
 		};
+		${ids.testDebug} /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2026080301;
+				DEVELOPMENT_TEAM = C8S3S8T2K2;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TireShop.app/TireShop";
+			};
+			name = Debug;
+		};
+		${ids.testRelease} /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2026080301;
+				DEVELOPMENT_TEAM = C8S3S8T2K2;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TireShop.app/TireShop";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -359,6 +507,15 @@ ${commonTargetSettings}
 			buildConfigurations = (
 				${ids.targetDebug} /* Debug */,
 				${ids.targetRelease} /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		${ids.testTargetConfigList} /* Build configuration list for PBXNativeTarget "TireShopTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				${ids.testDebug} /* Debug */,
+				${ids.testRelease} /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -435,6 +592,16 @@ const scheme = `<?xml version="1.0" encoding="UTF-8"?>
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "${ids.testNativeTarget}"
+               BuildableName = "TireShopTests.xctest"
+               BlueprintName = "TireShopTests"
+               ReferencedContainer = "container:TireShop.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

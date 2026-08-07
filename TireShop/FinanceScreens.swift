@@ -2962,8 +2962,8 @@ private struct AddPaymentMethodSheet: View {
                     body: PaymentMethodPatchInput(
                         name: name.trimmingCharacters(in: .whitespaces),
                         accountCode: accountCode,
-                        feeRate: feeRateValue,
-                        payoutAccountCode: payoutAccountCode.nilIfBlank
+                        feeRate: .some(feeRateValue),
+                        payoutAccountCode: .some(payoutAccountCode.nilIfBlank)
                     )
                 )
             } else {
