@@ -1998,6 +1998,13 @@ private struct BestSellerRequestKey: Hashable {
     let sortOrder: String
 }
 
+/// Re-runs the report task when either the request inputs change or the
+/// warehouse fetch settles (the default scope is decided only then).
+private struct BestSellersLoadGate: Hashable {
+    let request: BestSellerRequestKey
+    let warehousesResolved: Bool
+}
+
 private struct BestSellersNativeView: View {
     @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var auth: AuthStore
@@ -2026,6 +2033,10 @@ private struct BestSellersNativeView: View {
     @State private var userPickedWarehouse = false
     @State private var warehousesLoaded = false
     @State private var warehousesFailed = false
+    /// Set when the warehouse fetch finishes (success or failure). The report
+    /// load waits on this unless the route pins a scope, so the first ranking
+    /// never briefly shows the all-warehouses view when a default applies.
+    @State private var warehousesResolved = false
     @State private var data: BestSellersResponse?
     @State private var loading = false
     @State private var errorMessage: String?
@@ -2095,8 +2106,11 @@ private struct BestSellersNativeView: View {
             }
         }
         .background(Theme.background)
-        .task(id: requestKey) {
+        .task(id: BestSellersLoadGate(request: requestKey, warehousesResolved: warehousesResolved)) {
             guard !invalidRange else { return }
+            // Wait for the warehouse fetch to resolve the default scope (the
+            // route pin bypasses the wait: its scope is already decided).
+            guard warehousesResolved || userPickedWarehouse else { return }
             await load()
         }
         .task {
@@ -2232,10 +2246,13 @@ private struct BestSellersNativeView: View {
                             userPickedWarehouse = true
                             selectedWarehouse = warehouse.code
                         } label: {
+                            let title = warehouse.active
+                                ? warehouse.name
+                                : "\(warehouse.name) (\(i18n.t("warehouses.inactive")))"
                             if selectedWarehouse == warehouse.code {
-                                Label(warehouse.name, systemImage: "checkmark")
+                                Label(title, systemImage: "checkmark")
                             } else {
-                                Text(warehouse.name)
+                                Text(title)
                             }
                         }
                     }
@@ -2344,20 +2361,28 @@ private struct BestSellersNativeView: View {
     @MainActor
     private func loadWarehouses() async {
         do {
-            let list = try await WarehousesAPI().list(activeOnly: true)
+            // All warehouses, not just active ones: the backend deliberately
+            // keeps inactive locations reportable (historical rankings), so
+            // they must be selectable. Only the automatic fallback below
+            // prefers active locations.
+            let list = try await WarehousesAPI().list()
             guard !Task.isCancelled else { return }
             warehouses = list
             warehousesLoaded = true
             warehousesFailed = false
+            warehousesResolved = true
             // Default to the operator's home warehouse, then the system default,
-            // matching the web console. A failed fetch degrades to the combined
-            // view rather than blocking the report.
+            // then the first active warehouse, matching the web console. A
+            // failed fetch degrades to the combined view rather than blocking
+            // the report.
             if selectedWarehouse == nil, !userPickedWarehouse {
                 let home = auth.user?.homeWarehouse
-                if let home, list.contains(where: { $0.code == home }) {
+                if let home, list.contains(where: { $0.code == home && $0.active }) {
                     selectedWarehouse = home
-                } else if let defaultWarehouse = list.first(where: { $0.isDefault }) {
+                } else if let defaultWarehouse = list.first(where: { $0.isDefault && $0.active }) {
                     selectedWarehouse = defaultWarehouse.code
+                } else if let firstActive = list.first(where: { $0.active }) {
+                    selectedWarehouse = firstActive.code
                 } else if let first = list.first {
                     selectedWarehouse = first.code
                 }
@@ -2371,6 +2396,7 @@ private struct BestSellersNativeView: View {
             // Degrade to the combined all-warehouse view.
             warehouses = []
             warehousesFailed = true
+            warehousesResolved = true
         }
     }
 
@@ -2545,6 +2571,11 @@ struct SalesListNativeView: View {
     @State private var summary: SalesSummary?
     @State private var hasMore = false
     @State private var nextCursor: SalesCursor?
+    /// Next offset page. Sent alongside the cursor so a pre-cursor server can
+    /// advance by offset, and used alone while a custom sort is active (the
+    /// cursor ordering is fixed at createdAt desc, so a keyset continuation
+    /// would silently drop the sort).
+    @State private var nextPage = 1
     /// Concrete window bounds, fixed when the range is picked so a midnight
     /// rollover mid-scroll can't shift the window between pages.
     @State private var dateParams: (from: String?, to: String?) = (nil, nil)
@@ -3075,12 +3106,14 @@ struct SalesListNativeView: View {
                 to: dateParams.to,
                 sortBy: requestedSortBy,
                 sortOrder: requestedSortOrder,
+                page: 1,
                 pageSize: pageSize
             )
             guard loadRequestID == requestID else { return }
             items = response.items
             summary = response.summary
             hasMore = response.items.count >= pageSize
+            nextPage = response.page + 1
             nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
         } catch {
             guard loadRequestID == requestID, !Task.isCancelled else { return }
@@ -3090,7 +3123,7 @@ struct SalesListNativeView: View {
 
     @MainActor
     private func loadMore() async {
-        guard hasMore, !loadingMore, !loading, let cursor = nextCursor else { return }
+        guard hasMore, !loadingMore, !loading else { return }
         // A filter change mid-flight must invalidate the append: the response
         // belongs to the previous window and would pollute the new list.
         let requestID = loadRequestID
@@ -3102,20 +3135,41 @@ struct SalesListNativeView: View {
         let requestedSortBy = sortBy.nilIfBlank
         let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
         do {
-            // Subsequent pages: light mode (rows only) + keyset cursor so the
-            // window only ever shrinks and every row is delivered exactly once.
-            let response = try await SalesAPI().list(
-                q: query,
-                status: requestedStatus,
-                from: dateParams.from,
-                to: dateParams.to,
-                sortBy: requestedSortBy,
-                sortOrder: requestedSortOrder,
-                pageSize: pageSize,
-                before: cursor.before,
-                beforeId: cursor.beforeId,
-                summary: false
-            )
+            let response: SalesListResponse
+            if sortBy.isEmpty, let cursor = nextCursor {
+                // Default (createdAt desc) order: page by keyset cursor so the
+                // window only ever shrinks and every row is delivered exactly
+                // once. The offset is sent alongside so a pre-cursor server
+                // ignores the cursor and advances by page instead of repeating
+                // page 1.
+                response = try await SalesAPI().list(
+                    q: query,
+                    status: requestedStatus,
+                    from: dateParams.from,
+                    to: dateParams.to,
+                    page: nextPage,
+                    pageSize: pageSize,
+                    before: cursor.before,
+                    beforeId: cursor.beforeId,
+                    summary: false
+                )
+            } else {
+                // Custom sort: a keyset continuation would be reordered to
+                // (createdAt desc, id desc) by the server, mixing orders across
+                // pages. Fall back to offset paging so the chosen sort holds
+                // for the whole list.
+                response = try await SalesAPI().list(
+                    q: query,
+                    status: requestedStatus,
+                    from: dateParams.from,
+                    to: dateParams.to,
+                    sortBy: requestedSortBy,
+                    sortOrder: requestedSortOrder,
+                    page: nextPage,
+                    pageSize: pageSize,
+                    summary: false
+                )
+            }
             guard !Task.isCancelled, loadRequestID == requestID else { return }
             // Dedupe by id: the keyset window can hand back a row the previous
             // page already delivered when the live list shifts.
@@ -3123,6 +3177,7 @@ struct SalesListNativeView: View {
             let newItems = response.items.filter { seen.insert($0.id).inserted }
             items.append(contentsOf: newItems)
             hasMore = response.items.count >= pageSize
+            nextPage = response.page + 1
             nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
         } catch {
             guard !Task.isCancelled, loadRequestID == requestID else { return }
