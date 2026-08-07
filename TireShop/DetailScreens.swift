@@ -722,12 +722,14 @@ struct PayLinkSheet: View {
 
     @State private var amountText = ""
     @State private var created: PayLink?
-    @State private var email = ""
+    @State private var emailCustomer = false
     @State private var creating = false
-    @State private var emailing = false
     @State private var errorMessage: String?
     @State private var shareItem: ShareText?
-    @State private var emailSent = false
+    /// Server-quoted fee-inclusive total for the whole balance: the default and
+    /// the ceiling. The client never works the card fee out itself.
+    @State private var maxGross: Double?
+    @State private var quoting = true
 
     private var balance: Double {
         max(0, (Double(invoice.amountDue) ?? 0) - (Double(invoice.paidTotal) ?? 0))
@@ -740,7 +742,8 @@ struct PayLinkSheet: View {
     }
 
     private var validAmount: Bool {
-        amountValue > 0 && amountValue <= balance + 0.005
+        guard let maxGross else { return false }
+        return amountValue > 0 && amountValue <= maxGross + 0.005
     }
 
     var body: some View {
@@ -749,44 +752,82 @@ struct PayLinkSheet: View {
                 Section {
                     RowLine(title: "Invoice", trailing: saleRef?.nilIfBlank ?? invoice.id)
                     RowLine(title: "Balance", trailing: AppFormat.money(balance))
+                    if let maxGross {
+                        RowLine(title: "With card fee", trailing: AppFormat.money(maxGross))
+                    }
                 }
 
                 if created == nil {
                     Section {
-                        TextField("Amount (defaults to full balance)", text: $amountText)
+                        TextField("Card total for this link", text: $amountText)
                             .keyboardType(.decimalPad)
-                        Button("Use full balance") {
-                            amountText = String(format: "%.2f", balance)
+                            .disabled(maxGross == nil)
+                        Button("Bill the full balance") {
+                            if let maxGross { amountText = String(format: "%.2f", maxGross) }
                         }
+                        .disabled(maxGross == nil)
+                        // Emailing happens as part of creating the link, and the
+                        // server sends it to the customer's address on file, so
+                        // this is a choice made up front rather than a recipient
+                        // to type in afterwards.
+                        Toggle("Email the link to the customer", isOn: $emailCustomer)
                     } header: {
-                        Text("Link amount")
+                        Text("Card total for this link")
                     } footer: {
-                        Text("The customer can pay up to this amount with the link. Partial amounts are validated by the server.")
+                        if quoting {
+                            Text("Getting the card total from the server...")
+                        } else if let maxGross {
+                            Text("This is what the customer's card is charged, card fee included. Up to \(AppFormat.money(maxGross)). Enter less to bill part of the balance.")
+                        } else {
+                            Text("The server could not price this invoice, so there is no link to create.")
+                        }
                     }
                 }
 
                 if let created {
                     Section("Pay link") {
-                        Text(created.url)
-                            .font(.footnote)
-                            .textSelection(.enabled)
-                        Button {
-                            shareItem = ShareText(text: created.url)
-                        } label: {
-                            Label("Share link", systemImage: "square.and.arrow.up")
+                        if let url = created.url?.nilIfBlank {
+                            Text(url)
+                                .font(.footnote)
+                                .textSelection(.enabled)
+                            Button {
+                                shareItem = ShareText(text: url)
+                            } label: {
+                                Label("Share link", systemImage: "square.and.arrow.up")
+                            }
+                        } else {
+                            Text("Stripe did not return a link for this session. Try creating it again.")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.danger)
                         }
                     }
 
-                    Section("Email link") {
-                        if emailSent {
-                            Label("Pay link emailed", systemImage: "checkmark.circle.fill")
+                    Section("Customer pays") {
+                        RowLine(title: "Applied to invoice", trailing: AppFormat.money(created.applied))
+                        if created.surcharge > 0 {
+                            RowLine(title: "Card fee", trailing: AppFormat.money(created.surcharge))
+                        }
+                        RowLine(title: "Total on the link", trailing: AppFormat.money(created.amount))
+                        if created.remaining > 0 {
+                            RowLine(title: "Remaining balance", trailing: AppFormat.money(created.remaining))
+                        }
+                    }
+
+                    Section("Email") {
+                        if created.emailed {
+                            Label("Emailed to the customer", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(Theme.success)
+                        } else if emailCustomer {
+                            // Asked for, but the server had nowhere to send it.
+                            Label(
+                                "Not emailed — this customer has no email address on file. Share the link instead.",
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .foregroundStyle(Theme.danger)
                         } else {
-                            AppTextField(label: "Recipient email", text: $email, placeholder: "name@example.com", keyboardType: .emailAddress, textContentType: .emailAddress)
-                            Button(emailing ? "Sending..." : "Email link") {
-                                Task { await emailLink() }
-                            }
-                            .disabled(emailing || email.trimmingCharacters(in: .whitespaces).isEmpty)
+                            Text("Not emailed. Share the link instead.")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.muted)
                         }
                     }
                 }
@@ -811,13 +852,29 @@ struct PayLinkSheet: View {
                 }
             }
             .task {
-                if amountText.isEmpty {
-                    amountText = String(format: "%.2f", balance)
-                }
+                await loadCeiling()
             }
             .sheet(item: $shareItem) { item in
                 ActivityShareSheet(items: [item.text])
             }
+        }
+    }
+
+    /// Quote the whole balance once on open. Its gross is both the ceiling and
+    /// the default, so the fee is never calculated on this side.
+    @MainActor
+    private func loadCeiling() async {
+        guard maxGross == nil else { return }
+        quoting = true
+        defer { quoting = false }
+        do {
+            let quote = try await PaymentsAPI().chargePreflight(invoiceId: invoice.id, processor: .payLink)
+            maxGross = quote.amount
+            if amountText.isEmpty {
+                amountText = String(format: "%.2f", quote.amount)
+            }
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not price this invoice."
         }
     }
 
@@ -828,28 +885,12 @@ struct PayLinkSheet: View {
         do {
             created = try await PaymentsAPI().payLink(
                 invoiceId: invoice.id,
-                body: PayLinkCreateInput(amount: amountValue)
+                body: PayLinkCreateInput(email: emailCustomer, grossAmount: amountValue)
             )
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not create the pay link."
         }
         creating = false
-    }
-
-    @MainActor
-    private func emailLink() async {
-        emailing = true
-        errorMessage = nil
-        do {
-            _ = try await PaymentsAPI().emailPayLink(
-                invoiceId: invoice.id,
-                body: InvoiceEmailInput(to: email.trimmingCharacters(in: .whitespacesAndNewlines))
-            )
-            emailSent = true
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not email the pay link."
-        }
-        emailing = false
     }
 }
 

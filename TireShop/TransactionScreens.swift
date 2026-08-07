@@ -1546,6 +1546,8 @@ struct TapToPayNativeView: View {
     @State private var receiptShare: TapToPayReceiptShare?
     @State private var splitAmountText = ""
     @State private var splitAmount: Double?
+    /// Fee-inclusive ceiling, captured from the first full-balance intent.
+    @State private var maxGross: Double?
     @State private var preflight: ChargePreflight?
     @State private var acknowledgedWarnings = false
     @State private var splitMessage: String?
@@ -1578,7 +1580,7 @@ struct TapToPayNativeView: View {
                     }
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
                     if let preflight {
-                        RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                        RowLine(title: "Card fee", trailing: AppFormat.money(preflight.surcharge))
                     } else if splitAmount == nil {
                         RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
                     }
@@ -1741,11 +1743,16 @@ struct TapToPayNativeView: View {
     }
 
     private func loadIntent() async throws -> TerminalIntent {
-        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
+        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, grossAmount: splitAmount)
     }
 
     private func splitSection(intent: TerminalIntent) -> some View {
-        Section("Split amount") {
+        // The first intent is minted for the whole balance, so its gross is the
+        // fee-inclusive ceiling. Captured once: a later reload carries a split
+        // amount and would otherwise drag the ceiling down with it.
+        let ceiling = maxGross ?? intent.amount
+
+        return Section("Amount charged to the card") {
             TextField("Amount (blank = full balance)", text: $splitAmountText)
                 .keyboardType(.decimalPad)
                 .onChange(of: splitAmountText) { _, _ in
@@ -1755,7 +1762,7 @@ struct TapToPayNativeView: View {
                     preflight = nil
                     acknowledgedWarnings = false
                 }
-            Button("Use full balance") {
+            Button("Charge the full balance") {
                 splitAmountText = ""
                 splitAmount = nil
                 preflight = nil
@@ -1766,14 +1773,17 @@ struct TapToPayNativeView: View {
             }
             Button("Apply this amount") {
                 let value = AppFormat.parseAmount(splitAmountText)
-                guard let value, value > 0, value <= intent.balance + 0.005 else {
-                    splitMessage = "Enter an amount between 0.01 and \(AppFormat.money(intent.balance))."
+                guard let value, value > 0, value <= ceiling + 0.005 else {
+                    splitMessage = "More than \(AppFormat.money(ceiling)) (balance plus card fee) can't be charged to the card."
                     return
                 }
                 splitMessage = nil
                 splitAmount = value
-                Task { await checkPreflight(amount: value) }
+                Task { await checkPreflight(grossAmount: value) }
             }
+            Text("This is what the card is charged, card fee included. Up to \(AppFormat.money(ceiling)).")
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
             if let splitMessage {
                 Text(splitMessage)
                     .font(.caption)
@@ -1781,17 +1791,22 @@ struct TapToPayNativeView: View {
             }
 
             if let preflight {
-                RowLine(title: "You'll be charged", trailing: AppFormat.money(preflight.requestAmount))
+                RowLine(title: "Charged to the card", trailing: AppFormat.money(preflight.amount))
                 RowLine(title: "Applied to invoice", trailing: AppFormat.money(preflight.applied))
-                if preflight.fee > 0 {
-                    RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                if preflight.surcharge > 0 {
+                    RowLine(title: "Card fee", trailing: AppFormat.money(preflight.surcharge))
                 }
-                RowLine(title: "Remaining balance", trailing: AppFormat.money(preflight.remaining))
+                if preflight.isPartial {
+                    RowLine(title: "Balance left open", trailing: AppFormat.money(preflight.remaining))
+                    if let remainingGross = preflight.remainingGross {
+                        RowLine(title: "Next full card charge", trailing: AppFormat.money(remainingGross))
+                    }
+                }
             }
 
             if hasWarnings {
-                ForEach(preflight?.warnings ?? [], id: \.self) { warning in
-                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                ForEach(preflight?.warnings ?? [], id: \.code) { warning in
+                    Label(warning.message, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(Theme.danger)
                 }
                 Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
@@ -1800,15 +1815,21 @@ struct TapToPayNativeView: View {
                 .disabled(acknowledgedWarnings)
             }
         }
+        .onAppear {
+            if maxGross == nil, splitAmount == nil {
+                maxGross = intent.amount
+            }
+        }
     }
 
     @MainActor
-    private func checkPreflight(amount: Double) async {
+    private func checkPreflight(grossAmount: Double) async {
         acknowledgedWarnings = false
         do {
             preflight = try await PaymentsAPI().chargePreflight(
                 invoiceId: invoiceId,
-                body: ChargePreflightInput(amount: amount, paymentMethodId: nil)
+                processor: .terminal,
+                grossAmount: grossAmount
             )
         } catch {
             preflight = nil
@@ -1866,10 +1887,11 @@ struct TapToPayNativeView: View {
         return true
     }
 
-    /// The amount the charge button should show: the split amount once a
-    /// preflight has confirmed it, otherwise the loaded intent's amount.
+    /// The amount the charge button should show. Once a preflight has confirmed
+    /// a split, that quote's gross (applied + surcharge) is what the customer
+    /// pays; otherwise the loaded intent's amount, which is already gross.
     private func chargeAmount(_ intent: TerminalIntent) -> Double {
-        preflight?.requestAmount ?? splitAmount ?? intent.amount
+        preflight?.amount ?? splitAmount ?? intent.amount
     }
 
     /// Starts the terminal charge. For a plain full-balance charge the already-
@@ -1885,7 +1907,7 @@ struct TapToPayNativeView: View {
             if splitAmount == nil {
                 chargeIntent = intent
             } else {
-                chargeIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, amount: splitAmount)
+                chargeIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, grossAmount: splitAmount)
             }
             guard chargeIntent.clientSecret?.nilIfBlank != nil, chargeIntent.amount > 0 else {
                 splitMessage = "The server did not return a chargeable payment intent."
