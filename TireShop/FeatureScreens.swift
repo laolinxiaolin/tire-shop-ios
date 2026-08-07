@@ -2024,6 +2024,8 @@ private struct BestSellersNativeView: View {
     /// Set once the operator picks a scope, so the async warehouse fetch's
     /// default-selection logic can't override an explicit choice.
     @State private var userPickedWarehouse = false
+    @State private var warehousesLoaded = false
+    @State private var warehousesFailed = false
     @State private var data: BestSellersResponse?
     @State private var loading = false
     @State private var errorMessage: String?
@@ -2214,8 +2216,16 @@ private struct BestSellersNativeView: View {
                 }
 
                 if warehouses.isEmpty {
-                    Text(i18n.t("bestSellers.noWarehouses"))
-                        .disabled(true)
+                    if warehousesFailed {
+                        Text(i18n.t("bestSellers.warehousesFailed"))
+                            .disabled(true)
+                    } else if !warehousesLoaded {
+                        Text(i18n.t("common.loading"))
+                            .disabled(true)
+                    } else {
+                        Text(i18n.t("bestSellers.noWarehouses"))
+                            .disabled(true)
+                    }
                 } else {
                     ForEach(warehouses) { warehouse in
                         Button {
@@ -2337,6 +2347,8 @@ private struct BestSellersNativeView: View {
             let list = try await WarehousesAPI().list(activeOnly: true)
             guard !Task.isCancelled else { return }
             warehouses = list
+            warehousesLoaded = true
+            warehousesFailed = false
             // Default to the operator's home warehouse, then the system default,
             // matching the web console. A failed fetch degrades to the combined
             // view rather than blocking the report.
@@ -2358,6 +2370,7 @@ private struct BestSellersNativeView: View {
         } catch {
             // Degrade to the combined all-warehouse view.
             warehouses = []
+            warehousesFailed = true
         }
     }
 
