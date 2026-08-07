@@ -2524,6 +2524,9 @@ struct SalesListNativeView: View {
     @State private var loadingMore = false
     @State private var errorMessage: String?
     @State private var loadMoreError: String?
+    /// True once the first load attempt has finished, so the initial state
+    /// shows the spinner instead of flashing the empty state.
+    @State private var hasLoaded = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
 
@@ -2571,12 +2574,14 @@ struct SalesListNativeView: View {
                         salesHeader
 
                         Group {
-                            if loading && items.isEmpty {
-                                LoadingView(label: "Loading...")
-                            } else if let errorMessage, items.isEmpty {
-                                RetryView(message: errorMessage) { Task { await load() } }
-                            } else if items.isEmpty {
-                                EmptyStateView(text: emptyMessage)
+                            if items.isEmpty {
+                                if loading || !hasLoaded {
+                                    LoadingView(label: "Loading...")
+                                } else if let errorMessage {
+                                    RetryView(message: errorMessage) { Task { await load() } }
+                                } else {
+                                    EmptyStateView(text: emptyMessage)
+                                }
                             } else {
                                 salesContent(items, summary)
                             }
@@ -2600,6 +2605,25 @@ struct SalesListNativeView: View {
 
     private func salesContent(_ items: [SaleListItem], _ summary: SalesSummary?) -> some View {
         VStack(spacing: 0) {
+            // A failed pull-to-refresh keeps the loaded rows; surface it
+            // non-blockingly instead of letting stale data look current.
+            if let errorMessage {
+                HStack(spacing: Theme.Space.sm) {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("Retry") { Task { await load() } }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.primary)
+                }
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.vertical, Theme.Space.xs)
+                .background(Theme.card)
+                .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+            }
+
             List {
                 ForEach(items) { sale in
                     NavigationLink(value: AppRoute.saleDetail(sale.id)) {
@@ -2996,6 +3020,7 @@ struct SalesListNativeView: View {
         defer {
             if loadRequestID == requestID {
                 loading = false
+                hasLoaded = true
             }
         }
         do {
