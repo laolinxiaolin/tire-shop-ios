@@ -2194,30 +2194,32 @@ private struct BestSellersNativeView: View {
 
     private var warehouseMenu: some View {
         Menu {
-            Button {
-                userPickedWarehouse = true
-                selectedWarehouse = nil
-            } label: {
-                if selectedWarehouse == nil {
-                    Label(i18n.t("bestSellers.allWarehouses"), systemImage: "checkmark")
-                } else {
-                    Text(i18n.t("bestSellers.allWarehouses"))
+            Section(i18n.t("bestSellers.warehouse")) {
+                Button {
+                    userPickedWarehouse = true
+                    selectedWarehouse = nil
+                } label: {
+                    if selectedWarehouse == nil {
+                        Label(i18n.t("bestSellers.allWarehouses"), systemImage: "checkmark")
+                    } else {
+                        Text(i18n.t("bestSellers.allWarehouses"))
+                    }
                 }
-            }
 
-            if warehouses.isEmpty {
-                Text(i18n.t("bestSellers.noWarehouses"))
-                    .disabled(true)
-            } else {
-                ForEach(warehouses) { warehouse in
-                    Button {
-                        userPickedWarehouse = true
-                        selectedWarehouse = warehouse.code
-                    } label: {
-                        if selectedWarehouse == warehouse.code {
-                            Label(warehouse.name, systemImage: "checkmark")
-                        } else {
-                            Text(warehouse.name)
+                if warehouses.isEmpty {
+                    Text(i18n.t("bestSellers.noWarehouses"))
+                        .disabled(true)
+                } else {
+                    ForEach(warehouses) { warehouse in
+                        Button {
+                            userPickedWarehouse = true
+                            selectedWarehouse = warehouse.code
+                        } label: {
+                            if selectedWarehouse == warehouse.code {
+                                Label(warehouse.name, systemImage: "checkmark")
+                            } else {
+                                Text(warehouse.name)
+                            }
                         }
                     }
                 }
@@ -2606,22 +2608,32 @@ struct SalesListNativeView: View {
                 }
 
                 if hasMore {
-                    HStack {
-                        Spacer()
-                        if loadingMore {
-                            ProgressView()
-                        } else if loadMoreError != nil {
-                            Button("Retry") { Task { await loadMore() } }
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Theme.primary)
-                        } else {
-                            ProgressView()
+                    VStack(spacing: Theme.Space.xs) {
+                        if let loadMoreError {
+                            Text(loadMoreError)
+                                .font(.caption)
+                                .foregroundStyle(Theme.danger)
+                                .multilineTextAlignment(.center)
                         }
-                        Spacer()
+                        HStack {
+                            Spacer()
+                            if loadingMore {
+                                ProgressView()
+                            } else if loadMoreError != nil {
+                                Button("Retry") { Task { await loadMore() } }
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Theme.primary)
+                            } else {
+                                ProgressView()
+                            }
+                            Spacer()
+                        }
                     }
                     .padding(.vertical, Theme.Space.lg)
                     .onAppear {
-                        if !loadingMore, !loading {
+                        // Auto-load only when healthy: an error state must
+                        // wait for the explicit Retry, not loop on re-appear.
+                        if !loadingMore, !loading, loadMoreError == nil {
                             Task { await loadMore() }
                         }
                     }
