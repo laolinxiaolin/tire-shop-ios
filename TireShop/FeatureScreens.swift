@@ -1829,14 +1829,18 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The quick time-range chips on the sales list, matching the mobile app's
+    /// All / Today / 7 days / 30 days presets.
+    static let chipRanges: [SalesDateRange] = [.all, .today, .week, .month]
+
     var label: String {
         switch self {
         case .all: return "All dates"
         case .today: return "Today"
         case .yesterday: return "Yesterday"
         case .threeDays: return "Last 3 days"
-        case .week: return "This week"
-        case .month: return "This month"
+        case .week: return "7 days"
+        case .month: return "30 days"
         case .year: return "This year"
         }
     }
@@ -1867,12 +1871,12 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
             let start = calendar.date(byAdding: .day, value: -2, to: startToday) ?? startToday
             return (iso(start), iso(startTomorrow))
         case .week:
-            let weekday = calendar.component(.weekday, from: now)
-            let start = calendar.date(byAdding: .day, value: -(weekday - 1), to: startToday) ?? startToday
+            // Rolling 7 days, matching the mobile sales list chips.
+            let start = calendar.date(byAdding: .day, value: -6, to: startToday) ?? startToday
             return (iso(start), iso(startTomorrow))
         case .month:
-            let components = calendar.dateComponents([.year, .month], from: now)
-            let start = calendar.date(from: components) ?? startToday
+            // Rolling 30 days, matching the mobile sales list chips.
+            let start = calendar.date(byAdding: .day, value: -29, to: startToday) ?? startToday
             return (iso(start), iso(startTomorrow))
         case .year:
             let components = calendar.dateComponents([.year], from: now)
@@ -1880,6 +1884,14 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
             return (iso(start), iso(startTomorrow))
         }
     }
+}
+
+/// Keyset cursor for the sales list's infinite scroll: the exclusive
+/// `createdAt` bound plus the id tiebreak, matched against the server's
+/// (createdAt desc, id desc) ordering.
+private struct SalesCursor: Equatable {
+    let before: String
+    let beforeId: String
 }
 
 private enum SalesLabels {
@@ -1981,12 +1993,14 @@ private struct BestSellerRequestKey: Hashable {
     let months: Int?
     let from: String?
     let to: String?
+    let location: String?
     let sortBy: String
     let sortOrder: String
 }
 
 private struct BestSellersNativeView: View {
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var auth: AuthStore
 
     private static let periods = [1, 3, 6, 12]
     private static let sortOptions = [
@@ -2004,6 +2018,12 @@ private struct BestSellersNativeView: View {
     @State private var toDate: Date
     @State private var sortBy = "qty"
     @State private var sortOrder = "desc"
+    @State private var warehouses: [Warehouse] = []
+    /// Warehouse.code to rank independently; nil = all warehouses combined.
+    @State private var selectedWarehouse: String?
+    /// Set once the operator picks a scope, so the async warehouse fetch's
+    /// default-selection logic can't override an explicit choice.
+    @State private var userPickedWarehouse = false
     @State private var data: BestSellersResponse?
     @State private var loading = false
     @State private var errorMessage: String?
@@ -2039,6 +2059,7 @@ private struct BestSellersNativeView: View {
             months: usesCustomRange ? nil : months,
             from: usesCustomRange ? fromDay : nil,
             to: usesCustomRange ? toDay : nil,
+            location: selectedWarehouse,
             sortBy: sortBy,
             sortOrder: sortOrder
         )
@@ -2068,6 +2089,9 @@ private struct BestSellersNativeView: View {
         .task(id: requestKey) {
             guard !invalidRange else { return }
             await load()
+        }
+        .task {
+            await loadWarehouses()
         }
         .sheet(item: $exportFile) { file in
             InventoryExportShareSheet(url: file.url)
@@ -2100,6 +2124,8 @@ private struct BestSellersNativeView: View {
                 .accessibilityLabel(i18n.t("common.export"))
             }
 
+            warehouseMenu
+
             Toggle(i18n.t("bestSellers.customRange"), isOn: $usesCustomRange)
                 .font(.subheadline)
 
@@ -2124,6 +2150,7 @@ private struct BestSellersNativeView: View {
             HStack(spacing: Theme.Space.sm) {
                 if let period = data?.period, !invalidRange {
                     Text(i18n.t("bestSellers.window", [
+                        "warehouse": warehouseLabel,
                         "from": period.from.map { AppFormat.calendarDate($0) } ?? i18n.t("bestSellers.allTime"),
                         "to": AppFormat.calendarDate(period.to)
                     ]))
@@ -2150,6 +2177,57 @@ private struct BestSellersNativeView: View {
         .padding(.vertical, Theme.Space.sm)
         .background(Theme.background)
         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var warehouseLabel: String {
+        // Prefer the server's echo of the resolved scope, matching the web
+        // console's "CODE — NAME" label.
+        if let warehouse = data?.warehouse {
+            return "\(warehouse.code) — \(warehouse.name)"
+        }
+        if let selectedWarehouse,
+           let warehouse = warehouses.first(where: { $0.code == selectedWarehouse }) {
+            return warehouse.name
+        }
+        return i18n.t("bestSellers.allWarehouses")
+    }
+
+    private var warehouseMenu: some View {
+        Menu {
+            Button {
+                userPickedWarehouse = true
+                selectedWarehouse = nil
+            } label: {
+                if selectedWarehouse == nil {
+                    Label(i18n.t("bestSellers.allWarehouses"), systemImage: "checkmark")
+                } else {
+                    Text(i18n.t("bestSellers.allWarehouses"))
+                }
+            }
+
+            if warehouses.isEmpty {
+                Text(i18n.t("bestSellers.noWarehouses"))
+                    .disabled(true)
+            } else {
+                ForEach(warehouses) { warehouse in
+                    Button {
+                        userPickedWarehouse = true
+                        selectedWarehouse = warehouse.code
+                    } label: {
+                        if selectedWarehouse == warehouse.code {
+                            Label(warehouse.name, systemImage: "checkmark")
+                        } else {
+                            Text(warehouse.name)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(warehouseLabel, systemImage: "building.2")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
     }
 
     private var sortMenu: some View {
@@ -2230,6 +2308,7 @@ private struct BestSellersNativeView: View {
                 months: key.months,
                 from: key.from,
                 to: key.to,
+                location: key.location,
                 sortBy: key.sortBy,
                 sortOrder: key.sortOrder,
                 pageSize: 1000
@@ -2244,6 +2323,31 @@ private struct BestSellersNativeView: View {
     }
 
     @MainActor
+    private func loadWarehouses() async {
+        do {
+            let list = try await WarehousesAPI().list(activeOnly: true)
+            guard !Task.isCancelled else { return }
+            warehouses = list
+            // Default to the operator's home warehouse, then the system default,
+            // matching the web console. A failed fetch degrades to the combined
+            // view rather than blocking the report.
+            if selectedWarehouse == nil, !userPickedWarehouse {
+                let home = auth.user?.homeWarehouse
+                if let home, list.contains(where: { $0.code == home }) {
+                    selectedWarehouse = home
+                } else if let defaultWarehouse = list.first(where: { $0.isDefault }) {
+                    selectedWarehouse = defaultWarehouse.code
+                } else if let first = list.first {
+                    selectedWarehouse = first.code
+                }
+            }
+        } catch {
+            // Degrade to the combined all-warehouse view.
+            warehouses = []
+        }
+    }
+
+    @MainActor
     private func export() async {
         guard let period = data?.period else { return }
         let key = requestKey
@@ -2252,11 +2356,12 @@ private struct BestSellersNativeView: View {
         defer { exporting = false }
 
         do {
-            let fileName = "best-sellers-\(period.from ?? "all")_\(period.to).xlsx"
+            let fileName = "best-sellers-\(selectedWarehouse ?? "ALL")-\(period.from ?? "all")_\(period.to).xlsx"
             let url = try await SalesAPI().exportBestSellers(
                 months: key.months,
                 from: key.from,
                 to: key.to,
+                location: key.location,
                 sortBy: key.sortBy,
                 sortOrder: key.sortOrder,
                 fileName: fileName
@@ -2406,9 +2511,17 @@ struct SalesListNativeView: View {
     @State private var range: SalesDateRange = .all
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
-    @State private var data: SalesListResponse?
+    @State private var items: [SaleListItem] = []
+    @State private var summary: SalesSummary?
+    @State private var hasMore = false
+    @State private var nextCursor: SalesCursor?
+    /// Concrete window bounds, fixed when the range is picked so a midnight
+    /// rollover mid-scroll can't shift the window between pages.
+    @State private var dateParams: (from: String?, to: String?) = (nil, nil)
     @State private var loading = false
+    @State private var loadingMore = false
     @State private var errorMessage: String?
+    @State private var loadMoreError: String?
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
 
@@ -2456,16 +2569,14 @@ struct SalesListNativeView: View {
                         salesHeader
 
                         Group {
-                            if loading && data == nil {
+                            if loading && items.isEmpty {
                                 LoadingView(label: "Loading...")
-                            } else if let errorMessage, data == nil {
+                            } else if let errorMessage, items.isEmpty {
                                 RetryView(message: errorMessage) { Task { await load() } }
-                            } else if let data, data.items.isEmpty {
+                            } else if items.isEmpty {
                                 EmptyStateView(text: emptyMessage)
-                            } else if let data {
-                                salesContent(data)
                             } else {
-                                LoadingView(label: "Loading...")
+                                salesContent(items, summary)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2478,18 +2589,42 @@ struct SalesListNativeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background)
         .task(id: selectedView) {
-            if selectedView == .sales, data == nil { await load() }
+            if selectedView == .sales, items.isEmpty { await load() }
         }
         .onDisappear {
             searchTask?.cancel()
         }
     }
 
-    private func salesContent(_ data: SalesListResponse) -> some View {
+    private func salesContent(_ items: [SaleListItem], _ summary: SalesSummary?) -> some View {
         VStack(spacing: 0) {
-            List(data.items) { sale in
-                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                    saleRow(sale)
+            List {
+                ForEach(items) { sale in
+                    NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                        saleRow(sale)
+                    }
+                }
+
+                if hasMore {
+                    HStack {
+                        Spacer()
+                        if loadingMore {
+                            ProgressView()
+                        } else if loadMoreError != nil {
+                            Button("Retry") { Task { await loadMore() } }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Theme.primary)
+                        } else {
+                            ProgressView()
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, Theme.Space.lg)
+                    .onAppear {
+                        if !loadingMore, !loading {
+                            Task { await loadMore() }
+                        }
+                    }
                 }
             }
             .listStyle(.plain)
@@ -2497,8 +2632,8 @@ struct SalesListNativeView: View {
             .refreshable { await load() }
             .debugLayoutProbe("SalesList")
 
-            if !data.items.isEmpty {
-                summaryFooter(data.summary)
+            if let summary, !items.isEmpty {
+                summaryFooter(summary)
                     .debugLayoutProbe("SalesFooter")
             }
         }
@@ -2564,6 +2699,32 @@ struct SalesListNativeView: View {
         .padding(.vertical, Theme.Space.sm)
         .background(Theme.background)
         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var rangeChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.xs) {
+                ForEach(SalesDateRange.chipRanges) { option in
+                    let active = range == option
+                    Button {
+                        updateRange(option)
+                    } label: {
+                        Text(i18n.t("sales.range.\(option.rawValue)"))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, Theme.Space.md)
+                            .padding(.vertical, 6)
+                            .background(active ? Theme.primary : Theme.card)
+                            .foregroundStyle(active ? Theme.primaryText : Theme.text)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(active ? Theme.primary : Theme.border)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
     }
 
     private var searchBar: some View {
@@ -2769,6 +2930,7 @@ struct SalesListNativeView: View {
     private func updateRange(_ value: SalesDateRange) {
         guard range != value else { return }
         range = value
+        dateParams = value.params()
         Task { await load() }
     }
 
@@ -2793,6 +2955,7 @@ struct SalesListNativeView: View {
         }
         status = ""
         range = .all
+        dateParams = (nil, nil)
         sortBy = ""
         sortOrder = "asc"
         Task { await load() }
@@ -2813,17 +2976,19 @@ struct SalesListNativeView: View {
         loadRequestID = requestID
         let query = q.nilIfBlank
         let requestedStatus = status.nilIfBlank
-        let dateParams = range.params()
         let requestedSortBy = sortBy.nilIfBlank
         let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
         loading = true
         errorMessage = nil
+        loadMoreError = nil
         defer {
             if loadRequestID == requestID {
                 loading = false
             }
         }
         do {
+            // First page: full mode (summary + total) so the footer totals are
+            // correct over the whole filtered set.
             let response = try await SalesAPI().list(
                 q: query,
                 status: requestedStatus,
@@ -2834,10 +2999,55 @@ struct SalesListNativeView: View {
                 pageSize: pageSize
             )
             guard loadRequestID == requestID else { return }
-            data = response
+            items = response.items
+            summary = response.summary
+            hasMore = response.items.count >= pageSize
+            nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
         } catch {
             guard loadRequestID == requestID, !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load sales."
+        }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard hasMore, !loadingMore, !loading, let cursor = nextCursor else { return }
+        // A filter change mid-flight must invalidate the append: the response
+        // belongs to the previous window and would pollute the new list.
+        let requestID = loadRequestID
+        loadingMore = true
+        loadMoreError = nil
+        defer { loadingMore = false }
+        let query = q.nilIfBlank
+        let requestedStatus = status.nilIfBlank
+        let requestedSortBy = sortBy.nilIfBlank
+        let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
+        do {
+            // Subsequent pages: light mode (rows only) + keyset cursor so the
+            // window only ever shrinks and every row is delivered exactly once.
+            let response = try await SalesAPI().list(
+                q: query,
+                status: requestedStatus,
+                from: dateParams.from,
+                to: dateParams.to,
+                sortBy: requestedSortBy,
+                sortOrder: requestedSortOrder,
+                pageSize: pageSize,
+                before: cursor.before,
+                beforeId: cursor.beforeId,
+                summary: false
+            )
+            guard !Task.isCancelled, loadRequestID == requestID else { return }
+            // Dedupe by id: the keyset window can hand back a row the previous
+            // page already delivered when the live list shifts.
+            var seen = Set(items.map(\.id))
+            let newItems = response.items.filter { seen.insert($0.id).inserted }
+            items.append(contentsOf: newItems)
+            hasMore = response.items.count >= pageSize
+            nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
+        } catch {
+            guard !Task.isCancelled, loadRequestID == requestID else { return }
+            loadMoreError = (error as? LocalizedError)?.errorDescription ?? "Could not load more sales."
         }
     }
 }
