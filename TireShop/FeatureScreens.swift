@@ -151,7 +151,7 @@ struct DashboardNativeView: View {
             HStack(alignment: .firstTextBaseline) {
                 SectionHeader(i18n.t("dashboard.topSellers"))
                 Spacer()
-                NavigationLink(value: AppRoute.bestSellers(months: months)) {
+                NavigationLink(value: AppRoute.bestSellers(months: months, warehouse: "")) {
                     Text(i18n.t("bestSellers.viewAll"))
                         .font(.caption.weight(.semibold))
                 }
@@ -2031,7 +2031,7 @@ private struct BestSellersNativeView: View {
     @State private var exportError: String?
     @State private var exportFile: InventoryExportFile?
 
-    init(initialMonths: Int) {
+    init(initialMonths: Int, initialWarehouse: String? = nil) {
         let period = Self.periods.contains(initialMonths) ? initialMonths : 3
         let calendar = ShopClock.calendar
         let today = calendar.startOfDay(for: Date())
@@ -2040,6 +2040,13 @@ private struct BestSellersNativeView: View {
             initialValue: calendar.date(byAdding: .month, value: -period, to: today) ?? today
         )
         _toDate = State(initialValue: today)
+        // A route pin (e.g. the dashboard's "View all", which must agree with
+        // the shop-wide card) wins over the default-selection logic. "" pins
+        // the combined all-warehouses view; a code pins that warehouse.
+        if let initialWarehouse {
+            _userPickedWarehouse = State(initialValue: true)
+            _selectedWarehouse = State(initialValue: initialWarehouse.isEmpty ? nil : initialWarehouse)
+        }
     }
 
     private var fromDay: String {
@@ -2342,6 +2349,11 @@ private struct BestSellersNativeView: View {
                 } else if let first = list.first {
                     selectedWarehouse = first.code
                 }
+            } else if userPickedWarehouse, let pinned = selectedWarehouse,
+                      !list.contains(where: { $0.code == pinned }) {
+                // The pinned warehouse is gone (deactivated or renamed): fall
+                // back to the combined view rather than showing a phantom scope.
+                selectedWarehouse = nil
             }
         } catch {
             // Degrade to the combined all-warehouse view.
@@ -2507,6 +2519,9 @@ struct SalesListNativeView: View {
 
     @State private var selectedView: SalesViewTab
     private let initialBestSellerMonths: Int
+    /// Warehouse pin from the route: nil = default selection, "" = combined
+    /// all-warehouses view, otherwise a specific code.
+    private let initialBestSellerWarehouse: String?
 
     @State private var q = ""
     @State private var status = ""
@@ -2520,6 +2535,9 @@ struct SalesListNativeView: View {
     /// Concrete window bounds, fixed when the range is picked so a midnight
     /// rollover mid-scroll can't shift the window between pages.
     @State private var dateParams: (from: String?, to: String?) = (nil, nil)
+    /// The local day the fixed bounds were computed for; a later load on a new
+    /// day re-derives them so "Today" advances at midnight like the mobile app.
+    @State private var dateParamsDay: Date?
     @State private var loading = false
     @State private var loadingMore = false
     @State private var errorMessage: String?
@@ -2530,9 +2548,10 @@ struct SalesListNativeView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
 
-    init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3) {
+    init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3, initialBestSellerWarehouse: String? = nil) {
         _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
         self.initialBestSellerMonths = initialBestSellerMonths
+        self.initialBestSellerWarehouse = initialBestSellerWarehouse
     }
 
     private var hasActiveFilters: Bool {
@@ -2568,7 +2587,7 @@ struct SalesListNativeView: View {
 
             Group {
                 if selectedView == .bestSellers {
-                    BestSellersNativeView(initialMonths: initialBestSellerMonths)
+                    BestSellersNativeView(initialMonths: initialBestSellerMonths, initialWarehouse: initialBestSellerWarehouse)
                 } else {
                     VStack(spacing: 0) {
                         salesHeader
@@ -3010,6 +3029,16 @@ struct SalesListNativeView: View {
     private func load() async {
         let requestID = UUID()
         loadRequestID = requestID
+        // A window picked before midnight must advance on the next load after
+        // midnight ("Today" means the new day), while pages within one scroll
+        // session keep the bounds they started with.
+        if range != .all {
+            let today = ShopClock.calendar.startOfDay(for: Date())
+            if dateParamsDay != today {
+                dateParams = range.params()
+                dateParamsDay = today
+            }
+        }
         let query = q.nilIfBlank
         let requestedStatus = status.nilIfBlank
         let requestedSortBy = sortBy.nilIfBlank
