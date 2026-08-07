@@ -1889,9 +1889,37 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
 /// Keyset cursor for the sales list's infinite scroll: the exclusive
 /// `createdAt` bound plus the id tiebreak, matched against the server's
 /// (createdAt desc, id desc) ordering.
-private struct SalesCursor: Equatable {
+struct SalesCursor: Equatable {
     let before: String
     let beforeId: String
+}
+
+/// The continuation parameters for one sales-list page. The server's keyset
+/// ordering is fixed at (createdAt desc, id desc), so a cursor is only valid
+/// for the default Newest-first order; a custom sort must page by offset or
+/// every continuation would silently reorder. The offset page is always sent
+/// so a pre-cursor server can advance by page instead of repeating page 1.
+struct SalesContinuationRequest: Equatable {
+    let page: Int
+    let before: String?
+    let beforeId: String?
+    let sortBy: String?
+    let sortOrder: String?
+
+    init(sortBy: String?, sortOrder: String?, page: Int, cursor: SalesCursor?) {
+        self.page = page
+        if sortBy == nil, let cursor {
+            self.before = cursor.before
+            self.beforeId = cursor.beforeId
+            self.sortBy = nil
+            self.sortOrder = nil
+        } else {
+            self.before = nil
+            self.beforeId = nil
+            self.sortBy = sortBy
+            self.sortOrder = sortOrder
+        }
+    }
 }
 
 private enum SalesLabels {
@@ -3135,42 +3163,29 @@ struct SalesListNativeView: View {
         let requestedSortBy = sortBy.nilIfBlank
         let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
         do {
-            let response: SalesListResponse
-            if sortBy.isEmpty, let cursor = nextCursor {
-                // Default (createdAt desc) order: page by keyset cursor so the
-                // window only ever shrinks and every row is delivered exactly
-                // once. The offset is sent alongside so a pre-cursor server
-                // ignores the cursor and advances by page instead of repeating
-                // page 1.
-                response = try await SalesAPI().list(
-                    q: query,
-                    status: requestedStatus,
-                    from: dateParams.from,
-                    to: dateParams.to,
-                    page: nextPage,
-                    pageSize: pageSize,
-                    before: cursor.before,
-                    beforeId: cursor.beforeId,
-                    summary: false
-                )
-            } else {
-                // Custom sort: a keyset continuation would be reordered to
-                // (createdAt desc, id desc) by the server, mixing orders across
-                // pages. Fall back to offset paging so the chosen sort holds
-                // for the whole list.
-                response = try await SalesAPI().list(
-                    q: query,
-                    status: requestedStatus,
-                    from: dateParams.from,
-                    to: dateParams.to,
-                    sortBy: requestedSortBy,
-                    sortOrder: requestedSortOrder,
-                    page: nextPage,
-                    pageSize: pageSize,
-                    summary: false
-                )
-            }
-            guard !Task.isCancelled, loadRequestID == requestID else { return }
+            // Continuation: keyset cursor for the default order (window only
+            // ever shrinks), offset for custom sorts (a cursor would drop the
+            // sort). The page always rides along so a pre-cursor server can
+            // advance by offset instead of repeating page 1.
+            let continuation = SalesContinuationRequest(
+                sortBy: requestedSortBy,
+                sortOrder: requestedSortOrder,
+                page: nextPage,
+                cursor: nextCursor
+            )
+            let response = try await SalesAPI().list(
+                q: query,
+                status: requestedStatus,
+                from: dateParams.from,
+                to: dateParams.to,
+                sortBy: continuation.sortBy,
+                sortOrder: continuation.sortOrder,
+                page: continuation.page,
+                pageSize: pageSize,
+                before: continuation.before,
+                beforeId: continuation.beforeId,
+                summary: false
+            )
             // Dedupe by id: the keyset window can hand back a row the previous
             // page already delivered when the live list shifts.
             var seen = Set(items.map(\.id))

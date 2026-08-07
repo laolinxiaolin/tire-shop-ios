@@ -69,4 +69,57 @@ final class BackendParityTests: XCTestCase {
         )
         XCTAssertNil(response.warehouse)
     }
+
+    // MARK: - Sales list continuation paging (#406, review P1/P2)
+
+    func testDefaultOrderContinuationUsesCursor() {
+        let cursor = SalesCursor(before: "2026-08-07T12:00:00Z", beforeId: "sale-9")
+        let request = SalesContinuationRequest(
+            sortBy: nil,
+            sortOrder: nil,
+            page: 3,
+            cursor: cursor
+        )
+        // Keyset mode: the cursor rides alongside the offset page (the
+        // compatibility contract), and no sort is sent (the server's cursor
+        // ordering is fixed at createdAt desc, id desc).
+        XCTAssertEqual(request.page, 3)
+        XCTAssertEqual(request.before, cursor.before)
+        XCTAssertEqual(request.beforeId, cursor.beforeId)
+        XCTAssertNil(request.sortBy)
+        XCTAssertNil(request.sortOrder)
+    }
+
+    func testCustomSortContinuationPagesByOffset() {
+        let cursor = SalesCursor(before: "2026-08-07T12:00:00Z", beforeId: "sale-9")
+        let request = SalesContinuationRequest(
+            sortBy: "total",
+            sortOrder: "desc",
+            page: 2,
+            cursor: cursor
+        )
+        // A keyset continuation would be reordered to (createdAt desc, id
+        // desc), silently dropping the sort — so custom sorts must page by
+        // offset with no cursor.
+        XCTAssertEqual(request.page, 2)
+        XCTAssertNil(request.before)
+        XCTAssertNil(request.beforeId)
+        XCTAssertEqual(request.sortBy, "total")
+        XCTAssertEqual(request.sortOrder, "desc")
+    }
+
+    func testDefaultOrderWithoutCursorPagesByOffset() {
+        // Defensive path: no cursor available but hasMore said there is more;
+        // the request must still advance by page rather than stall.
+        let request = SalesContinuationRequest(
+            sortBy: nil,
+            sortOrder: nil,
+            page: 4,
+            cursor: nil
+        )
+        XCTAssertEqual(request.page, 4)
+        XCTAssertNil(request.before)
+        XCTAssertNil(request.beforeId)
+        XCTAssertNil(request.sortBy)
+    }
 }
