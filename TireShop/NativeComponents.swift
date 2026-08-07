@@ -471,10 +471,10 @@ struct PaymentSheetNativeView: View {
 
 // MARK: - Keyed card split charge (partial amounts + preflight)
 
-/// Collects a split (partial) keyed-card charge: defaults to the full balance,
-/// validates the partial amount, shows the server's applied/fee/remaining
-/// breakdown, requires acknowledgement of any preflight warnings, and only then
-/// creates the Stripe intent.
+/// Collects a keyed-card charge. The amount entered is what the card is charged,
+/// fee included — the server divides the fee back out and applies the rest to
+/// the invoice. Anything below the fee-inclusive ceiling splits the payment,
+/// leaving the remainder for another tender.
 private struct KeyedCardSplitSheet: View {
     let invoiceId: String
     let balance: Double
@@ -483,6 +483,11 @@ private struct KeyedCardSplitSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var amountText = ""
     @State private var preflight: ChargePreflight?
+    /// The server's fee-inclusive full-balance total: both the default and the
+    /// most this card can be charged. Quoted, never computed here — the client
+    /// has no business knowing the fee rate.
+    @State private var maxGross: Double?
+    @State private var quoting = true
     @State private var checked = false
     @State private var acknowledgedWarnings = false
     @State private var charging = false
@@ -493,7 +498,8 @@ private struct KeyedCardSplitSheet: View {
     }
 
     private var validAmount: Bool {
-        amountValue > 0 && amountValue <= balance + 0.005
+        guard let maxGross else { return false }
+        return amountValue > 0 && amountValue <= maxGross + 0.005
     }
 
     private var hasWarnings: Bool {
@@ -505,35 +511,51 @@ private struct KeyedCardSplitSheet: View {
             Form {
                 Section {
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(balance))
+                    if let maxGross {
+                        RowLine(title: "With card fee", trailing: AppFormat.money(maxGross))
+                    }
                 }
 
                 Section {
-                    TextField("Amount", text: $amountText)
+                    TextField("Amount charged to the card", text: $amountText)
                         .keyboardType(.decimalPad)
-                    Button("Use full balance") {
-                        amountText = String(format: "%.2f", balance)
+                        .disabled(maxGross == nil)
+                    Button("Charge the full balance") {
+                        if let maxGross { amountText = String(format: "%.2f", maxGross) }
                     }
+                    .disabled(maxGross == nil)
                 } header: {
-                    Text("Charge amount")
+                    Text("Amount charged to the card")
                 } footer: {
-                    Text("Defaults to the full balance. Enter a lower amount to split this charge.")
+                    if quoting {
+                        Text("Getting the card total from the server...")
+                    } else if let maxGross {
+                        Text("This is what the card is charged, card fee included. Up to \(AppFormat.money(maxGross)). Enter less to leave the rest for another tender.")
+                    } else {
+                        Text("The server could not quote this invoice, so there is no amount to charge.")
+                    }
                 }
 
                 if checked {
                     if let preflight {
                         Section("Breakdown") {
-                            RowLine(title: "You'll be charged", trailing: AppFormat.money(preflight.requestAmount))
+                            RowLine(title: "Charged to the card", trailing: AppFormat.money(preflight.amount))
                             RowLine(title: "Applied to invoice", trailing: AppFormat.money(preflight.applied))
-                            if preflight.fee > 0 {
-                                RowLine(title: "Card fee", trailing: AppFormat.money(preflight.fee))
+                            if preflight.surcharge > 0 {
+                                RowLine(title: "Card fee", trailing: AppFormat.money(preflight.surcharge))
                             }
-                            RowLine(title: "Remaining balance", trailing: AppFormat.money(preflight.remaining))
+                            if preflight.isPartial {
+                                RowLine(title: "Balance left open", trailing: AppFormat.money(preflight.remaining))
+                                if let remainingGross = preflight.remainingGross {
+                                    RowLine(title: "Next full card charge", trailing: AppFormat.money(remainingGross))
+                                }
+                            }
                         }
 
                         if hasWarnings {
                             Section("Warnings") {
-                                ForEach(preflight.warnings, id: \.self) { warning in
-                                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                                ForEach(preflight.warnings, id: \.code) { warning in
+                                    Label(warning.message, systemImage: "exclamationmark.triangle.fill")
                                         .foregroundStyle(Theme.danger)
                                 }
                                 Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
@@ -552,7 +574,7 @@ private struct KeyedCardSplitSheet: View {
                 }
 
                 Section {
-                    Button(checked ? (charging ? "Charging..." : "Charge \(AppFormat.money(preflight?.requestAmount ?? amountValue))") : "Check charge") {
+                    Button(checked ? (charging ? "Charging..." : "Charge \(AppFormat.money(preflight?.amount ?? amountValue))") : "Check charge") {
                         Task { await continueFlow() }
                     }
                     .disabled(charging || !validAmount || (checked && hasWarnings && !acknowledgedWarnings))
@@ -567,9 +589,7 @@ private struct KeyedCardSplitSheet: View {
                 }
             }
             .task {
-                if amountText.isEmpty {
-                    amountText = String(format: "%.2f", balance)
-                }
+                await loadCeiling()
             }
             .onChange(of: amountText) { _, _ in
                 checked = false
@@ -590,6 +610,24 @@ private struct KeyedCardSplitSheet: View {
         await charge()
     }
 
+    /// Quote the whole balance once on open. Its gross is the ceiling and the
+    /// default, so the fee never has to be worked out on this side.
+    @MainActor
+    private func loadCeiling() async {
+        guard maxGross == nil else { return }
+        quoting = true
+        defer { quoting = false }
+        do {
+            let quote = try await PaymentsAPI().chargePreflight(invoiceId: invoiceId, processor: .keyedCard)
+            maxGross = quote.amount
+            if amountText.isEmpty {
+                amountText = String(format: "%.2f", quote.amount)
+            }
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not price this invoice."
+        }
+    }
+
     @MainActor
     private func checkPreflight() async {
         charging = true
@@ -597,7 +635,8 @@ private struct KeyedCardSplitSheet: View {
         do {
             preflight = try await PaymentsAPI().chargePreflight(
                 invoiceId: invoiceId,
-                body: ChargePreflightInput(amount: roundMoney(amountValue), paymentMethodId: nil)
+                processor: .keyedCard,
+                grossAmount: roundMoney(amountValue)
             )
             checked = true
             acknowledgedWarnings = false
@@ -620,7 +659,10 @@ private struct KeyedCardSplitSheet: View {
                 throw APIError(status: 0, message: "Stripe publishable key is not configured.")
             }
 
-            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId, amount: preflight?.requestAmount ?? roundMoney(amountValue))
+            // Mint the intent from the same gross the preflight quoted, not its
+            // applied portion: re-deriving the fee from the net can land a cent
+            // off the total the operator just confirmed.
+            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId, grossAmount: preflight?.amount ?? roundMoney(amountValue))
             guard let clientSecret = intent.clientSecret?.nilIfBlank else {
                 throw APIError(status: 0, message: "The server did not return a card payment client secret.")
             }

@@ -3194,36 +3194,152 @@ struct CommissionPayoutEligibleRequest: Codable, Equatable {
 
 // MARK: - Charge preflights
 
-/// Server-side preflight validation for a split (partial) card / Tap to Pay
-/// charge. Warnings must be acknowledged before creating the Stripe intent.
-struct ChargePreflight: Codable, Equatable {
-    let requestAmount: Double
-    let applied: Double
-    let fee: Double
-    let remaining: Double
-    let warnings: [String]
+/// Which Stripe flow a quote is for. The surcharge is priced off the payment
+/// method configured for that processor, so this has to match the intent route
+/// the charge will actually go through.
+enum ChargeProcessor: String {
+    case terminal = "stripe_terminal"
+    case keyedCard = "stripe_manual"
+    case payLink = "stripe_link"
 }
 
-struct ChargePreflightInput: Codable, Equatable {
+/// Quote plus risk check from `GET /payments/stripe/preflight/:invoiceId`, run
+/// before a split (partial) card / Tap to Pay charge creates a Stripe intent.
+/// Warnings must be acknowledged first.
+///
+/// Quoted with no amount, `amount` is the fee-inclusive ceiling: the most a
+/// card can be charged against this invoice, and the default the entry field
+/// starts on.
+struct ChargePreflight: Codable, Equatable {
+    /// The invoice's full open balance.
+    let balance: Double
+    /// The part of that balance this charge settles.
+    let applied: Double
+    /// Card surcharge, taken out of `amount` rather than added to it.
+    let surcharge: Double
+    /// What the card is charged — `applied` + `surcharge`, and exactly the
+    /// `grossAmount` that was asked for.
     let amount: Double
-    let paymentMethodId: String?
+    /// What stays open on the invoice once this charge books.
+    let remaining: Double
+    /// What a next full-balance card charge would cost, fee included. The
+    /// server quotes it so the client never has to know the fee rate; nil only
+    /// against a server too old to send it.
+    let remainingGross: Double?
+    let warnings: [ChargeWarning]
+
+    private enum CodingKeys: String, CodingKey {
+        case balance, applied, surcharge, amount, remaining, remainingGross, warnings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        balance = try container.decode(Double.self, forKey: .balance)
+        applied = try container.decode(Double.self, forKey: .applied)
+        surcharge = try container.decode(Double.self, forKey: .surcharge)
+        amount = try container.decode(Double.self, forKey: .amount)
+        // Derivable without the fee rate, so an older server just loses the
+        // fee-inclusive figure, not the plain one.
+        remaining = try container.decodeIfPresent(Double.self, forKey: .remaining)
+            ?? ((balance - applied) * 100).rounded() / 100
+        remainingGross = try container.decodeIfPresent(Double.self, forKey: .remainingGross)
+        warnings = try container.decodeIfPresent([ChargeWarning].self, forKey: .warnings) ?? []
+    }
+
+    init(
+        balance: Double,
+        applied: Double,
+        surcharge: Double,
+        amount: Double,
+        remaining: Double,
+        remainingGross: Double?,
+        warnings: [ChargeWarning]
+    ) {
+        self.balance = balance
+        self.applied = applied
+        self.surcharge = surcharge
+        self.amount = amount
+        self.remaining = remaining
+        self.remainingGross = remainingGross
+        self.warnings = warnings
+    }
+
+    /// True when this charge leaves part of the invoice open.
+    var isPartial: Bool { remaining > 0.005 }
+}
+
+/// A pre-charge risk warning. The server sends a code and params rather than
+/// prose so the client owns the wording.
+struct ChargeWarning: Codable, Equatable {
+    let code: String
+    let params: [String: String]
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case params
+    }
+
+    init(code: String, params: [String: String] = [:]) {
+        self.code = code
+        self.params = params
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        code = try container.decode(String.self, forKey: .code)
+        params = try container.decodeIfPresent([String: String].self, forKey: .params) ?? [:]
+    }
+
+    /// Wording kept in step with the web console's `payWarn.*` strings.
+    var message: String {
+        let amount = params["amount"] ?? "0.00"
+        let minutes = params["minutes"] ?? "?"
+        switch code {
+        case "recentPayment":
+            return "A payment of $\(amount) was already recorded on this invoice \(minutes) min ago. Make sure this charge is not a duplicate."
+        case "recentReversal":
+            return "A payment of $\(amount) on this invoice was reversed \(minutes) min ago. Re-charging may be intentional — confirm you are not charging the customer twice."
+        case "partiallyPaid":
+            let methods = params["methods"]?.nilIfBlank.map { " (\($0))" } ?? ""
+            return "This invoice already has $\(amount) in payments\(methods). You are charging only the remaining balance."
+        default:
+            return "Check this payment carefully before charging."
+        }
+    }
 }
 
 // MARK: - Pay links
 
-/// A shareable/email pay link for an unpaid invoice.
-struct PayLink: Codable, Identifiable, Equatable {
-    let id: String
-    let invoiceId: String
-    let url: String
+/// A Stripe-hosted Checkout link covering an invoice's balance — or, with an
+/// amount, part of it — from `POST /invoices/:id/payment-link`.
+struct PayLink: Codable, Equatable {
+    /// Stripe occasionally returns a session without a URL; there is no link to
+    /// share when that happens.
+    let url: String?
+    let sessionId: String
+    /// The invoice's full open balance.
+    let balance: Double
+    /// The part of that balance this link settles.
+    let applied: Double
+    /// Card surcharge added on top of `applied`.
+    let surcharge: Double
+    /// Gross the customer pays: `applied` + `surcharge`.
     let amount: Double
-    let token: String?
-    let active: Bool
-    let createdAt: String
+    /// Whether the link was actually emailed. False when the customer has no
+    /// address on file, even if emailing was asked for.
+    let emailed: Bool
+
+    /// What stays open on the invoice once this link is paid.
+    var remaining: Double { ((balance - applied) * 100).rounded() / 100 }
 }
 
 struct PayLinkCreateInput: Codable, Equatable {
-    let amount: Double
+    /// Email the link to the customer's address on file. The recipient is the
+    /// server's to decide — it is not a free-text address.
+    let email: Bool
+    /// What the customer's card is charged, fee included. Omitted bills the
+    /// whole balance plus its fee.
+    let grossAmount: Double?
 }
 
 // MARK: - Monthly Sales preferences

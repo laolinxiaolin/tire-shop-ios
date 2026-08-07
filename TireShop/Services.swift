@@ -314,9 +314,13 @@ struct InvoiceIdInput: Codable {
     let invoiceId: String
 }
 
-struct PaymentIntentAmountInput: Codable {
+/// `grossAmount` is what the card is charged, fee included — the server divides
+/// the fee back out. Omitted charges the whole balance plus its fee. (The older
+/// `amount`, the pre-fee portion, is still accepted by the server but can't
+/// express every total, so nothing here sends it.)
+struct PaymentIntentGrossInput: Codable {
     let invoiceId: String
-    let amount: Double?
+    let grossAmount: Double?
 }
 
 struct PaymentIntentIdInput: Codable {
@@ -2215,33 +2219,42 @@ struct PaymentsAPI {
         try await client.request("/payments/stripe/connection-token", method: "POST")
     }
 
-    func terminalIntent(invoiceId: String, amount: Double? = nil) async throws -> TerminalIntent {
+    func terminalIntent(invoiceId: String, grossAmount: Double? = nil) async throws -> TerminalIntent {
         try await client.request(
             "/payments/stripe/terminal/intent",
             method: "POST",
-            body: PaymentIntentAmountInput(invoiceId: invoiceId, amount: amount)
+            body: PaymentIntentGrossInput(invoiceId: invoiceId, grossAmount: grossAmount)
         )
     }
 
-    func cardIntent(invoiceId: String, amount: Double? = nil) async throws -> CardPaymentIntent {
+    func cardIntent(invoiceId: String, grossAmount: Double? = nil) async throws -> CardPaymentIntent {
         try await client.request(
             "/payments/stripe/card/intent",
             method: "POST",
-            body: PaymentIntentAmountInput(invoiceId: invoiceId, amount: amount)
+            body: PaymentIntentGrossInput(invoiceId: invoiceId, grossAmount: grossAmount)
         )
     }
 
-    /// Server preflight validation for a split card / Tap to Pay charge.
-    func chargePreflight(invoiceId: String, body: ChargePreflightInput) async throws -> ChargePreflight {
-        try await client.request("/invoices/\(invoiceId)/payments/preflight", method: "POST", body: body)
+    /// Server quote + risk check for a card / Tap to Pay charge. `grossAmount`
+    /// is what the card is charged, fee included; omit it to quote the whole
+    /// balance, which also yields the ceiling a split can't exceed. Read-only —
+    /// it never touches Stripe.
+    func chargePreflight(
+        invoiceId: String,
+        processor: ChargeProcessor,
+        grossAmount: Double? = nil
+    ) async throws -> ChargePreflight {
+        let params = query([
+            "processor": processor.rawValue,
+            "grossAmount": grossAmount.map { String(format: "%.2f", $0) },
+        ])
+        return try await client.request("/payments/stripe/preflight/\(invoiceId)\(params)")
     }
 
+    /// Create a Stripe-hosted pay link for the invoice. Emailing it to the
+    /// customer is part of this one call — there is no separate send route.
     func payLink(invoiceId: String, body: PayLinkCreateInput) async throws -> PayLink {
-        try await client.request("/invoices/\(invoiceId)/pay-link", method: "POST", body: body)
-    }
-
-    func emailPayLink(invoiceId: String, body: InvoiceEmailInput) async throws -> InvoiceEmailResult {
-        try await client.request("/invoices/\(invoiceId)/pay-link/email", method: "POST", body: body)
+        try await client.request("/invoices/\(invoiceId)/payment-link", method: "POST", body: body)
     }
 
     /// Book a confirmed keyed-card intent immediately; idempotent with the
