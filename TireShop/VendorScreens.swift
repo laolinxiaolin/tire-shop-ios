@@ -419,6 +419,19 @@ struct VendorDetailNativeView: View {
                         .foregroundStyle(Theme.muted)
                 }
 
+                // A failed post-edit/deactivate/refund reload must not leave
+                // stale headline totals on screen with no warning (same banner
+                // as the supplier profile).
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Theme.Space.md)
+                        .background(Theme.danger.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                }
+
                 StatGrid(stats: [
                     ("Open A/P", AppFormat.money(vendor.summary.openAP)),
                     ("Paid out", AppFormat.money(vendor.summary.paidOut)),
