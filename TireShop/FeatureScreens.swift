@@ -2688,7 +2688,16 @@ struct SalesListNativeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background)
         .task(id: selectedView) {
-            if selectedView == .sales, items.isEmpty { await load() }
+            guard selectedView == .sales else { return }
+            if items.isEmpty {
+                await load()
+            } else if range != .all,
+                      dateParamsDay != ShopClock.calendar.startOfDay(for: Date()) {
+                // The day rolled over while the tab was hidden or the view
+                // was dismissed; a mounted list must advance its rolling
+                // range instead of keeping yesterday's window.
+                await load()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             // Returning to the foreground after midnight must advance a
