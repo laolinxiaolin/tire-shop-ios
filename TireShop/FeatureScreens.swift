@@ -2581,6 +2581,7 @@ private struct BestSellersSummaryFooter: View {
 
 struct SalesListNativeView: View {
     @EnvironmentObject private var i18n: I18nStore
+    @Environment(\.scenePhase) private var scenePhase
 
     private let pageSize = 50
 
@@ -2688,6 +2689,35 @@ struct SalesListNativeView: View {
         .background(Theme.background)
         .task(id: selectedView) {
             if selectedView == .sales, items.isEmpty { await load() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Returning to the foreground after midnight must advance a
+            // rolling range even when rows are already on screen (the
+            // selected-view task does not re-fire for a mounted view).
+            if phase == .active, range != .all,
+               dateParamsDay != ShopClock.calendar.startOfDay(for: Date()) {
+                Task { await load() }
+            }
+        }
+        .task {
+            // A mounted screen's rolling range advances at the local midnight
+            // without user interaction, matching the mobile app's day-key
+            // timer. load() re-derives the bounds only when the day changed,
+            // so in-flight continuation bounds stay stable.
+            let calendar = ShopClock.calendar
+            while !Task.isCancelled {
+                let now = Date()
+                guard let nextMidnight = calendar.date(
+                    byAdding: .day, value: 1, to: calendar.startOfDay(for: now)
+                ) else { return }
+                let delay = max(nextMidnight.timeIntervalSince(now) + 1, 1)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                if Task.isCancelled { return }
+                if selectedView == .sales, range != .all,
+                   dateParamsDay != calendar.startOfDay(for: Date()) {
+                    await load()
+                }
+            }
         }
         .onDisappear {
             searchTask?.cancel()
@@ -3186,6 +3216,10 @@ struct SalesListNativeView: View {
                 beforeId: continuation.beforeId,
                 summary: false
             )
+            // A filter change, search, or refresh mid-flight must invalidate
+            // the append: the response belongs to the previous window and
+            // would pollute the new list's state.
+            guard !Task.isCancelled, loadRequestID == requestID else { return }
             // Dedupe by id: the keyset window can hand back a row the previous
             // page already delivered when the live list shifts.
             var seen = Set(items.map(\.id))
