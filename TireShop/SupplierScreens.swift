@@ -71,6 +71,9 @@ struct SupplierDetailNativeView: View {
         )) { target in
             SupplierPaymentDetailSheet(id: target.id, canReverse: auth.has("payables.pay")) {
                 reloadToken += 1
+                // A reversal changes amountPaid, so the summary figures
+                // (owed/paid to supplier) must refresh too, not just the tab.
+                Task { await load() }
             }
         }
         .task {
@@ -323,6 +326,10 @@ private struct SupplierContainersTab: View {
     @State private var page = 1
     @State private var loading = false
     @State private var errorMessage: String?
+    // Monotonic request id: responses older than the newest request are
+    // dropped so overlapping loads (filter chips, refresh, paging) can never
+    // overwrite newer data out of order.
+    @State private var requestID = 0
 
     private var totalPages: Int {
         guard let data, data.pageSize > 0 else { return 1 }
@@ -364,11 +371,12 @@ private struct SupplierContainersTab: View {
                     singularLabel: "container",
                     loading: loading
                 ) {
-                    page = max(1, page - 1)
-                    Task { await load() }
+                    // Navigate from the last successful page, never the local
+                    // `page` state: a failed request must not advance past the
+                    // page the user is actually looking at.
+                    Task { await load(page: max(1, data.page - 1)) }
                 } onNext: {
-                    page = min(totalPages, page + 1)
-                    Task { await load() }
+                    Task { await load(page: min(totalPages, data.page + 1)) }
                 }
             }
         }
@@ -382,14 +390,26 @@ private struct SupplierContainersTab: View {
 
     @MainActor
     private func load() async {
+        await load(page: page)
+    }
+
+    @MainActor
+    private func load(page requested: Int) async {
+        let request = requestID + 1
+        requestID = request
         loading = true
         errorMessage = nil
         do {
-            data = try await SuppliersAPI().containers(id: supplierId, page: page, pageSize: pageSize)
+            let result = try await SuppliersAPI().containers(id: supplierId, page: requested, pageSize: pageSize)
+            guard request == requestID else { return }
+            data = result
+            page = requested
+            loading = false
         } catch {
+            guard request == requestID else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load containers."
+            loading = false
         }
-        loading = false
     }
 }
 
@@ -461,7 +481,9 @@ private struct SupplierCostsTab: View {
         ("other", "Other costs")
     ]
     private let statuses: [(String, String)] = [
-        ("", "All statuses"),
+        // Blank omits the status param, and the backend's default excludes
+        // VOID costs — so label the subset accurately rather than "All".
+        ("", "Non-void"),
         ("DUE", "Due"),
         ("PAID", "Paid"),
         ("VOID", "Void")
@@ -473,6 +495,10 @@ private struct SupplierCostsTab: View {
     @State private var status = ""
     @State private var loading = false
     @State private var errorMessage: String?
+    // Monotonic request id: responses older than the newest request are
+    // dropped so overlapping loads (filter chips, refresh, paging) can never
+    // overwrite newer data out of order.
+    @State private var requestID = 0
 
     private var totalPages: Int {
         guard let data, data.pageSize > 0 else { return 1 }
@@ -529,11 +555,12 @@ private struct SupplierCostsTab: View {
                     singularLabel: "bill",
                     loading: loading
                 ) {
-                    page = max(1, page - 1)
-                    Task { await load() }
+                    // Navigate from the last successful page, never the local
+                    // `page` state: a failed request must not advance past the
+                    // page the user is actually looking at.
+                    Task { await load(page: max(1, data.page - 1)) }
                 } onNext: {
-                    page = min(totalPages, page + 1)
-                    Task { await load() }
+                    Task { await load(page: min(totalPages, data.page + 1)) }
                 }
             }
         }
@@ -549,8 +576,10 @@ private struct SupplierCostsTab: View {
         Button {
             guard selected.wrappedValue != value else { return }
             selected.wrappedValue = value
-            page = 1
-            Task { await load() }
+            // Filter changes restart at page 1; the request id guard makes
+            // sure a slower response for the previous filter can't land after
+            // this one.
+            Task { await load(page: 1) }
         } label: {
             Text(label)
                 .font(.caption)
@@ -569,20 +598,32 @@ private struct SupplierCostsTab: View {
 
     @MainActor
     private func load() async {
+        await load(page: page)
+    }
+
+    @MainActor
+    private func load(page requested: Int) async {
+        let request = requestID + 1
+        requestID = request
         loading = true
         errorMessage = nil
         do {
-            data = try await SuppliersAPI().costs(
+            let result = try await SuppliersAPI().costs(
                 id: supplierId,
-                page: page,
+                page: requested,
                 pageSize: pageSize,
                 scope: scope.nilIfBlank,
                 status: status.nilIfBlank
             )
+            guard request == requestID else { return }
+            data = result
+            page = requested
+            loading = false
         } catch {
+            guard request == requestID else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load bills."
+            loading = false
         }
-        loading = false
     }
 }
 
@@ -657,6 +698,10 @@ private struct SupplierPaymentsTab: View {
     @State private var page = 1
     @State private var loading = false
     @State private var errorMessage: String?
+    // Monotonic request id: responses older than the newest request are
+    // dropped so overlapping loads (refresh, paging) can never overwrite
+    // newer data out of order.
+    @State private var requestID = 0
 
     private var totalPages: Int {
         guard let data, data.pageSize > 0 else { return 1 }
@@ -700,11 +745,12 @@ private struct SupplierPaymentsTab: View {
                     singularLabel: "payment",
                     loading: loading
                 ) {
-                    page = max(1, page - 1)
-                    Task { await load() }
+                    // Navigate from the last successful page, never the local
+                    // `page` state: a failed request must not advance past the
+                    // page the user is actually looking at.
+                    Task { await load(page: max(1, data.page - 1)) }
                 } onNext: {
-                    page = min(totalPages, page + 1)
-                    Task { await load() }
+                    Task { await load(page: min(totalPages, data.page + 1)) }
                 }
             }
         }
@@ -718,14 +764,26 @@ private struct SupplierPaymentsTab: View {
 
     @MainActor
     private func load() async {
+        await load(page: page)
+    }
+
+    @MainActor
+    private func load(page requested: Int) async {
+        let request = requestID + 1
+        requestID = request
         loading = true
         errorMessage = nil
         do {
-            data = try await SuppliersAPI().payments(id: supplierId, page: page, pageSize: pageSize)
+            let result = try await SuppliersAPI().payments(id: supplierId, page: requested, pageSize: pageSize)
+            guard request == requestID else { return }
+            data = result
+            page = requested
+            loading = false
         } catch {
+            guard request == requestID else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load payments."
+            loading = false
         }
-        loading = false
     }
 }
 
@@ -803,6 +861,10 @@ private struct SupplierReturnsTab: View {
     @State private var page = 1
     @State private var loading = false
     @State private var errorMessage: String?
+    // Monotonic request id: responses older than the newest request are
+    // dropped so overlapping loads (refresh, paging) can never overwrite
+    // newer data out of order.
+    @State private var requestID = 0
 
     private var totalPages: Int {
         guard let data, data.pageSize > 0 else { return 1 }
@@ -844,11 +906,12 @@ private struct SupplierReturnsTab: View {
                     singularLabel: "claim",
                     loading: loading
                 ) {
-                    page = max(1, page - 1)
-                    Task { await load() }
+                    // Navigate from the last successful page, never the local
+                    // `page` state: a failed request must not advance past the
+                    // page the user is actually looking at.
+                    Task { await load(page: max(1, data.page - 1)) }
                 } onNext: {
-                    page = min(totalPages, page + 1)
-                    Task { await load() }
+                    Task { await load(page: min(totalPages, data.page + 1)) }
                 }
             }
         }
@@ -862,14 +925,26 @@ private struct SupplierReturnsTab: View {
 
     @MainActor
     private func load() async {
+        await load(page: page)
+    }
+
+    @MainActor
+    private func load(page requested: Int) async {
+        let request = requestID + 1
+        requestID = request
         loading = true
         errorMessage = nil
         do {
-            data = try await SuppliersAPI().returns(id: supplierId, page: page, pageSize: pageSize)
+            let result = try await SuppliersAPI().returns(id: supplierId, page: requested, pageSize: pageSize)
+            guard request == requestID else { return }
+            data = result
+            page = requested
+            loading = false
         } catch {
+            guard request == requestID else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load warranty claims."
+            loading = false
         }
-        loading = false
     }
 }
 

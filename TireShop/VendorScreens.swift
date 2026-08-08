@@ -319,14 +319,17 @@ struct VendorDetailNativeView: View {
     @State private var costsPage = 1
     @State private var costsLoading = false
     @State private var costsError: String?
+    @State private var costsRequestID = 0
     @State private var expenses: Paged<VendorRecentExpense>?
     @State private var expensesPage = 1
     @State private var expensesLoading = false
     @State private var expensesError: String?
+    @State private var expensesRequestID = 0
     @State private var refunds: Paged<VendorRefundRecord>?
     @State private var refundsPage = 1
     @State private var refundsLoading = false
     @State private var refundsError: String?
+    @State private var refundsRequestID = 0
 
     private let listPageSize = 25
 
@@ -467,11 +470,12 @@ struct VendorDetailNativeView: View {
                             singularLabel: "cost",
                             loading: costsLoading
                         ) {
-                            costsPage = max(1, costsPage - 1)
-                            Task { await loadCosts() }
+                            // Navigate from the last successful page, never
+                            // the local page state: a failed request must not
+                            // advance past the page being viewed.
+                            Task { await loadCosts(page: max(1, costs.page - 1)) }
                         } onNext: {
-                            costsPage = min(totalPages(costs), costsPage + 1)
-                            Task { await loadCosts() }
+                            Task { await loadCosts(page: min(totalPages(costs), costs.page + 1)) }
                         }
                     }
                     if let costsError {
@@ -497,11 +501,9 @@ struct VendorDetailNativeView: View {
                             singularLabel: "expense",
                             loading: expensesLoading
                         ) {
-                            expensesPage = max(1, expensesPage - 1)
-                            Task { await loadExpenses() }
+                            Task { await loadExpenses(page: max(1, expenses.page - 1)) }
                         } onNext: {
-                            expensesPage = min(totalPages(expenses), expensesPage + 1)
-                            Task { await loadExpenses() }
+                            Task { await loadExpenses(page: min(totalPages(expenses), expenses.page + 1)) }
                         }
                     }
                     if let expensesError {
@@ -529,11 +531,9 @@ struct VendorDetailNativeView: View {
                             singularLabel: "refund",
                             loading: refundsLoading
                         ) {
-                            refundsPage = max(1, refundsPage - 1)
-                            Task { await loadRefunds() }
+                            Task { await loadRefunds(page: max(1, refunds.page - 1)) }
                         } onNext: {
-                            refundsPage = min(totalPages(refunds), refundsPage + 1)
-                            Task { await loadRefunds() }
+                            Task { await loadRefunds(page: min(totalPages(refunds), refunds.page + 1)) }
                         }
                     }
                     if let refundsError {
@@ -581,38 +581,74 @@ struct VendorDetailNativeView: View {
 
     @MainActor
     private func loadCosts() async {
+        await loadCosts(page: costsPage)
+    }
+
+    @MainActor
+    private func loadCosts(page requested: Int) async {
+        let request = costsRequestID + 1
+        costsRequestID = request
         costsLoading = true
         costsError = nil
         do {
-            costs = try await VendorsAPI().costs(id: id, page: costsPage, pageSize: listPageSize)
+            let result = try await VendorsAPI().costs(id: id, page: requested, pageSize: listPageSize)
+            guard request == costsRequestID else { return }
+            costs = result
+            costsPage = requested
+            costsLoading = false
         } catch {
+            guard request == costsRequestID else { return }
             costsError = (error as? LocalizedError)?.errorDescription ?? "Could not load costs."
+            costsLoading = false
         }
-        costsLoading = false
     }
 
     @MainActor
     private func loadExpenses() async {
+        await loadExpenses(page: expensesPage)
+    }
+
+    @MainActor
+    private func loadExpenses(page requested: Int) async {
+        let request = expensesRequestID + 1
+        expensesRequestID = request
         expensesLoading = true
         expensesError = nil
         do {
-            expenses = try await VendorsAPI().expenses(id: id, page: expensesPage, pageSize: listPageSize)
+            let result = try await VendorsAPI().expenses(id: id, page: requested, pageSize: listPageSize)
+            guard request == expensesRequestID else { return }
+            expenses = result
+            expensesPage = requested
+            expensesLoading = false
         } catch {
+            guard request == expensesRequestID else { return }
             expensesError = (error as? LocalizedError)?.errorDescription ?? "Could not load expenses."
+            expensesLoading = false
         }
-        expensesLoading = false
     }
 
     @MainActor
     private func loadRefunds() async {
+        await loadRefunds(page: refundsPage)
+    }
+
+    @MainActor
+    private func loadRefunds(page requested: Int) async {
+        let request = refundsRequestID + 1
+        refundsRequestID = request
         refundsLoading = true
         refundsError = nil
         do {
-            refunds = try await VendorsAPI().refunds(id: id, page: refundsPage, pageSize: listPageSize)
+            let result = try await VendorsAPI().refunds(id: id, page: requested, pageSize: listPageSize)
+            guard request == refundsRequestID else { return }
+            refunds = result
+            refundsPage = requested
+            refundsLoading = false
         } catch {
+            guard request == refundsRequestID else { return }
             refundsError = (error as? LocalizedError)?.errorDescription ?? "Could not load refunds."
+            refundsLoading = false
         }
-        refundsLoading = false
     }
 
     private func totalPages<T>(_ data: Paged<T>) -> Int {
