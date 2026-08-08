@@ -1123,7 +1123,10 @@ struct SalesAPI {
         sortBy: String? = nil,
         sortOrder: String? = nil,
         page: Int? = nil,
-        pageSize: Int? = nil
+        pageSize: Int? = nil,
+        before: String? = nil,
+        beforeId: String? = nil,
+        summary: Bool? = nil
     ) async throws -> SalesListResponse {
         let qs = query([
             "q": q,
@@ -1133,7 +1136,10 @@ struct SalesAPI {
             "sortBy": sortBy,
             "sortOrder": sortOrder,
             "page": page,
-            "pageSize": pageSize
+            "pageSize": pageSize,
+            "before": before,
+            "beforeId": beforeId,
+            "summary": summary.map { $0 ? "true" : "false" }
         ])
         let response: SalesListResponse = try await client.request("/sales\(qs)")
         return response
@@ -1143,6 +1149,7 @@ struct SalesAPI {
         months: Int? = nil,
         from: String? = nil,
         to: String? = nil,
+        location: String? = nil,
         sortBy: String? = nil,
         sortOrder: String? = nil,
         page: Int? = nil,
@@ -1152,6 +1159,7 @@ struct SalesAPI {
             "months": months,
             "from": from,
             "to": to,
+            "location": location,
             "sortBy": sortBy,
             "sortOrder": sortOrder,
             "page": page,
@@ -1164,6 +1172,7 @@ struct SalesAPI {
         months: Int? = nil,
         from: String? = nil,
         to: String? = nil,
+        location: String? = nil,
         sortBy: String? = nil,
         sortOrder: String? = nil,
         fileName: String = "best-sellers.xlsx"
@@ -1172,6 +1181,7 @@ struct SalesAPI {
             "months": months,
             "from": from,
             "to": to,
+            "location": location,
             "sortBy": sortBy,
             "sortOrder": sortOrder
         ])

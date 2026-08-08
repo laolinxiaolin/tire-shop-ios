@@ -151,7 +151,7 @@ struct DashboardNativeView: View {
             HStack(alignment: .firstTextBaseline) {
                 SectionHeader(i18n.t("dashboard.topSellers"))
                 Spacer()
-                NavigationLink(value: AppRoute.bestSellers(months: months)) {
+                NavigationLink(value: AppRoute.bestSellers(months: months, warehouse: "")) {
                     Text(i18n.t("bestSellers.viewAll"))
                         .font(.caption.weight(.semibold))
                 }
@@ -1829,14 +1829,18 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The quick time-range chips on the sales list, matching the mobile app's
+    /// All / Today / 7 days / 30 days presets.
+    static let chipRanges: [SalesDateRange] = [.all, .today, .week, .month]
+
     var label: String {
         switch self {
         case .all: return "All dates"
         case .today: return "Today"
         case .yesterday: return "Yesterday"
         case .threeDays: return "Last 3 days"
-        case .week: return "This week"
-        case .month: return "This month"
+        case .week: return "7 days"
+        case .month: return "30 days"
         case .year: return "This year"
         }
     }
@@ -1867,17 +1871,53 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
             let start = calendar.date(byAdding: .day, value: -2, to: startToday) ?? startToday
             return (iso(start), iso(startTomorrow))
         case .week:
-            let weekday = calendar.component(.weekday, from: now)
-            let start = calendar.date(byAdding: .day, value: -(weekday - 1), to: startToday) ?? startToday
+            // Rolling 7 days, matching the mobile sales list chips.
+            let start = calendar.date(byAdding: .day, value: -6, to: startToday) ?? startToday
             return (iso(start), iso(startTomorrow))
         case .month:
-            let components = calendar.dateComponents([.year, .month], from: now)
-            let start = calendar.date(from: components) ?? startToday
+            // Rolling 30 days, matching the mobile sales list chips.
+            let start = calendar.date(byAdding: .day, value: -29, to: startToday) ?? startToday
             return (iso(start), iso(startTomorrow))
         case .year:
             let components = calendar.dateComponents([.year], from: now)
             let start = calendar.date(from: components) ?? startToday
             return (iso(start), iso(startTomorrow))
+        }
+    }
+}
+
+/// Keyset cursor for the sales list's infinite scroll: the exclusive
+/// `createdAt` bound plus the id tiebreak, matched against the server's
+/// (createdAt desc, id desc) ordering.
+struct SalesCursor: Equatable {
+    let before: String
+    let beforeId: String
+}
+
+/// The continuation parameters for one sales-list page. The server's keyset
+/// ordering is fixed at (createdAt desc, id desc), so a cursor is only valid
+/// for the default Newest-first order; a custom sort must page by offset or
+/// every continuation would silently reorder. The offset page is always sent
+/// so a pre-cursor server can advance by page instead of repeating page 1.
+struct SalesContinuationRequest: Equatable {
+    let page: Int
+    let before: String?
+    let beforeId: String?
+    let sortBy: String?
+    let sortOrder: String?
+
+    init(sortBy: String?, sortOrder: String?, page: Int, cursor: SalesCursor?) {
+        self.page = page
+        if sortBy == nil, let cursor {
+            self.before = cursor.before
+            self.beforeId = cursor.beforeId
+            self.sortBy = nil
+            self.sortOrder = nil
+        } else {
+            self.before = nil
+            self.beforeId = nil
+            self.sortBy = sortBy
+            self.sortOrder = sortOrder
         }
     }
 }
@@ -1981,12 +2021,21 @@ private struct BestSellerRequestKey: Hashable {
     let months: Int?
     let from: String?
     let to: String?
+    let location: String?
     let sortBy: String
     let sortOrder: String
 }
 
+/// Re-runs the report task when either the request inputs change or the
+/// warehouse fetch settles (the default scope is decided only then).
+private struct BestSellersLoadGate: Hashable {
+    let request: BestSellerRequestKey
+    let warehousesResolved: Bool
+}
+
 private struct BestSellersNativeView: View {
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var auth: AuthStore
 
     private static let periods = [1, 3, 6, 12]
     private static let sortOptions = [
@@ -2004,6 +2053,18 @@ private struct BestSellersNativeView: View {
     @State private var toDate: Date
     @State private var sortBy = "qty"
     @State private var sortOrder = "desc"
+    @State private var warehouses: [Warehouse] = []
+    /// Warehouse.code to rank independently; nil = all warehouses combined.
+    @State private var selectedWarehouse: String?
+    /// Set once the operator picks a scope, so the async warehouse fetch's
+    /// default-selection logic can't override an explicit choice.
+    @State private var userPickedWarehouse = false
+    @State private var warehousesLoaded = false
+    @State private var warehousesFailed = false
+    /// Set when the warehouse fetch finishes (success or failure). The report
+    /// load waits on this unless the route pins a scope, so the first ranking
+    /// never briefly shows the all-warehouses view when a default applies.
+    @State private var warehousesResolved = false
     @State private var data: BestSellersResponse?
     @State private var loading = false
     @State private var errorMessage: String?
@@ -2011,7 +2072,7 @@ private struct BestSellersNativeView: View {
     @State private var exportError: String?
     @State private var exportFile: InventoryExportFile?
 
-    init(initialMonths: Int) {
+    init(initialMonths: Int, initialWarehouse: String? = nil) {
         let period = Self.periods.contains(initialMonths) ? initialMonths : 3
         let calendar = ShopClock.calendar
         let today = calendar.startOfDay(for: Date())
@@ -2020,6 +2081,13 @@ private struct BestSellersNativeView: View {
             initialValue: calendar.date(byAdding: .month, value: -period, to: today) ?? today
         )
         _toDate = State(initialValue: today)
+        // A route pin (e.g. the dashboard's "View all", which must agree with
+        // the shop-wide card) wins over the default-selection logic. "" pins
+        // the combined all-warehouses view; a code pins that warehouse.
+        if let initialWarehouse {
+            _userPickedWarehouse = State(initialValue: true)
+            _selectedWarehouse = State(initialValue: initialWarehouse.isEmpty ? nil : initialWarehouse)
+        }
     }
 
     private var fromDay: String {
@@ -2039,6 +2107,7 @@ private struct BestSellersNativeView: View {
             months: usesCustomRange ? nil : months,
             from: usesCustomRange ? fromDay : nil,
             to: usesCustomRange ? toDay : nil,
+            location: selectedWarehouse,
             sortBy: sortBy,
             sortOrder: sortOrder
         )
@@ -2065,9 +2134,15 @@ private struct BestSellersNativeView: View {
             }
         }
         .background(Theme.background)
-        .task(id: requestKey) {
+        .task(id: BestSellersLoadGate(request: requestKey, warehousesResolved: warehousesResolved)) {
             guard !invalidRange else { return }
+            // Wait for the warehouse fetch to resolve the default scope (the
+            // route pin bypasses the wait: its scope is already decided).
+            guard warehousesResolved || userPickedWarehouse else { return }
             await load()
+        }
+        .task {
+            await loadWarehouses()
         }
         .sheet(item: $exportFile) { file in
             InventoryExportShareSheet(url: file.url)
@@ -2100,6 +2175,8 @@ private struct BestSellersNativeView: View {
                 .accessibilityLabel(i18n.t("common.export"))
             }
 
+            warehouseMenu
+
             Toggle(i18n.t("bestSellers.customRange"), isOn: $usesCustomRange)
                 .font(.subheadline)
 
@@ -2124,6 +2201,7 @@ private struct BestSellersNativeView: View {
             HStack(spacing: Theme.Space.sm) {
                 if let period = data?.period, !invalidRange {
                     Text(i18n.t("bestSellers.window", [
+                        "warehouse": warehouseLabel,
                         "from": period.from.map { AppFormat.calendarDate($0) } ?? i18n.t("bestSellers.allTime"),
                         "to": AppFormat.calendarDate(period.to)
                     ]))
@@ -2150,6 +2228,70 @@ private struct BestSellersNativeView: View {
         .padding(.vertical, Theme.Space.sm)
         .background(Theme.background)
         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var warehouseLabel: String {
+        // Prefer the server's echo of the resolved scope, matching the web
+        // console's "CODE — NAME" label.
+        if let warehouse = data?.warehouse {
+            return "\(warehouse.code) — \(warehouse.name)"
+        }
+        if let selectedWarehouse,
+           let warehouse = warehouses.first(where: { $0.code == selectedWarehouse }) {
+            return warehouse.name
+        }
+        return i18n.t("bestSellers.allWarehouses")
+    }
+
+    private var warehouseMenu: some View {
+        Menu {
+            Section(i18n.t("bestSellers.warehouse")) {
+                Button {
+                    userPickedWarehouse = true
+                    selectedWarehouse = nil
+                } label: {
+                    if selectedWarehouse == nil {
+                        Label(i18n.t("bestSellers.allWarehouses"), systemImage: "checkmark")
+                    } else {
+                        Text(i18n.t("bestSellers.allWarehouses"))
+                    }
+                }
+
+                if warehouses.isEmpty {
+                    if warehousesFailed {
+                        Text(i18n.t("bestSellers.warehousesFailed"))
+                            .disabled(true)
+                    } else if !warehousesLoaded {
+                        Text(i18n.t("common.loading"))
+                            .disabled(true)
+                    } else {
+                        Text(i18n.t("bestSellers.noWarehouses"))
+                            .disabled(true)
+                    }
+                } else {
+                    ForEach(warehouses) { warehouse in
+                        Button {
+                            userPickedWarehouse = true
+                            selectedWarehouse = warehouse.code
+                        } label: {
+                            let title = warehouse.active
+                                ? warehouse.name
+                                : "\(warehouse.name) (\(i18n.t("warehouses.inactive")))"
+                            if selectedWarehouse == warehouse.code {
+                                Label(title, systemImage: "checkmark")
+                            } else {
+                                Text(title)
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(warehouseLabel, systemImage: "building.2")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
     }
 
     private var sortMenu: some View {
@@ -2230,6 +2372,7 @@ private struct BestSellersNativeView: View {
                 months: key.months,
                 from: key.from,
                 to: key.to,
+                location: key.location,
                 sortBy: key.sortBy,
                 sortOrder: key.sortOrder,
                 pageSize: 1000
@@ -2244,6 +2387,48 @@ private struct BestSellersNativeView: View {
     }
 
     @MainActor
+    private func loadWarehouses() async {
+        do {
+            // All warehouses, not just active ones: the backend deliberately
+            // keeps inactive locations reportable (historical rankings), so
+            // they must be selectable. Only the automatic fallback below
+            // prefers active locations.
+            let list = try await WarehousesAPI().list()
+            guard !Task.isCancelled else { return }
+            warehouses = list
+            warehousesLoaded = true
+            warehousesFailed = false
+            warehousesResolved = true
+            // Default to the operator's home warehouse, then the system default,
+            // then the first active warehouse, matching the web console. A
+            // failed fetch degrades to the combined view rather than blocking
+            // the report.
+            if selectedWarehouse == nil, !userPickedWarehouse {
+                let home = auth.user?.homeWarehouse
+                if let home, list.contains(where: { $0.code == home && $0.active }) {
+                    selectedWarehouse = home
+                } else if let defaultWarehouse = list.first(where: { $0.isDefault && $0.active }) {
+                    selectedWarehouse = defaultWarehouse.code
+                } else if let firstActive = list.first(where: { $0.active }) {
+                    selectedWarehouse = firstActive.code
+                } else if let first = list.first {
+                    selectedWarehouse = first.code
+                }
+            } else if userPickedWarehouse, let pinned = selectedWarehouse,
+                      !list.contains(where: { $0.code == pinned }) {
+                // The pinned warehouse is gone (deactivated or renamed): fall
+                // back to the combined view rather than showing a phantom scope.
+                selectedWarehouse = nil
+            }
+        } catch {
+            // Degrade to the combined all-warehouse view.
+            warehouses = []
+            warehousesFailed = true
+            warehousesResolved = true
+        }
+    }
+
+    @MainActor
     private func export() async {
         guard let period = data?.period else { return }
         let key = requestKey
@@ -2252,11 +2437,12 @@ private struct BestSellersNativeView: View {
         defer { exporting = false }
 
         do {
-            let fileName = "best-sellers-\(period.from ?? "all")_\(period.to).xlsx"
+            let fileName = "best-sellers-\(selectedWarehouse ?? "ALL")-\(period.from ?? "all")_\(period.to).xlsx"
             let url = try await SalesAPI().exportBestSellers(
                 months: key.months,
                 from: key.from,
                 to: key.to,
+                location: key.location,
                 sortBy: key.sortBy,
                 sortOrder: key.sortOrder,
                 fileName: fileName
@@ -2395,26 +2581,50 @@ private struct BestSellersSummaryFooter: View {
 
 struct SalesListNativeView: View {
     @EnvironmentObject private var i18n: I18nStore
+    @Environment(\.scenePhase) private var scenePhase
 
     private let pageSize = 50
 
     @State private var selectedView: SalesViewTab
     private let initialBestSellerMonths: Int
+    /// Warehouse pin from the route: nil = default selection, "" = combined
+    /// all-warehouses view, otherwise a specific code.
+    private let initialBestSellerWarehouse: String?
 
     @State private var q = ""
     @State private var status = ""
     @State private var range: SalesDateRange = .all
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
-    @State private var data: SalesListResponse?
+    @State private var items: [SaleListItem] = []
+    @State private var summary: SalesSummary?
+    @State private var hasMore = false
+    @State private var nextCursor: SalesCursor?
+    /// Next offset page. Sent alongside the cursor so a pre-cursor server can
+    /// advance by offset, and used alone while a custom sort is active (the
+    /// cursor ordering is fixed at createdAt desc, so a keyset continuation
+    /// would silently drop the sort).
+    @State private var nextPage = 1
+    /// Concrete window bounds, fixed when the range is picked so a midnight
+    /// rollover mid-scroll can't shift the window between pages.
+    @State private var dateParams: (from: String?, to: String?) = (nil, nil)
+    /// The local day the fixed bounds were computed for; a later load on a new
+    /// day re-derives them so "Today" advances at midnight like the mobile app.
+    @State private var dateParamsDay: Date?
     @State private var loading = false
+    @State private var loadingMore = false
     @State private var errorMessage: String?
+    @State private var loadMoreError: String?
+    /// True once the first load attempt has finished, so the initial state
+    /// shows the spinner instead of flashing the empty state.
+    @State private var hasLoaded = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
 
-    init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3) {
+    init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3, initialBestSellerWarehouse: String? = nil) {
         _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
         self.initialBestSellerMonths = initialBestSellerMonths
+        self.initialBestSellerWarehouse = initialBestSellerWarehouse
     }
 
     private var hasActiveFilters: Bool {
@@ -2450,22 +2660,22 @@ struct SalesListNativeView: View {
 
             Group {
                 if selectedView == .bestSellers {
-                    BestSellersNativeView(initialMonths: initialBestSellerMonths)
+                    BestSellersNativeView(initialMonths: initialBestSellerMonths, initialWarehouse: initialBestSellerWarehouse)
                 } else {
                     VStack(spacing: 0) {
                         salesHeader
 
                         Group {
-                            if loading && data == nil {
-                                LoadingView(label: "Loading...")
-                            } else if let errorMessage, data == nil {
-                                RetryView(message: errorMessage) { Task { await load() } }
-                            } else if let data, data.items.isEmpty {
-                                EmptyStateView(text: emptyMessage)
-                            } else if let data {
-                                salesContent(data)
+                            if items.isEmpty {
+                                if loading || !hasLoaded {
+                                    LoadingView(label: "Loading...")
+                                } else if let errorMessage {
+                                    RetryView(message: errorMessage) { Task { await load() } }
+                                } else {
+                                    EmptyStateView(text: emptyMessage)
+                                }
                             } else {
-                                LoadingView(label: "Loading...")
+                                salesContent(items, summary)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2478,18 +2688,109 @@ struct SalesListNativeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background)
         .task(id: selectedView) {
-            if selectedView == .sales, data == nil { await load() }
+            guard selectedView == .sales else { return }
+            if items.isEmpty {
+                await load()
+            } else if range != .all,
+                      dateParamsDay != ShopClock.calendar.startOfDay(for: Date()) {
+                // The day rolled over while the tab was hidden or the view
+                // was dismissed; a mounted list must advance its rolling
+                // range instead of keeping yesterday's window.
+                await load()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Returning to the foreground after midnight must advance a
+            // rolling range even when rows are already on screen (the
+            // selected-view task does not re-fire for a mounted view).
+            if phase == .active, range != .all,
+               dateParamsDay != ShopClock.calendar.startOfDay(for: Date()) {
+                Task { await load() }
+            }
+        }
+        .task {
+            // A mounted screen's rolling range advances at the local midnight
+            // without user interaction, matching the mobile app's day-key
+            // timer. load() re-derives the bounds only when the day changed,
+            // so in-flight continuation bounds stay stable.
+            let calendar = ShopClock.calendar
+            while !Task.isCancelled {
+                let now = Date()
+                guard let nextMidnight = calendar.date(
+                    byAdding: .day, value: 1, to: calendar.startOfDay(for: now)
+                ) else { return }
+                let delay = max(nextMidnight.timeIntervalSince(now) + 1, 1)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                if Task.isCancelled { return }
+                if selectedView == .sales, range != .all,
+                   dateParamsDay != calendar.startOfDay(for: Date()) {
+                    await load()
+                }
+            }
         }
         .onDisappear {
             searchTask?.cancel()
         }
     }
 
-    private func salesContent(_ data: SalesListResponse) -> some View {
+    private func salesContent(_ items: [SaleListItem], _ summary: SalesSummary?) -> some View {
         VStack(spacing: 0) {
-            List(data.items) { sale in
-                NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                    saleRow(sale)
+            // A failed pull-to-refresh keeps the loaded rows; surface it
+            // non-blockingly instead of letting stale data look current.
+            if let errorMessage {
+                HStack(spacing: Theme.Space.sm) {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("Retry") { Task { await load() } }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.primary)
+                }
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.vertical, Theme.Space.xs)
+                .background(Theme.card)
+                .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+            }
+
+            List {
+                ForEach(items) { sale in
+                    NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                        saleRow(sale)
+                    }
+                }
+
+                if hasMore {
+                    VStack(spacing: Theme.Space.xs) {
+                        if let loadMoreError {
+                            Text(loadMoreError)
+                                .font(.caption)
+                                .foregroundStyle(Theme.danger)
+                                .multilineTextAlignment(.center)
+                        }
+                        HStack {
+                            Spacer()
+                            if loadingMore {
+                                ProgressView()
+                            } else if loadMoreError != nil {
+                                Button("Retry") { Task { await loadMore() } }
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Theme.primary)
+                            } else {
+                                ProgressView()
+                            }
+                            Spacer()
+                        }
+                    }
+                    .padding(.vertical, Theme.Space.lg)
+                    .onAppear {
+                        // Auto-load only when healthy: an error state must
+                        // wait for the explicit Retry, not loop on re-appear.
+                        if !loadingMore, !loading, loadMoreError == nil {
+                            Task { await loadMore() }
+                        }
+                    }
                 }
             }
             .listStyle(.plain)
@@ -2497,8 +2798,8 @@ struct SalesListNativeView: View {
             .refreshable { await load() }
             .debugLayoutProbe("SalesList")
 
-            if !data.items.isEmpty {
-                summaryFooter(data.summary)
+            if let summary, !items.isEmpty {
+                summaryFooter(summary)
                     .debugLayoutProbe("SalesFooter")
             }
         }
@@ -2564,6 +2865,32 @@ struct SalesListNativeView: View {
         .padding(.vertical, Theme.Space.sm)
         .background(Theme.background)
         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .bottom)
+    }
+
+    private var rangeChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.xs) {
+                ForEach(SalesDateRange.chipRanges) { option in
+                    let active = range == option
+                    Button {
+                        updateRange(option)
+                    } label: {
+                        Text(i18n.t("sales.range.\(option.rawValue)"))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, Theme.Space.md)
+                            .padding(.vertical, 6)
+                            .background(active ? Theme.primary : Theme.card)
+                            .foregroundStyle(active ? Theme.primaryText : Theme.text)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(active ? Theme.primary : Theme.border)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
     }
 
     private var searchBar: some View {
@@ -2769,6 +3096,7 @@ struct SalesListNativeView: View {
     private func updateRange(_ value: SalesDateRange) {
         guard range != value else { return }
         range = value
+        dateParams = value.params()
         Task { await load() }
     }
 
@@ -2793,6 +3121,7 @@ struct SalesListNativeView: View {
         }
         status = ""
         range = .all
+        dateParams = (nil, nil)
         sortBy = ""
         sortOrder = "asc"
         Task { await load() }
@@ -2811,19 +3140,32 @@ struct SalesListNativeView: View {
     private func load() async {
         let requestID = UUID()
         loadRequestID = requestID
+        // A window picked before midnight must advance on the next load after
+        // midnight ("Today" means the new day), while pages within one scroll
+        // session keep the bounds they started with.
+        if range != .all {
+            let today = ShopClock.calendar.startOfDay(for: Date())
+            if dateParamsDay != today {
+                dateParams = range.params()
+                dateParamsDay = today
+            }
+        }
         let query = q.nilIfBlank
         let requestedStatus = status.nilIfBlank
-        let dateParams = range.params()
         let requestedSortBy = sortBy.nilIfBlank
         let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
         loading = true
         errorMessage = nil
+        loadMoreError = nil
         defer {
             if loadRequestID == requestID {
                 loading = false
+                hasLoaded = true
             }
         }
         do {
+            // First page: full mode (summary + total) so the footer totals are
+            // correct over the whole filtered set.
             let response = try await SalesAPI().list(
                 q: query,
                 status: requestedStatus,
@@ -2831,13 +3173,73 @@ struct SalesListNativeView: View {
                 to: dateParams.to,
                 sortBy: requestedSortBy,
                 sortOrder: requestedSortOrder,
+                page: 1,
                 pageSize: pageSize
             )
             guard loadRequestID == requestID else { return }
-            data = response
+            items = response.items
+            summary = response.summary
+            hasMore = response.items.count >= pageSize
+            nextPage = response.page + 1
+            nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
         } catch {
             guard loadRequestID == requestID, !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load sales."
+        }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard hasMore, !loadingMore, !loading else { return }
+        // A filter change mid-flight must invalidate the append: the response
+        // belongs to the previous window and would pollute the new list.
+        let requestID = loadRequestID
+        loadingMore = true
+        loadMoreError = nil
+        defer { loadingMore = false }
+        let query = q.nilIfBlank
+        let requestedStatus = status.nilIfBlank
+        let requestedSortBy = sortBy.nilIfBlank
+        let requestedSortOrder = sortBy.isEmpty ? nil : sortOrder
+        do {
+            // Continuation: keyset cursor for the default order (window only
+            // ever shrinks), offset for custom sorts (a cursor would drop the
+            // sort). The page always rides along so a pre-cursor server can
+            // advance by offset instead of repeating page 1.
+            let continuation = SalesContinuationRequest(
+                sortBy: requestedSortBy,
+                sortOrder: requestedSortOrder,
+                page: nextPage,
+                cursor: nextCursor
+            )
+            let response = try await SalesAPI().list(
+                q: query,
+                status: requestedStatus,
+                from: dateParams.from,
+                to: dateParams.to,
+                sortBy: continuation.sortBy,
+                sortOrder: continuation.sortOrder,
+                page: continuation.page,
+                pageSize: pageSize,
+                before: continuation.before,
+                beforeId: continuation.beforeId,
+                summary: false
+            )
+            // A filter change, search, or refresh mid-flight must invalidate
+            // the append: the response belongs to the previous window and
+            // would pollute the new list's state.
+            guard !Task.isCancelled, loadRequestID == requestID else { return }
+            // Dedupe by id: the keyset window can hand back a row the previous
+            // page already delivered when the live list shifts.
+            var seen = Set(items.map(\.id))
+            let newItems = response.items.filter { seen.insert($0.id).inserted }
+            items.append(contentsOf: newItems)
+            hasMore = response.items.count >= pageSize
+            nextPage = response.page + 1
+            nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
+        } catch {
+            guard !Task.isCancelled, loadRequestID == requestID else { return }
+            loadMoreError = (error as? LocalizedError)?.errorDescription ?? "Could not load more sales."
         }
     }
 }

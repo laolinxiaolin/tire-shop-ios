@@ -10,7 +10,7 @@ enum AppRoute: Hashable {
     case skuForm(String?)
     case adjustStock(String)
     case saleDetail(String)
-    case bestSellers(months: Int)
+    case bestSellers(months: Int, warehouse: String?)
     case orderDetail(String)
     case editSale(String)
     case startReturn(saleId: String, saleRef: String?)
@@ -368,9 +368,9 @@ struct NavigationShell<Content: View>: View {
             authorized(auth.has("sales.view")) {
                 SaleDetailNativeView(id: id)
             }
-        case .bestSellers(let months):
+        case .bestSellers(let months, let warehouse):
             authorized(auth.has("sales.view")) {
-                SalesListNativeView(showBestSellers: true, initialBestSellerMonths: months)
+                SalesListNativeView(showBestSellers: true, initialBestSellerMonths: months, initialBestSellerWarehouse: warehouse)
                     .navigationTitle(i18n.t("nav.sales"))
             }
         case .orderDetail(let id):

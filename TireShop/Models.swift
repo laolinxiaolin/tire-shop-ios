@@ -931,10 +931,14 @@ struct SalesSummary: Codable, Equatable {
 
 struct SalesListResponse: Codable, Equatable {
     let items: [SaleListItem]
-    let total: Int
+    /// Null in light mode (`summary=false`), where the server skips the
+    /// whole-set count.
+    let total: Int?
     let page: Int
     let pageSize: Int
-    let summary: SalesSummary
+    /// Absent in light mode (`summary=false`), where the server skips the
+    /// financial aggregates.
+    let summary: SalesSummary?
 }
 
 struct BestSellerRow: Codable, Identifiable, Equatable {
@@ -969,6 +973,13 @@ struct BestSellersPeriod: Codable, Equatable {
     let timezone: String
 }
 
+/// The warehouse a Best Sellers ranking is scoped to. Null in the response
+/// identifies the combined all-warehouse view.
+struct BestSellerWarehouse: Codable, Equatable {
+    let code: String
+    let name: String
+}
+
 struct BestSellersResponse: Codable, Equatable {
     let items: [BestSellerRow]
     let total: Int
@@ -976,6 +987,8 @@ struct BestSellersResponse: Codable, Equatable {
     let pageSize: Int
     let summary: BestSellersSummary
     let period: BestSellersPeriod
+    /// Null identifies the combined all-warehouse view.
+    let warehouse: BestSellerWarehouse?
 }
 
 struct CustomerSaleSummary: Codable, Identifiable, Equatable {
