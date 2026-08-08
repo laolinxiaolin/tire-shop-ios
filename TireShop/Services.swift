@@ -1442,8 +1442,24 @@ struct SuppliersAPI {
         try await client.request("/suppliers\(query(["q": q, "page": page, "pageSize": pageSize ?? 1000]))")
     }
 
-    func get(id: String) async throws -> Supplier {
+    func get(id: String) async throws -> SupplierDetail {
         try await client.request("/suppliers/\(id)")
+    }
+
+    func containers(id: String, page: Int? = nil, pageSize: Int? = nil, status: String? = nil) async throws -> Paged<SupplierContainerRow> {
+        try await client.request("/suppliers/\(id)/containers\(query(["page": page, "pageSize": pageSize, "status": status]))")
+    }
+
+    func costs(id: String, page: Int? = nil, pageSize: Int? = nil, scope: String? = nil, status: String? = nil) async throws -> Paged<SupplierCostRow> {
+        try await client.request("/suppliers/\(id)/costs\(query(["page": page, "pageSize": pageSize, "scope": scope, "status": status]))")
+    }
+
+    func payments(id: String, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<SupplierPaymentRow> {
+        try await client.request("/suppliers/\(id)/payments\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func returns(id: String, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<SupplierReturnRow> {
+        try await client.request("/suppliers/\(id)/returns\(query(["page": page, "pageSize": pageSize]))")
     }
 
     func create(_ body: SupplierSaveInput) async throws -> Supplier {
@@ -1481,6 +1497,18 @@ struct VendorsAPI {
 
     func get(id: String) async throws -> VendorDetail {
         try await client.request("/vendors/\(id)")
+    }
+
+    func costs(id: String, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<VendorRecentCost> {
+        try await client.request("/vendors/\(id)/costs\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func expenses(id: String, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<VendorRecentExpense> {
+        try await client.request("/vendors/\(id)/expenses\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func refunds(id: String, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<VendorRefundRecord> {
+        try await client.request("/vendors/\(id)/refunds\(query(["page": page, "pageSize": pageSize]))")
     }
 
     func create(_ body: VendorSaveInput) async throws -> Vendor {

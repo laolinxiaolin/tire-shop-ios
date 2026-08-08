@@ -21,6 +21,7 @@ enum AppRoute: Hashable {
     case transferDetail(String)
     case newTransfer
     case containerDetail(String)
+    case supplierDetail(String)
     case vendorDetail(String)
     case tapToPay(invoiceId: String, amount: Double, saleId: String?, saleRef: String?, customerName: String?)
     case customerDetail(id: String, name: String)
@@ -408,6 +409,10 @@ struct NavigationShell<Content: View>: View {
         case .containerDetail(let id):
             authorized(auth.has("purchasing.view")) {
                 ContainerDetailNativeView(id: id)
+            }
+        case .supplierDetail(let id):
+            authorized(auth.has("purchasing.view")) {
+                SupplierDetailNativeView(id: id)
             }
         case .vendorDetail(let id):
             authorized(auth.has("vendors.view")) {

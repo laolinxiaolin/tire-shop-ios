@@ -1538,7 +1538,7 @@ private struct SupplierPaymentsListView: View {
     }
 }
 
-private struct SupplierPaymentDetailSheet: View {
+struct SupplierPaymentDetailSheet: View {
     let id: String
     let canReverse: Bool
     let onChanged: () -> Void
