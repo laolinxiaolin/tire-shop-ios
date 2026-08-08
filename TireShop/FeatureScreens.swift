@@ -4470,18 +4470,20 @@ private struct PurchasingSuppliersListView: View {
                     EmptyStateView(text: q.nilIfBlank == nil ? "No suppliers found." : "No suppliers match this search.")
                 } else if let page {
                     List(page.items) { supplier in
-                        SupplierListRow(supplier: supplier, subtitle: supplierSubtitle(supplier))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if canManage {
-                                    Button("Delete", role: .destructive) {
-                                        deleteTarget = supplier
-                                    }
-                                    Button("Edit") {
-                                        editing = SupplierEditorTarget(supplier: supplier, id: supplier.id)
-                                    }
-                                    .tint(Theme.primary)
+                        NavigationLink(value: AppRoute.supplierDetail(supplier.id)) {
+                            SupplierListRow(supplier: supplier, subtitle: supplierSubtitle(supplier))
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if canManage {
+                                Button("Delete", role: .destructive) {
+                                    deleteTarget = supplier
                                 }
+                                Button("Edit") {
+                                    editing = SupplierEditorTarget(supplier: supplier, id: supplier.id)
+                                }
+                                .tint(Theme.primary)
                             }
+                        }
                     }
                     .listStyle(.plain)
                     .refreshable { await load() }
@@ -4658,7 +4660,7 @@ private struct SupplierListRow: View {
     }
 }
 
-private struct SupplierEditorView: View {
+struct SupplierEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     let supplier: Supplier?

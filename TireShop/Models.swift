@@ -2000,9 +2000,169 @@ struct VendorDetail: Codable, Identifiable, Equatable {
     let createdAt: String
     let updatedAt: String
     let summary: VendorSpendSummary
-    let recentCosts: [VendorRecentCost]
-    let recentExpenses: [VendorRecentExpense]
-    let recentRefunds: [VendorRefundRecord]
+}
+
+/// Aggregates returned by `GET /api/suppliers/:id` (PR #407).
+struct SupplierSummary: Codable, Equatable {
+    let supplierOpenAP: Double
+    let supplierBilled: Double
+    let supplierPaid: Double
+    let otherOpenAP: Double
+    let otherBilled: Double
+    let otherPaid: Double
+    let landedValue: Double
+    let tiresReceived: Int
+    let containerCount: Int
+    let openContainerCount: Int
+    let receivedContainerCount: Int
+    let firstOrderAt: String?
+    let lastOrderAt: String?
+}
+
+struct SupplierDetail: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let contactName: String?
+    let phone: String?
+    let email: String?
+    let country: String?
+    let address: String?
+    let currency: String?
+    let defaultDDP: Bool?
+    let notes: String?
+    let createdAt: String?
+    let updatedAt: String?
+    let summary: SupplierSummary
+}
+
+/// Row from `GET /api/suppliers/:id/containers`.
+struct SupplierContainerRow: Codable, Identifiable, Equatable {
+    struct Counts: Codable, Equatable {
+        let lines: Int
+        let costs: Int
+    }
+
+    let id: String
+    let ref: String?
+    let reference: String?
+    let status: ContainerStatus
+    let bolNumber: String?
+    let location: String
+    let isDDP: Bool
+    let orderedAt: String?
+    let etaAt: String?
+    let arrivedAt: String?
+    let receivedAt: String?
+    let createdAt: String
+    let tireQty: Int
+    let count: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ref
+        case reference
+        case status
+        case bolNumber
+        case location
+        case isDDP
+        case orderedAt
+        case etaAt
+        case arrivedAt
+        case receivedAt
+        case createdAt
+        case tireQty
+        case count = "_count"
+    }
+}
+
+/// Row from `GET /api/suppliers/:id/costs`.
+struct SupplierCostRow: Codable, Identifiable, Equatable {
+    struct ContainerRef: Codable, Identifiable, Equatable {
+        let id: String
+        let ref: String?
+    }
+
+    let id: String
+    let category: String
+    let status: ContainerCostStatus
+    let description: String?
+    let amount: Double
+    let amountPaid: Double
+    let vendor: String?
+    let vendorId: String?
+    let dueAt: String?
+    let paidAt: String?
+    let reference: String?
+    let createdAt: String
+    let container: ContainerRef?
+}
+
+/// Row from `GET /api/suppliers/:id/payments`.
+struct SupplierPaymentRow: Codable, Identifiable, Equatable {
+    struct FundingAccount: Codable, Equatable {
+        let code: String
+        let name: String
+    }
+
+    struct Line: Codable, Identifiable, Equatable {
+        struct CostRef: Codable, Equatable {
+            let id: String
+            let category: String
+            let container: SupplierCostRow.ContainerRef?
+        }
+
+        let id: String
+        let amount: Double
+        let containerCost: CostRef
+    }
+
+    let id: String
+    let ref: String
+    let vendor: String?
+    let total: Double
+    let appliedToSupplier: Double
+    let status: String
+    let reference: String?
+    let paidBy: String?
+    let paidAt: String
+    let fundingAccount: FundingAccount?
+    let lines: [Line]
+}
+
+/// Row from `GET /api/suppliers/:id/returns`.
+struct SupplierReturnRow: Codable, Identifiable, Equatable {
+    struct SaleRef: Codable, Equatable {
+        let id: String
+        let ref: String?
+    }
+
+    struct Counts: Codable, Equatable {
+        let lines: Int
+    }
+
+    let id: String
+    let ref: String?
+    let type: ReturnType
+    let status: ReturnStatus
+    let refundTotal: Double
+    let warrantyDisposition: String?
+    let createdAt: String
+    let postedAt: String?
+    let sale: SaleRef
+    let count: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ref
+        case type
+        case status
+        case refundTotal
+        case warrantyDisposition
+        case createdAt
+        case postedAt
+        case sale
+        case count = "_count"
+    }
 }
 
 struct VendorRefundResult: Codable, Identifiable, Equatable {

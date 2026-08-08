@@ -663,3 +663,66 @@ struct RowLine: View {
         .padding(.vertical, Theme.Space.xs)
     }
 }
+
+/// Compact prev/next paging bar used under paginated lists (supplier profile
+/// tabs, vendor activity lists). `label` is the plural noun ("costs"),
+/// `singularLabel` the singular ("cost") for the "1 cost" case.
+struct PagedFooter: View {
+    let page: Int
+    let totalPages: Int
+    let total: Int
+    let label: String
+    let singularLabel: String
+    let loading: Bool
+    let onPrev: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        HStack(spacing: Theme.Space.md) {
+            Button {
+                onPrev()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(page <= 1 || loading)
+
+            VStack(spacing: 2) {
+                Text("Page \(page) of \(totalPages)")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                Text("\(total) \(total == 1 ? singularLabel : label)")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity)
+
+            Button {
+                onNext()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(page >= totalPages || loading)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.sm)
+        .background(Theme.card)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
+    }
+}
+
+/// Small red error line shown under a list that already has data when a page
+/// load fails, so paging failures are never silent.
+struct InlineErrorText: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(Theme.danger)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Theme.Space.md)
+            .padding(.vertical, Theme.Space.sm)
+    }
+}
