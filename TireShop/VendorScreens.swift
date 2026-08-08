@@ -313,15 +313,20 @@ struct VendorDetailNativeView: View {
 
     // Activity lists come from the paginated endpoints added in backend PR
     // #407 (`GET /api/vendors/:id/{costs,expenses,refunds}`); each keeps its
-    // own page so paging one list doesn't disturb the others.
+    // own page and load state so paging or failing one list never disturbs
+    // the others.
     @State private var costs: Paged<VendorRecentCost>?
     @State private var costsPage = 1
+    @State private var costsLoading = false
+    @State private var costsError: String?
     @State private var expenses: Paged<VendorRecentExpense>?
     @State private var expensesPage = 1
+    @State private var expensesLoading = false
+    @State private var expensesError: String?
     @State private var refunds: Paged<VendorRefundRecord>?
     @State private var refundsPage = 1
-    @State private var listsLoading = false
-    @State private var listsError: String?
+    @State private var refundsLoading = false
+    @State private var refundsError: String?
 
     private let listPageSize = 25
 
@@ -449,7 +454,9 @@ struct VendorDetailNativeView: View {
                 ])
 
                 SectionHeader("Recent costs")
-                if let costs, !costs.items.isEmpty {
+                if let costsError, costs == nil {
+                    RetryView(message: costsError) { Task { await loadCosts() } }
+                } else if let costs, !costs.items.isEmpty {
                     VendorCostList(costs: costs.items)
                     if costs.total > 0 {
                         PagedFooter(
@@ -457,7 +464,8 @@ struct VendorDetailNativeView: View {
                             totalPages: totalPages(costs),
                             total: costs.total,
                             label: "costs",
-                            loading: listsLoading
+                            singularLabel: "cost",
+                            loading: costsLoading
                         ) {
                             costsPage = max(1, costsPage - 1)
                             Task { await loadCosts() }
@@ -466,14 +474,19 @@ struct VendorDetailNativeView: View {
                             Task { await loadCosts() }
                         }
                     }
-                } else if listsLoading && costs == nil {
+                    if let costsError {
+                        InlineErrorText(message: costsError)
+                    }
+                } else if costsLoading {
                     LoadingView(label: "Loading...")
                 } else {
                     VendorEmptyInlineView(text: "No recent costs.")
                 }
 
                 SectionHeader("Recent expenses")
-                if let expenses, !expenses.items.isEmpty {
+                if let expensesError, expenses == nil {
+                    RetryView(message: expensesError) { Task { await loadExpenses() } }
+                } else if let expenses, !expenses.items.isEmpty {
                     VendorExpenseList(expenses: expenses.items)
                     if expenses.total > 0 {
                         PagedFooter(
@@ -481,7 +494,8 @@ struct VendorDetailNativeView: View {
                             totalPages: totalPages(expenses),
                             total: expenses.total,
                             label: "expenses",
-                            loading: listsLoading
+                            singularLabel: "expense",
+                            loading: expensesLoading
                         ) {
                             expensesPage = max(1, expensesPage - 1)
                             Task { await loadExpenses() }
@@ -490,14 +504,19 @@ struct VendorDetailNativeView: View {
                             Task { await loadExpenses() }
                         }
                     }
-                } else if listsLoading && expenses == nil {
+                    if let expensesError {
+                        InlineErrorText(message: expensesError)
+                    }
+                } else if expensesLoading {
                     LoadingView(label: "Loading...")
                 } else {
                     VendorEmptyInlineView(text: "No recent expenses.")
                 }
 
                 SectionHeader("Refund history")
-                if let refunds, !refunds.items.isEmpty {
+                if let refundsError, refunds == nil {
+                    RetryView(message: refundsError) { Task { await loadRefunds() } }
+                } else if let refunds, !refunds.items.isEmpty {
                     VendorRefundList(refunds: refunds.items, canReverse: canPay) { refund in
                         reverseTarget = refund
                     }
@@ -507,7 +526,8 @@ struct VendorDetailNativeView: View {
                             totalPages: totalPages(refunds),
                             total: refunds.total,
                             label: "refunds",
-                            loading: listsLoading
+                            singularLabel: "refund",
+                            loading: refundsLoading
                         ) {
                             refundsPage = max(1, refundsPage - 1)
                             Task { await loadRefunds() }
@@ -516,14 +536,13 @@ struct VendorDetailNativeView: View {
                             Task { await loadRefunds() }
                         }
                     }
-                } else if listsLoading && refunds == nil {
+                    if let refundsError {
+                        InlineErrorText(message: refundsError)
+                    }
+                } else if refundsLoading {
                     LoadingView(label: "Loading...")
                 } else {
                     VendorEmptyInlineView(text: "No refunds yet.")
-                }
-
-                if let listsError {
-                    RetryView(message: listsError) { Task { await loadLists() } }
                 }
             }
             .padding(Theme.Space.lg)
@@ -549,56 +568,51 @@ struct VendorDetailNativeView: View {
 
     @MainActor
     private func loadLists() async {
-        listsLoading = true
-        listsError = nil
-        do {
-            async let costsTask = VendorsAPI().costs(id: id, page: costsPage, pageSize: listPageSize)
-            async let expensesTask = VendorsAPI().expenses(id: id, page: expensesPage, pageSize: listPageSize)
-            async let refundsTask = VendorsAPI().refunds(id: id, page: refundsPage, pageSize: listPageSize)
-            let (loadedCosts, loadedExpenses, loadedRefunds) = try await (costsTask, expensesTask, refundsTask)
-            costs = loadedCosts
-            expenses = loadedExpenses
-            refunds = loadedRefunds
-        } catch {
-            listsError = (error as? LocalizedError)?.errorDescription ?? "Could not load vendor activity."
-        }
-        listsLoading = false
+        // Each list loads independently: a failure on one must not blank the
+        // other two (the old all-or-nothing `async let` tuple discarded every
+        // list's results when any single request failed).
+        async let costsTask = loadCosts()
+        async let expensesTask = loadExpenses()
+        async let refundsTask = loadRefunds()
+        _ = await costsTask
+        _ = await expensesTask
+        _ = await refundsTask
     }
 
     @MainActor
     private func loadCosts() async {
-        listsLoading = true
-        listsError = nil
+        costsLoading = true
+        costsError = nil
         do {
             costs = try await VendorsAPI().costs(id: id, page: costsPage, pageSize: listPageSize)
         } catch {
-            listsError = (error as? LocalizedError)?.errorDescription ?? "Could not load costs."
+            costsError = (error as? LocalizedError)?.errorDescription ?? "Could not load costs."
         }
-        listsLoading = false
+        costsLoading = false
     }
 
     @MainActor
     private func loadExpenses() async {
-        listsLoading = true
-        listsError = nil
+        expensesLoading = true
+        expensesError = nil
         do {
             expenses = try await VendorsAPI().expenses(id: id, page: expensesPage, pageSize: listPageSize)
         } catch {
-            listsError = (error as? LocalizedError)?.errorDescription ?? "Could not load expenses."
+            expensesError = (error as? LocalizedError)?.errorDescription ?? "Could not load expenses."
         }
-        listsLoading = false
+        expensesLoading = false
     }
 
     @MainActor
     private func loadRefunds() async {
-        listsLoading = true
-        listsError = nil
+        refundsLoading = true
+        refundsError = nil
         do {
             refunds = try await VendorsAPI().refunds(id: id, page: refundsPage, pageSize: listPageSize)
         } catch {
-            listsError = (error as? LocalizedError)?.errorDescription ?? "Could not load refunds."
+            refundsError = (error as? LocalizedError)?.errorDescription ?? "Could not load refunds."
         }
-        listsLoading = false
+        refundsLoading = false
     }
 
     private func totalPages<T>(_ data: Paged<T>) -> Int {

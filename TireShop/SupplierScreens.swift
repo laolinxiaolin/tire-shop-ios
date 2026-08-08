@@ -16,6 +16,10 @@ struct SupplierDetailNativeView: View {
     @State private var editing: SupplierEditTarget?
     @State private var tab: SupplierDetailTab = .containers
     @State private var paymentTarget: String?
+    // Bumped after a pull-to-refresh or a payment-document change so the
+    // active tab reloads its list (tabs are recreated on switch, so they
+    // otherwise only load once).
+    @State private var reloadToken = 0
 
     private var canManage: Bool {
         auth.has("purchasing.manage")
@@ -65,7 +69,9 @@ struct SupplierDetailNativeView: View {
             get: { paymentTarget.map { PaymentSheetTarget(id: $0) } },
             set: { paymentTarget = $0?.id }
         )) { target in
-            SupplierPaymentDetailSheet(id: target.id, canReverse: auth.has("payables.pay")) {}
+            SupplierPaymentDetailSheet(id: target.id, canReverse: auth.has("payables.pay")) {
+                reloadToken += 1
+            }
         }
         .task {
             if supplier == nil { await load() }
@@ -119,21 +125,22 @@ struct SupplierDetailNativeView: View {
 
                 switch tab {
                 case .containers:
-                    SupplierContainersTab(supplierId: id)
+                    SupplierContainersTab(supplierId: id, reloadToken: reloadToken)
                 case .costs:
-                    SupplierCostsTab(supplierId: id)
+                    SupplierCostsTab(supplierId: id, reloadToken: reloadToken)
                 case .payments:
-                    SupplierPaymentsTab(supplierId: id) { paymentId in
+                    SupplierPaymentsTab(supplierId: id, reloadToken: reloadToken) { paymentId in
                         paymentTarget = paymentId
                     }
                 case .returns:
-                    SupplierReturnsTab(supplierId: id)
+                    SupplierReturnsTab(supplierId: id, reloadToken: reloadToken)
                 }
             }
             .padding(Theme.Space.lg)
         }
         .refreshable {
             await load()
+            reloadToken += 1
         }
     }
 
@@ -301,54 +308,14 @@ private struct SupplierEmptyInlineView: View {
     }
 }
 
-struct PagedFooter: View {
-    let page: Int
-    let totalPages: Int
-    let total: Int
-    let label: String
-    let loading: Bool
-    let onPrev: () -> Void
-    let onNext: () -> Void
-
-    var body: some View {
-        HStack(spacing: Theme.Space.md) {
-            Button {
-                onPrev()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .frame(width: 36, height: 36)
-            }
-            .disabled(page <= 1 || loading)
-
-            VStack(spacing: 2) {
-                Text("Page \(page) of \(totalPages)")
-                    .font(.footnote)
-                    .fontWeight(.semibold)
-                Text("\(total) \(label)")
-                    .font(.caption)
-                    .foregroundStyle(Theme.muted)
-            }
-            .frame(maxWidth: .infinity)
-
-            Button {
-                onNext()
-            } label: {
-                Image(systemName: "chevron.right")
-                    .frame(width: 36, height: 36)
-            }
-            .disabled(page >= totalPages || loading)
-        }
-        .padding(.horizontal, Theme.Space.lg)
-        .padding(.vertical, Theme.Space.sm)
-        .background(Theme.card)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.border), alignment: .top)
-    }
-}
+/// Inline error line shown under a list that already has data when a page
+/// load fails, so paging failures are never silent.
 
 // MARK: - Containers tab
 
 private struct SupplierContainersTab: View {
     let supplierId: String
+    let reloadToken: Int
 
     private let pageSize = 25
 
@@ -364,9 +331,7 @@ private struct SupplierContainersTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if loading && data == nil {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, data == nil {
+            if let errorMessage, data == nil {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
@@ -382,6 +347,10 @@ private struct SupplierContainersTab: View {
                 }
                 .background(Theme.card)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else {
                 LoadingView(label: "Loading...")
             }
@@ -392,6 +361,7 @@ private struct SupplierContainersTab: View {
                     totalPages: totalPages,
                     total: data.total,
                     label: "containers",
+                    singularLabel: "container",
                     loading: loading
                 ) {
                     page = max(1, page - 1)
@@ -404,6 +374,9 @@ private struct SupplierContainersTab: View {
         }
         .task {
             if data == nil { await load() }
+        }
+        .onChange(of: reloadToken) { _, _ in
+            Task { await load() }
         }
     }
 
@@ -479,6 +452,7 @@ private struct SupplierContainerRowView: View {
 
 private struct SupplierCostsTab: View {
     let supplierId: String
+    let reloadToken: Int
 
     private let pageSize = 25
     private let scopes: [(String, String)] = [
@@ -525,9 +499,7 @@ private struct SupplierCostsTab: View {
             }
             .padding(.bottom, Theme.Space.sm)
 
-            if loading && data == nil {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, data == nil {
+            if let errorMessage, data == nil {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
@@ -540,6 +512,10 @@ private struct SupplierCostsTab: View {
                 }
                 .background(Theme.card)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else {
                 LoadingView(label: "Loading...")
             }
@@ -550,6 +526,7 @@ private struct SupplierCostsTab: View {
                     totalPages: totalPages,
                     total: data.total,
                     label: "bills",
+                    singularLabel: "bill",
                     loading: loading
                 ) {
                     page = max(1, page - 1)
@@ -562,6 +539,9 @@ private struct SupplierCostsTab: View {
         }
         .task {
             if data == nil { await load() }
+        }
+        .onChange(of: reloadToken) { _, _ in
+            Task { await load() }
         }
     }
 
@@ -623,6 +603,7 @@ private struct SupplierCostRowView: View {
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)
         .opacity(cost.status == "VOID" ? 0.45 : 1)
+        .strikethrough(cost.status == "VOID")
     }
 
     private func content(containerLabel: String) -> some View {
@@ -667,6 +648,7 @@ private struct SupplierCostRowView: View {
 
 private struct SupplierPaymentsTab: View {
     let supplierId: String
+    let reloadToken: Int
     let onOpenPayment: (String) -> Void
 
     private let pageSize = 25
@@ -683,9 +665,7 @@ private struct SupplierPaymentsTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if loading && data == nil {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, data == nil {
+            if let errorMessage, data == nil {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
@@ -703,6 +683,10 @@ private struct SupplierPaymentsTab: View {
                 }
                 .background(Theme.card)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else {
                 LoadingView(label: "Loading...")
             }
@@ -713,6 +697,7 @@ private struct SupplierPaymentsTab: View {
                     totalPages: totalPages,
                     total: data.total,
                     label: "payments",
+                    singularLabel: "payment",
                     loading: loading
                 ) {
                     page = max(1, page - 1)
@@ -725,6 +710,9 @@ private struct SupplierPaymentsTab: View {
         }
         .task {
             if data == nil { await load() }
+        }
+        .onChange(of: reloadToken) { _, _ in
+            Task { await load() }
         }
     }
 
@@ -799,6 +787,7 @@ private struct SupplierPaymentRowView: View {
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)
         .opacity(payment.status == "REVERSED" ? 0.45 : 1)
+        .strikethrough(payment.status == "REVERSED")
     }
 }
 
@@ -806,6 +795,7 @@ private struct SupplierPaymentRowView: View {
 
 private struct SupplierReturnsTab: View {
     let supplierId: String
+    let reloadToken: Int
 
     private let pageSize = 25
 
@@ -821,9 +811,7 @@ private struct SupplierReturnsTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if loading && data == nil {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, data == nil {
+            if let errorMessage, data == nil {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
@@ -839,6 +827,10 @@ private struct SupplierReturnsTab: View {
                 }
                 .background(Theme.card)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else {
                 LoadingView(label: "Loading...")
             }
@@ -849,6 +841,7 @@ private struct SupplierReturnsTab: View {
                     totalPages: totalPages,
                     total: data.total,
                     label: "claims",
+                    singularLabel: "claim",
                     loading: loading
                 ) {
                     page = max(1, page - 1)
@@ -861,6 +854,9 @@ private struct SupplierReturnsTab: View {
         }
         .task {
             if data == nil { await load() }
+        }
+        .onChange(of: reloadToken) { _, _ in
+            Task { await load() }
         }
     }
 
@@ -916,5 +912,6 @@ private struct SupplierReturnRowView: View {
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)
         .opacity(record.status == "VOIDED" ? 0.45 : 1)
+        .strikethrough(record.status == "VOIDED")
     }
 }
