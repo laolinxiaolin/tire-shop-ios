@@ -485,6 +485,11 @@ struct VendorDetailNativeView: View {
                     LoadingView(label: "Loading...")
                 } else {
                     VendorEmptyInlineView(text: "No recent costs.")
+                    // A failed request after a previously-empty response must
+                    // not masquerade as "no costs".
+                    if let costsError {
+                        InlineErrorText(message: costsError)
+                    }
                 }
 
                 SectionHeader("Recent expenses")
@@ -513,6 +518,11 @@ struct VendorDetailNativeView: View {
                     LoadingView(label: "Loading...")
                 } else {
                     VendorEmptyInlineView(text: "No recent expenses.")
+                    // A failed request after a previously-empty response must
+                    // not masquerade as "no expenses".
+                    if let expensesError {
+                        InlineErrorText(message: expensesError)
+                    }
                 }
 
                 SectionHeader("Refund history")
@@ -543,6 +553,11 @@ struct VendorDetailNativeView: View {
                     LoadingView(label: "Loading...")
                 } else {
                     VendorEmptyInlineView(text: "No refunds yet.")
+                    // A failed request after a previously-empty response must
+                    // not masquerade as "no refunds".
+                    if let refundsError {
+                        InlineErrorText(message: refundsError)
+                    }
                 }
             }
             .padding(Theme.Space.lg)

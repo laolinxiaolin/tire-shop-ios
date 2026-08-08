@@ -94,6 +94,19 @@ struct SupplierDetailNativeView: View {
                         .foregroundStyle(Theme.muted)
                 }
 
+                // A failed pull-to-refresh, post-edit reload, or post-reversal
+                // summary reload must not leave stale figures on screen with
+                // no warning (the web profile renders the same banner).
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Theme.Space.md)
+                        .background(Theme.danger.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                }
+
                 StatGrid(stats: [
                     ("Owed to supplier", AppFormat.money(supplier.summary.supplierOpenAP)),
                     ("Other container costs", AppFormat.money(supplier.summary.otherOpenAP)),
@@ -342,6 +355,11 @@ private struct SupplierContainersTab: View {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
+                // A failed request after a previously-empty response must not
+                // masquerade as "this filter has no records".
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else if let data {
                 VStack(spacing: 0) {
                     ForEach(data.items) { row in
@@ -529,6 +547,11 @@ private struct SupplierCostsTab: View {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
+                // A failed request after a previously-empty response must not
+                // masquerade as "this filter has no records".
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else if let data {
                 VStack(spacing: 0) {
                     ForEach(data.items) { cost in
@@ -714,6 +737,11 @@ private struct SupplierPaymentsTab: View {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
+                // A failed request after a previously-empty response must not
+                // masquerade as "this filter has no records".
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else if let data {
                 VStack(spacing: 0) {
                     ForEach(data.items) { payment in
@@ -877,6 +905,11 @@ private struct SupplierReturnsTab: View {
                 RetryView(message: errorMessage) { Task { await load() } }
             } else if let data, data.items.isEmpty {
                 SupplierEmptyInlineView(text: "No activity yet.")
+                // A failed request after a previously-empty response must not
+                // masquerade as "this filter has no records".
+                if let errorMessage {
+                    InlineErrorText(message: errorMessage)
+                }
             } else if let data {
                 VStack(spacing: 0) {
                     ForEach(data.items) { record in
