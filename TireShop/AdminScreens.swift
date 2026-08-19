@@ -987,9 +987,36 @@ struct ApprovalsNativeView: View {
 
     @State private var tab: ApprovalTab = .pending
     @State private var items: [ApprovalRequest] = []
+    @State private var apps: [PaymentApplicationRow] = []
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var appsErrorMessage: String?
     @State private var selected: ApprovalRequest?
+    @State private var approveTarget: PaymentApplicationRow?
+    @State private var rejectTarget: PaymentApplicationRow?
+    @State private var decidingAppID: String?
+    @State private var requestID = 0
+
+    /// May this user work the payment-application approval queue?
+    ///
+    /// The same three grants the server requires of `view=todo`: `view` to list
+    /// at all, `viewAll` to see past the owner scope, `approve` to decide.
+    /// Anything looser lands on a queue that can only ever render empty — an
+    /// owner-scoped caller sees only their own documents, and self-approval is
+    /// refused — so the cards are gated on all three, not on `approve` alone.
+    private var canDecideApps: Bool {
+        auth.has("paymentapps.view")
+            && auth.has("paymentapps.viewAll")
+            && auth.has("paymentapps.approve")
+    }
+
+    private var isEmpty: Bool { items.isEmpty && apps.isEmpty }
+
+    /// Only consulted when nothing rendered at all. With rows on screen the
+    /// failures show inline instead, so a queue that did load keeps working.
+    private var blockingError: String? {
+        errorMessage ?? appsErrorMessage
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1005,20 +1032,14 @@ struct ApprovalsNativeView: View {
             Divider()
 
             Group {
-                if loading && items.isEmpty {
+                if loading && isEmpty {
                     LoadingView(label: "Loading...")
-                } else if let errorMessage, items.isEmpty {
-                    RetryView(message: errorMessage) { Task { await load() } }
-                } else if items.isEmpty {
+                } else if isEmpty, let blockingError {
+                    RetryView(message: blockingError) { Task { await load() } }
+                } else if isEmpty {
                     EmptyStateView(text: emptyText)
                 } else {
-                    List(items) { request in
-                        ApprovalRow(request: request)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selected = request }
-                    }
-                    .listStyle(.plain)
-                    .refreshable { await load() }
+                    queueList
                 }
             }
         }
@@ -1029,7 +1050,69 @@ struct ApprovalsNativeView: View {
                 Task { await load() }
             }
         }
+        .sheet(item: $rejectTarget) { row in
+            PaymentApplicationRejectSheet(
+                id: row.id,
+                summary: paymentApplicationSummary(row)
+            ) {
+                rejectTarget = nil
+                Task { await load() }
+            }
+        }
+        .alert(item: $approveTarget) { row in
+            Alert(
+                title: Text("Approve payment application?"),
+                message: Text(paymentApplicationSummary(row)),
+                primaryButton: .cancel(),
+                secondaryButton: .default(Text("Approve")) {
+                    Task { await approveApplication(row) }
+                }
+            )
+        }
         .task(id: tab) { await load() }
+    }
+
+    private var queueList: some View {
+        List {
+            if let errorMessage {
+                Text(errorMessage).font(.subheadline).foregroundStyle(Theme.danger)
+            }
+            if let appsErrorMessage {
+                Text(appsErrorMessage).font(.subheadline).foregroundStyle(Theme.danger)
+            }
+
+            // Headed only when both queues are on screen — a list showing just
+            // one of them needs no label to tell them apart.
+            if !apps.isEmpty {
+                Section {
+                    ForEach(apps) { row in
+                        PaymentApplicationApprovalCard(
+                            row: row,
+                            canDecide: tab == .pending && canDecideApps,
+                            deciding: decidingAppID == row.id,
+                            onApprove: { approveTarget = row },
+                            onReject: { rejectTarget = row }
+                        )
+                    }
+                } header: {
+                    if !items.isEmpty { Text("Payment applications") }
+                }
+            }
+
+            if !items.isEmpty {
+                Section {
+                    ForEach(items) { request in
+                        ApprovalRow(request: request)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selected = request }
+                    }
+                } header: {
+                    if !apps.isEmpty { Text("Other requests") }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .refreshable { await load() }
     }
 
     private var emptyText: String {
@@ -1042,25 +1125,102 @@ struct ApprovalsNativeView: View {
 
     @MainActor
     private func load() async {
+        requestID += 1
+        let current = requestID
         loading = true
-        errorMessage = nil
+
+        // Started together but settled independently: either queue failing has
+        // to leave the other one rendering and refreshing, and an all-or-nothing
+        // await would freeze both lists on the previous tab's data.
+        async let requests = loadRequests(tab)
+        async let applications = loadApplications(tab)
+
         do {
-            let page: Paged<ApprovalRequest>
-            switch tab {
-            case .pending:
-                page = try await ApprovalsAPI().list(status: "PENDING", pageSize: 50)
-                items = page.items
-            case .mine:
-                page = try await ApprovalsAPI().list(mine: true, pageSize: 50)
-                items = page.items
-            case .history:
-                page = try await ApprovalsAPI().list(pageSize: 50)
-                items = page.items.filter { $0.status != "PENDING" }
-            }
+            let rows = try await requests
+            guard current == requestID else { return }
+            items = rows
+            errorMessage = nil
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load approvals."
+            guard current == requestID else { return }
+            items = []
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Could not load approvals."
         }
-        loading = false
+
+        do {
+            let rows = try await applications
+            guard current == requestID else { return }
+            apps = rows
+            appsErrorMessage = nil
+        } catch {
+            guard current == requestID else { return }
+            apps = []
+            appsErrorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Could not load payment applications."
+        }
+
+        if current == requestID { loading = false }
+    }
+
+    @MainActor
+    private func loadRequests(_ tab: ApprovalTab) async throws -> [ApprovalRequest] {
+        switch tab {
+        case .pending:
+            return try await ApprovalsAPI().list(status: "PENDING", pageSize: 50).items
+        case .mine:
+            return try await ApprovalsAPI().list(mine: true, pageSize: 50).items
+        case .history:
+            return try await ApprovalsAPI().list(pageSize: 50).items
+                .filter { $0.status != "PENDING" }
+        }
+    }
+
+    /// The payment-application queue. These documents run their own
+    /// PENDING_APPROVAL state machine rather than an `ApprovalRequest` row, so
+    /// the rows come from their own endpoint and are merged in client-side.
+    ///
+    /// `todo` is the server's approver queue (PENDING_APPROVAL, minus the
+    /// caller's own — self-approval is refused). Approved and paid documents are
+    /// deliberately absent: that trail lives on the document itself and under
+    /// Money → Payment applications, which is the payment workflow rather than
+    /// the approval one.
+    @MainActor
+    private func loadApplications(_ tab: ApprovalTab) async throws -> [PaymentApplicationRow] {
+        let api = PaymentApplicationsAPI()
+        switch tab {
+        case .history:
+            return []
+        case .pending:
+            guard canDecideApps else { return [] }
+            return try await api.list(view: "todo", pageSize: 100).items
+        case .mine:
+            guard auth.has("paymentapps.view") else { return [] }
+            // What "Mine" shows of the caller's own applications: the ones still
+            // out for a decision, plus the ones that came back rejected — a
+            // rejection is a decision the applicant still has to act on, and
+            // without it the document silently leaves the only screen that said
+            // it was pending. `status` takes one value per request, so the two
+            // are fetched side by side and re-sorted newest-first into one list.
+            async let pending = api.list(view: "mine", status: "PENDING_APPROVAL", pageSize: 100)
+            async let rejected = api.list(view: "mine", status: "REJECTED", pageSize: 100)
+            let (pendingPage, rejectedPage) = try await (pending, rejected)
+            return (pendingPage.items + rejectedPage.items)
+                .sorted { $0.requestedAt > $1.requestedAt }
+        }
+    }
+
+    @MainActor
+    private func approveApplication(_ row: PaymentApplicationRow) async {
+        decidingAppID = row.id
+        defer { decidingAppID = nil }
+        do {
+            _ = try await PaymentApplicationsAPI().action(id: row.id, name: "approve")
+            NotificationCenter.default.post(name: .paymentApplicationsChanged, object: nil)
+            await load()
+        } catch {
+            appsErrorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Could not approve the application."
+        }
     }
 }
 

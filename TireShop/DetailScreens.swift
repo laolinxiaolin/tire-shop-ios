@@ -1281,10 +1281,12 @@ struct ContainerDetailNativeView: View {
     @State private var warehouses: [Warehouse] = []
     @State private var etaAt = ""
     @State private var arrivedAt = ""
+    @State private var balanceDueAt = ""
     @State private var notes = ""
     @State private var lines: [ContainerDraftLineEditor] = []
 
     @State private var editingCost: ContainerCostEditorTarget?
+    @State private var dueDateTarget: ContainerCost?
     @State private var deleteCostTarget: ContainerCost?
     @State private var skuSearchLineId: String?
     @State private var showingCancelConfirm = false
@@ -1350,6 +1352,12 @@ struct ContainerDetailNativeView: View {
         .sheet(item: $editingCost) { target in
             ContainerCostEditorView(containerId: id, cost: target.cost) {
                 editingCost = nil
+                Task { await load() }
+            }
+        }
+        .sheet(item: $dueDateTarget) { cost in
+            ContainerCostDueDateSheet(containerId: id, cost: cost) {
+                dueDateTarget = nil
                 Task { await load() }
             }
         }
@@ -1541,6 +1549,14 @@ struct ContainerDetailNativeView: View {
                 TextField("Arrived (YYYY-MM-DD)", text: $arrivedAt)
                     .keyboardType(.numbersAndPunctuation)
                     .disabled(!canEditDraft)
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    TextField("Balance payment due (YYYY-MM-DD)", text: $balanceDueAt)
+                        .keyboardType(.numbersAndPunctuation)
+                        .disabled(!canEditDraft)
+                    Text("Due date for the supplier balance bill created when this container is received.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
                 Picker("Cost spread", selection: $costSpread) {
                     ForEach(ContainerDetailLabels.spreadOptions, id: \.0) { option in
                         Text(option.1).tag(option.0)
@@ -1717,6 +1733,16 @@ struct ContainerDetailNativeView: View {
                                 }
                                 Button("Edit") {
                                     editingCost = ContainerCostEditorTarget(cost: cost)
+                                }
+                                .tint(Theme.primary)
+                            }
+                            // Rescheduling stays available after receipt, when
+                            // every costing field is frozen and Edit/Delete are
+                            // gone — otherwise the balance payment that receipt
+                            // generates could never be dated at all.
+                            if canManage && cost.status == "DUE" {
+                                Button("Due date") {
+                                    dueDateTarget = cost
                                 }
                                 .tint(Theme.primary)
                             }
@@ -2036,6 +2062,7 @@ struct ContainerDetailNativeView: View {
             location: location.nilIfBlank,
             etaAt: etaAt.nilIfBlank,
             arrivedAt: arrivedAt.nilIfBlank,
+            balanceDueAt: balanceDueAt.nilIfBlank,
             notes: notes.nilIfBlank,
             lines: inputLines
         )
@@ -2077,6 +2104,7 @@ struct ContainerDetailNativeView: View {
         location = value.location
         etaAt = ContainerDetailLabels.dateField(value.etaAt)
         arrivedAt = ContainerDetailLabels.dateField(value.arrivedAt)
+        balanceDueAt = ContainerDetailLabels.dateField(value.balanceDueAt)
         notes = value.notes ?? ""
         lines = value.lines.map(ContainerDraftLineEditor.init)
     }
@@ -2323,6 +2351,14 @@ private struct ContainerLocalPreview {
 private struct ContainerCostRow: View {
     let cost: ContainerCost
 
+    private var statusLabel: String {
+        switch cost.status {
+        case "PAID": return "Paid"
+        case "VOID": return "Retired"
+        default: return "Due"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
@@ -2336,13 +2372,19 @@ private struct ContainerCostRow: View {
             }
 
             HStack {
-                Text(cost.status == "PAID" ? "Paid" : "Due")
+                // VOID is what an un-receive leaves a generated balance bill in:
+                // history, not an open payable. Folded into the "Due" default it
+                // announced a retired bill as money owed, for its full amount.
+                Text(statusLabel)
                     .foregroundStyle(cost.status == "PAID" ? Theme.success : Theme.muted)
+                Text("Bill \(AppFormat.calendarDate(cost.occurredAt ?? cost.createdAt))")
                 if let vendor = cost.vendor?.nilIfBlank {
                     Text(vendor)
                 }
                 if let dueAt = cost.dueAt {
                     Text("Due \(AppFormat.shortDate(dueAt))")
+                } else if cost.status == "DUE" {
+                    Text("No due date")
                 }
             }
             .font(.caption)
@@ -2439,6 +2481,77 @@ private struct ContainerLineEditRow: View {
     }
 }
 
+/// Reschedules one bill and nothing else.
+///
+/// Deliberately narrow: the full cost editor sends the locked costing fields
+/// along with the date and is refused on a received container, which is exactly
+/// how the balance payment generated at receive ended up permanently undated.
+private struct ContainerCostDueDateSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let containerId: String
+    let cost: ContainerCost
+    let onSaved: () -> Void
+
+    @State private var dueAt: String
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    init(containerId: String, cost: ContainerCost, onSaved: @escaping () -> Void) {
+        self.containerId = containerId
+        self.cost = cost
+        self.onSaved = onSaved
+        _dueAt = State(initialValue: ContainerDetailLabels.dateField(cost.dueAt))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("\(ContainerDetailLabels.costCategory(cost.category)) · \(AppFormat.money(cost.amount))")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.muted)
+                    TextField("Due date (YYYY-MM-DD)", text: $dueAt)
+                        .keyboardType(.numbersAndPunctuation)
+                } footer: {
+                    Text("Leave blank to clear the due date. Rescheduling a bill touches no journal.")
+                }
+
+                if let errorMessage {
+                    Text(errorMessage).font(.subheadline).foregroundStyle(Theme.danger)
+                }
+            }
+            .navigationTitle("Set due date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving..." : "Save") { Task { await save() } }
+                        .disabled(saving)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        saving = true
+        do {
+            _ = try await ContainersAPI().setCostDueDate(
+                id: containerId,
+                costId: cost.id,
+                dueAt: dueAt.nilIfBlank
+            )
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Could not update the due date."
+        }
+        saving = false
+    }
+}
+
 private struct ContainerCostEditorTarget: Identifiable {
     let cost: ContainerCost?
     let id: String
@@ -2458,6 +2571,7 @@ private struct ContainerCostEditorView: View {
 
     @State private var category: ContainerCostCategory
     @State private var amount: String
+    @State private var occurredAt: String
     @State private var dueAt: String
     @State private var vendor: String
     @State private var reference: String
@@ -2471,6 +2585,7 @@ private struct ContainerCostEditorView: View {
         self.onSaved = onSaved
         _category = State(initialValue: cost?.category ?? "FREIGHT")
         _amount = State(initialValue: cost?.amount ?? "")
+        _occurredAt = State(initialValue: ContainerDetailLabels.dateField(cost?.occurredAt).nilIfBlank ?? ShopClock.dayString(from: Date()))
         _dueAt = State(initialValue: ContainerDetailLabels.dateField(cost?.dueAt))
         _vendor = State(initialValue: cost?.vendor ?? "")
         _reference = State(initialValue: cost?.reference ?? "")
@@ -2487,6 +2602,7 @@ private struct ContainerCostEditorView: View {
                         }
                     }
                     AppTextField(label: "Amount", text: $amount, placeholder: "0.00", keyboardType: .decimalPad)
+                    AppTextField(label: "Bill date", text: $occurredAt, placeholder: "YYYY-MM-DD", keyboardType: .numbersAndPunctuation)
                     AppTextField(label: "Due date", text: $dueAt, placeholder: "YYYY-MM-DD", keyboardType: .numbersAndPunctuation)
                     AppTextField(label: "Vendor", text: $vendor, placeholder: "Vendor or payee")
                     AppTextField(label: "Reference", text: $reference)
@@ -2535,6 +2651,7 @@ private struct ContainerCostEditorView: View {
             description: description.nilIfBlank,
             vendor: vendor.nilIfBlank,
             vendorId: nil,
+            occurredAt: occurredAt.nilIfBlank,
             dueAt: dueAt.nilIfBlank,
             reference: reference.nilIfBlank,
             encodeNulls: cost != nil

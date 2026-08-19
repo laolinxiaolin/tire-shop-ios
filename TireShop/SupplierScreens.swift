@@ -127,6 +127,24 @@ struct SupplierDetailNativeView: View {
                     ("Last order", supplier.summary.lastOrderAt.map(AppFormat.shortDate) ?? "-")
                 ])
 
+                if let payee = supplier.payeeVendor,
+                   auth.has("vendors.view") || auth.has("paymentapps.manage")
+                {
+                    HStack {
+                        SectionHeader("Pay to")
+                        Spacer()
+                        if auth.has("paymentapps.manage"), payee.active {
+                            NavigationLink(value: AppRoute.paymentApplicationEditor(id: nil, vendorId: payee.id)) {
+                                Label("New application", systemImage: "doc.badge.plus")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                        }
+                    }
+                    if auth.has("vendors.view") {
+                        VendorBankAccountsSection(vendorId: payee.id)
+                    }
+                }
+
                 Picker("Section", selection: $tab) {
                     Text("Containers").tag(SupplierDetailTab.containers)
                     Text("Bills").tag(SupplierDetailTab.costs)
@@ -696,6 +714,7 @@ private struct SupplierCostRowView: View {
                 Text([
                     cost.description,
                     cost.reference,
+                    "Bill \(AppFormat.calendarDate(cost.occurredAt ?? cost.createdAt))",
                     cost.dueAt.map { "Due \(AppFormat.shortDate($0))" },
                     cost.paidAt.map { "Paid \(AppFormat.shortDate($0))" }
                 ].compactMap { $0?.nilIfBlank }.joined(separator: " - "))

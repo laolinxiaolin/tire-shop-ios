@@ -174,6 +174,7 @@ struct ContainerPatchInput: Encodable {
     var location: String? = nil
     var etaAt: String?
     var arrivedAt: String?
+    var balanceDueAt: String?
     var notes: String?
     var lines: [ContainerDraftLineInput]?
 
@@ -185,6 +186,7 @@ struct ContainerPatchInput: Encodable {
         case location
         case etaAt
         case arrivedAt
+        case balanceDueAt
         case notes
         case lines
     }
@@ -198,6 +200,7 @@ struct ContainerPatchInput: Encodable {
         try container.encodeIfPresent(location, forKey: .location)
         try encode(etaAt, forKey: .etaAt, into: &container)
         try encode(arrivedAt, forKey: .arrivedAt, into: &container)
+        try encode(balanceDueAt, forKey: .balanceDueAt, into: &container)
         try encode(notes, forKey: .notes, into: &container)
         try container.encodeIfPresent(lines, forKey: .lines)
     }
@@ -215,6 +218,27 @@ struct ContainerPatchInput: Encodable {
     }
 }
 
+/// A deliberately narrow PATCH that reschedules one bill and nothing else.
+///
+/// A full cost edit carries the costing fields along with it and is refused once
+/// the container is received. A due date *schedules* a payable rather than
+/// valuing it — it feeds AP aging and the payment-application countdown but
+/// never the landed cost that receipt froze — so the server still accepts this
+/// one on a received container.
+struct ContainerCostDueDateInput: Encodable {
+    var dueAt: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case dueAt
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // Always sent, null included: nil is "clear the date", not "leave it".
+        try container.encodeNullable(dueAt, forKey: .dueAt)
+    }
+}
+
 struct ContainerStatusInput: Codable {
     let status: ContainerStatus
 }
@@ -225,6 +249,7 @@ struct ContainerCostSaveInput: Encodable {
     var description: String?
     var vendor: String?
     var vendorId: String?
+    var occurredAt: String?
     var dueAt: String?
     var reference: String?
     var encodeNulls = false
@@ -235,6 +260,7 @@ struct ContainerCostSaveInput: Encodable {
         case description
         case vendor
         case vendorId
+        case occurredAt
         case dueAt
         case reference
     }
@@ -246,6 +272,7 @@ struct ContainerCostSaveInput: Encodable {
         try encode(description, forKey: .description, into: &container)
         try encode(vendor, forKey: .vendor, into: &container)
         try encode(vendorId, forKey: .vendorId, into: &container)
+        try encode(occurredAt, forKey: .occurredAt, into: &container)
         try encode(dueAt, forKey: .dueAt, into: &container)
         try encode(reference, forKey: .reference, into: &container)
     }
@@ -754,9 +781,50 @@ struct EmployeesAPI {
         try await client.request("/employees/\(id)", method: "PATCH", body: body)
     }
 
-    /// Enriched pay-period payout history.
-    func payoutRecords(id: String) async throws -> [CommissionPayoutRecord] {
-        try await client.request("/employees/\(id)/payouts/records")
+    /// Payout history, newest first.
+    func payouts(id: String) async throws -> [CommissionPayout] {
+        try await client.request("/employees/\(id)/payouts")
+    }
+
+    /// One payout document, with the commission lines it reserved.
+    func payout(id: String, payoutId: String) async throws -> CommissionPayout {
+        try await client.request("/employees/\(id)/payouts/\(payoutId)")
+    }
+
+    /// Every commission entry whose sale falls in the period, plus the
+    /// outstanding rollovers that ride along with any payout.
+    func payoutPreview(id: String, from: String, to: String) async throws -> CommissionPayoutPreview {
+        try await client.request("/employees/\(id)/payout-preview\(query(["from": from, "to": to]))")
+    }
+
+    /// Open a numbered draft that reserves the selected lines.
+    func createPayout(
+        id: String,
+        body: CommissionPayoutCreateInput,
+        idempotencyKey: String? = nil
+    ) async throws -> CommissionPayout {
+        try await client.request(
+            "/employees/\(id)/payout",
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
+    }
+
+    /// Post the payout journal and settle the draft.
+    func payPayout(id: String, payoutId: String) async throws -> CommissionPayout {
+        try await client.request("/employees/\(id)/payouts/\(payoutId)/pay", method: "POST", body: EmptyBody())
+    }
+
+    /// Release a draft's lines, or reverse a paid payout's accounting and
+    /// re-accrue the eligible lines. Voiding a PAID payout reverses a posted
+    /// cash journal, so it can come back as an approval request instead.
+    func voidPayout(id: String, payoutId: String, reason: String?) async throws -> ImmediateOrApproval<CommissionPayout> {
+        try await client.request(
+            "/employees/\(id)/payouts/\(payoutId)/void",
+            method: "POST",
+            body: CommissionPayoutVoidInput(reason: reason)
+        )
     }
 }
 
@@ -778,26 +846,6 @@ struct CommissionsAPI {
         return try await client.request("/employees/commissions\(qs)")
     }
 
-    /// Entries eligible for a pay-period payout between `from` and `to`.
-    func eligible(_ body: CommissionPayoutEligibleRequest) async throws -> [CommissionPayoutEligibleEntry] {
-        try await client.request("/employees/commissions/payout/eligible", method: "POST", body: body)
-    }
-
-    /// Server preview of a proposed pay-period payout (selection + rollovers +
-    /// payout-capable tender totals).
-    func payoutPreview(_ body: CommissionPayoutCreateInput) async throws -> CommissionPayoutPreview {
-        try await client.request("/employees/commissions/payout/preview", method: "POST", body: body)
-    }
-
-    /// Create (post) a pay-period commission payout.
-    func createPayout(_ body: CommissionPayoutCreateInput, idempotencyKey: String? = nil) async throws -> CommissionPayoutRecord {
-        try await client.request(
-            "/employees/commissions/payout",
-            method: "POST",
-            body: body,
-            idempotencyKey: idempotencyKey
-        )
-    }
 }
 
 struct CrmAPI {
@@ -1781,6 +1829,16 @@ struct ContainersAPI {
         try await client.request("/containers/\(id)/costs/\(costId)", method: "PATCH", body: body)
     }
 
+    /// Reschedule (or clear) one bill's due date, which stays allowed after
+    /// receipt when every costing field is frozen.
+    func setCostDueDate(id: String, costId: String, dueAt: String?) async throws -> ContainerCost {
+        try await client.request(
+            "/containers/\(id)/costs/\(costId)",
+            method: "PATCH",
+            body: ContainerCostDueDateInput(dueAt: dueAt)
+        )
+    }
+
     func deleteCost(id: String, costId: String) async throws -> OkResponse {
         try await client.request("/containers/\(id)/costs/\(costId)", method: "DELETE")
     }
@@ -1850,7 +1908,149 @@ struct TransferCreateInput: Codable {
     let amount: Double
     let fee: Double
     let note: String?
+    let reference: String?
     let paymentIds: [String]?
+}
+
+struct VendorBankAccountCreateInput: Codable {
+    let label: String?
+    let beneficiaryName: String
+    let bankName: String
+    let accountNumber: String
+    let bankCountry: String
+    let currency: String
+    let routingNumber: String?
+    let swift: String?
+    let bankAddress: String?
+    let intermediaryBankName: String?
+    let intermediarySwift: String?
+    let intermediaryAccount: String?
+    let financeContactName: String?
+    let financeContactEmail: String?
+    let isDefault: Bool
+    let note: String?
+}
+
+struct VendorBankAccountPatchInput: Encodable {
+    let label: String?
+    let beneficiaryName: String
+    let bankName: String
+    let accountNumber: String?
+    let bankCountry: String
+    let currency: String
+    let routingNumber: String?
+    let swift: String?
+    let bankAddress: String?
+    let intermediaryBankName: String?
+    let intermediarySwift: String?
+    let intermediaryAccount: String?
+    let financeContactName: String?
+    let financeContactEmail: String?
+    let isDefault: Bool
+    let note: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case beneficiaryName
+        case bankName
+        case accountNumber
+        case bankCountry
+        case currency
+        case routingNumber
+        case swift
+        case bankAddress
+        case intermediaryBankName
+        case intermediarySwift
+        case intermediaryAccount
+        case financeContactName
+        case financeContactEmail
+        case isDefault
+        case note
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeNullable(label, forKey: .label)
+        try container.encode(beneficiaryName, forKey: .beneficiaryName)
+        try container.encode(bankName, forKey: .bankName)
+        try container.encodeIfPresent(accountNumber, forKey: .accountNumber)
+        try container.encode(bankCountry, forKey: .bankCountry)
+        try container.encode(currency, forKey: .currency)
+        try container.encodeNullable(routingNumber, forKey: .routingNumber)
+        try container.encodeNullable(swift, forKey: .swift)
+        try container.encodeNullable(bankAddress, forKey: .bankAddress)
+        try container.encodeNullable(intermediaryBankName, forKey: .intermediaryBankName)
+        try container.encodeNullable(intermediarySwift, forKey: .intermediarySwift)
+        // Account-number fields are replacement-only in the editor: blank
+        // means keep the masked value already on file, not clear it.
+        try container.encodeIfPresent(intermediaryAccount, forKey: .intermediaryAccount)
+        try container.encodeNullable(financeContactName, forKey: .financeContactName)
+        try container.encodeNullable(financeContactEmail, forKey: .financeContactEmail)
+        try container.encode(isDefault, forKey: .isDefault)
+        try container.encodeNullable(note, forKey: .note)
+    }
+}
+
+struct PaymentApplicationLineInput: Codable, Equatable {
+    let containerCostId: String
+    let amount: Double
+    let note: String?
+}
+
+struct PaymentApplicationCreateInput: Codable, Equatable {
+    let vendorId: String
+    let bankAccountId: String?
+    let currency: String
+    let purpose: String
+    let requestedAt: String
+    let plannedPayAt: String?
+    let note: String?
+    let lines: [PaymentApplicationLineInput]
+}
+
+struct PaymentApplicationUpdateInput: Encodable, Equatable {
+    let bankAccountId: String?
+    let currency: String
+    let purpose: String
+    let requestedAt: String
+    let plannedPayAt: String?
+    let note: String?
+    let lines: [PaymentApplicationLineInput]
+
+    private enum CodingKeys: String, CodingKey {
+        case bankAccountId
+        case currency
+        case purpose
+        case requestedAt
+        case plannedPayAt
+        case note
+        case lines
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(bankAccountId, forKey: .bankAccountId)
+        try container.encode(currency, forKey: .currency)
+        try container.encode(purpose, forKey: .purpose)
+        try container.encode(requestedAt, forKey: .requestedAt)
+        try container.encodeNullable(plannedPayAt, forKey: .plannedPayAt)
+        try container.encodeNullable(note, forKey: .note)
+        try container.encode(lines, forKey: .lines)
+    }
+}
+
+struct PaymentApplicationRejectInput: Codable {
+    let comment: String
+}
+
+struct PaymentApplicationEmailInput: Codable, Equatable {
+    let idempotencyKey: String
+    let to: String?
+    let cc: String?
+    let variant: String
+    let subject: String?
+    let body: String?
+    let attachmentIds: [String]?
 }
 
 struct ExpenseCreateInput: Codable {
@@ -2011,6 +2211,180 @@ struct CashAccountsAPI {
     }
 }
 
+struct VendorBankAccountsAPI {
+    var client = APIClient.shared
+
+    func list(vendorId: String) async throws -> [VendorBankAccount] {
+        try await client.request("/vendors/\(vendorId)/bank-accounts")
+    }
+
+    func create(vendorId: String, body: VendorBankAccountCreateInput) async throws -> VendorBankAccount {
+        try await client.request("/vendors/\(vendorId)/bank-accounts", method: "POST", body: body)
+    }
+
+    func update(vendorId: String, id: String, body: VendorBankAccountPatchInput) async throws -> VendorBankAccount {
+        try await client.request("/vendors/\(vendorId)/bank-accounts/\(id)", method: "PATCH", body: body)
+    }
+
+    func setDefault(vendorId: String, id: String) async throws -> VendorBankAccount {
+        try await client.request("/vendors/\(vendorId)/bank-accounts/\(id)/default", method: "POST", body: EmptyBody())
+    }
+
+    func deactivate(vendorId: String, id: String) async throws -> VendorBankAccount {
+        try await client.request("/vendors/\(vendorId)/bank-accounts/\(id)/deactivate", method: "POST", body: EmptyBody())
+    }
+}
+
+struct PaymentApplicationsAPI {
+    var client = APIClient.shared
+
+    func list(
+        view: String = "mine",
+        q: String? = nil,
+        status: String? = nil,
+        page: Int = 1,
+        pageSize: Int = 30
+    ) async throws -> Paged<PaymentApplicationRow> {
+        let suffix = query([
+            "view": view,
+            "q": q,
+            "status": view == "todo" ? nil : status,
+            "page": page,
+            "pageSize": pageSize
+        ])
+        return try await client.request("/payment-applications\(suffix)")
+    }
+
+    func get(id: String) async throws -> PaymentApplicationDetail {
+        try await client.request("/payment-applications/\(id)")
+    }
+
+    func openBillVendors() async throws -> [PaymentApplicationOpenBillVendor] {
+        try await client.request("/payment-applications/open-bill-vendors")
+    }
+
+    func openBills(vendorId: String) async throws -> [PaymentApplicationOpenBill] {
+        try await client.request("/payment-applications/open-bills\(query(["vendorId": vendorId]))")
+    }
+
+    func bankOptions(vendorId: String, currency: String) async throws -> [PaymentApplicationBankOption] {
+        let suffix = query([
+            "vendorId": vendorId,
+            "currency": currency
+        ])
+        return try await client.request("/payment-applications/bank-options\(suffix)")
+    }
+
+    func create(_ body: PaymentApplicationCreateInput) async throws -> PaymentApplicationDetail {
+        try await client.request("/payment-applications", method: "POST", body: body)
+    }
+
+    func update(id: String, body: PaymentApplicationUpdateInput) async throws -> PaymentApplicationDetail {
+        try await client.request("/payment-applications/\(id)", method: "PATCH", body: body)
+    }
+
+    func remove(id: String) async throws -> OkResponse {
+        try await client.request("/payment-applications/\(id)", method: "DELETE")
+    }
+
+    func action(id: String, name: String) async throws -> PaymentApplicationDetail {
+        try await client.request("/payment-applications/\(id)/\(name)", method: "POST", body: EmptyBody())
+    }
+
+    func reject(id: String, comment: String) async throws -> PaymentApplicationDetail {
+        try await client.request(
+            "/payment-applications/\(id)/reject",
+            method: "POST",
+            body: PaymentApplicationRejectInput(comment: comment)
+        )
+    }
+
+    func payoutAccounts() async throws -> [PaymentFundingAccount] {
+        try await client.request("/accounting/payout-accounts")
+    }
+
+    func registerPayment(
+        id: String,
+        proofURL: URL,
+        fileName: String,
+        mimeType: String,
+        idempotencyKey: String,
+        amount: Double,
+        paidAt: String,
+        accountId: String,
+        method: String?,
+        reference: String?,
+        note: String?
+    ) async throws -> PaymentApplicationDetail {
+        var fields = [
+            "idempotencyKey": idempotencyKey,
+            "amount": String(format: "%.2f", amount),
+            "paidAt": paidAt,
+            "accountId": accountId
+        ]
+        if let method { fields["method"] = method }
+        if let reference { fields["reference"] = reference }
+        if let note { fields["note"] = note }
+        return try await client.uploadMultipart(
+            "/payment-applications/\(id)/payments",
+            fileURL: proofURL,
+            fieldName: "proof",
+            fileName: fileName,
+            mimeType: mimeType,
+            fields: fields
+        )
+    }
+
+    func uploadAttachment(
+        id: String,
+        fileURL: URL,
+        fileName: String,
+        mimeType: String,
+        kind: String = "OTHER",
+        note: String? = nil
+    ) async throws -> PaymentApplicationAttachment {
+        var fields = ["kind": kind]
+        if let note { fields["note"] = note }
+        return try await client.uploadMultipart(
+            "/payment-applications/\(id)/attachments",
+            fileURL: fileURL,
+            fileName: fileName,
+            mimeType: mimeType,
+            fields: fields
+        )
+    }
+
+    func removeAttachment(id: String, attachmentId: String) async throws -> OkResponse {
+        try await client.request(
+            "/payment-applications/\(id)/attachments/\(attachmentId)",
+            method: "DELETE"
+        )
+    }
+
+    func downloadAttachment(id: String, attachment: PaymentApplicationAttachment) async throws -> URL {
+        let safeName = attachment.filename.replacingOccurrences(of: "/", with: "-")
+        return try await client.download(
+            "/payment-applications/\(id)/attachments/\(attachment.id)",
+            fileName: safeName
+        )
+    }
+
+    func downloadPDF(id: String, ref: String, variant: String = "application") async throws -> URL {
+        try await client.download(
+            "/payment-applications/\(id)/pdf\(query(["variant": variant]))",
+            fileName: "\(ref)-\(variant).pdf"
+        )
+    }
+
+    func emailPreview(id: String) async throws -> PaymentApplicationEmailPreview {
+        try await client.request("/payment-applications/\(id)/email-preview")
+    }
+
+    func sendEmail(id: String, body: PaymentApplicationEmailInput) async throws -> PaymentApplicationEmailResult {
+        try await client.request("/payment-applications/\(id)/email", method: "POST", body: body)
+    }
+}
+
 struct FetPayInput: Codable {
     let amount: Double
     let date: String?
@@ -2072,7 +2446,7 @@ struct ApprovalsAPI {
         return try await client.request("/approvals\(qs)")
     }
 
-    func pendingCount() async throws -> CountResponse {
+    func pendingCount() async throws -> ApprovalPendingCount {
         try await client.request("/approvals/pending-count")
     }
 

@@ -34,6 +34,7 @@ struct Destination: Identifiable, Hashable {
     let group: DestinationGroup
     let permission: String?
     let alternatePermission: String?
+    let additionalPermissions: [String]
     let isBuilt: Bool
     let blurb: String?
 
@@ -46,6 +47,7 @@ struct Destination: Identifiable, Hashable {
         group: DestinationGroup,
         permission: String?,
         alternatePermission: String? = nil,
+        additionalPermissions: [String] = [],
         isBuilt: Bool,
         blurb: String?
     ) {
@@ -55,6 +57,7 @@ struct Destination: Identifiable, Hashable {
         self.group = group
         self.permission = permission
         self.alternatePermission = alternatePermission
+        self.additionalPermissions = additionalPermissions
         self.isBuilt = isBuilt
         self.blurb = blurb
     }
@@ -86,7 +89,7 @@ enum DestinationRegistry {
         Destination(key: "customerRelations", title: "Customer Relations", systemImage: "heart", group: .operations, permission: "crm.view", isBuilt: true, blurb: nil),
         Destination(key: "workOrders", title: "Work Orders", systemImage: "wrench.adjustable", group: .operations, permission: "workorders.view", isBuilt: true, blurb: nil),
         Destination(key: "returns", title: "Returns", systemImage: "arrow.uturn.left", group: .operations, permission: "returns.view", isBuilt: true, blurb: nil),
-        Destination(key: "money", title: "Money", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", alternatePermission: "payables.view", isBuilt: true, blurb: nil),
+        Destination(key: "money", title: "Payables & Receivables", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", alternatePermission: "payables.view", additionalPermissions: ["paymentapps.view"], isBuilt: true, blurb: nil),
         Destination(key: "accounting", title: "Accounting", systemImage: "book.closed", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "cashAccounts", title: "Cash Accounts", systemImage: "building.columns", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "fet", title: "FET", systemImage: "doc.text", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
@@ -125,6 +128,7 @@ enum DestinationRegistry {
         guard let permission = destination.permission else { return true }
         return auth.has(permission)
             || destination.alternatePermission.map(auth.has) == true
+            || destination.additionalPermissions.contains(where: auth.has)
     }
 }
 

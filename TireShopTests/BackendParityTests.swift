@@ -7,9 +7,20 @@ import XCTest
 ///   `warehouse` (null for the combined all-warehouse view).
 /// - #406: `GET /sales` supports `summary=false` light mode, where the server
 ///   returns `total: null` and omits the financial `summary` entirely.
+/// - #420: containers carry `balanceDueAt`, and a bill's due date is reschedulable
+///   on its own after receipt.
+/// - #421: commission payouts are numbered documents with a DRAFT/PAID/VOID
+///   lifecycle, replacing the one-shot payout.
+/// - #422: payment-application approval moved to the shared approvals queue, and
+///   `GET /approvals/pending-count` now breaks its total down per queue.
 final class BackendParityTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSONDecoder().decode(type, from: XCTUnwrap(json.data(using: .utf8)))
+    }
+
+    private func encodeJSONObject<T: Encodable>(_ value: T) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     // MARK: - Sales list light mode (#406)
@@ -259,5 +270,284 @@ final class BackendParityTests: XCTestCase {
         XCTAssertEqual(page.total, 1)
         XCTAssertEqual(page.pageSize, 25)
         XCTAssertEqual(page.items.count, 1)
+    }
+
+    // MARK: - Payment applications and bank details (#409–#412, #418)
+
+    func testCashTransferDecodesReferenceAndDepositUsage() throws {
+        let transfer: CashTransfer = try decode(
+            CashTransfer.self,
+            """
+            {"id":"tr_1","ref":"tf-2026-0001",
+             "fromAccount":{"code":"1020","name":"Operating Bank"},
+             "toAccount":{"code":"1010","name":"Cash on Hand"},
+             "amount":"1000.00","fee":"5.00","note":null,"reference":"WIRE-88",
+             "reversedAt":null,"createdAt":"2026-08-15T12:00:00.000Z",
+             "_count":{"depositChecks":2}}
+            """
+        )
+        XCTAssertEqual(transfer.ref, "tf-2026-0001")
+        XCTAssertEqual(transfer.reference, "WIRE-88")
+        XCTAssertEqual(transfer.counts.depositChecks, 2)
+    }
+
+    func testPaymentApplicationUpdateEncodesExplicitClears() throws {
+        let body = PaymentApplicationUpdateInput(
+            bankAccountId: "bank_1",
+            currency: "USD",
+            purpose: "GOODS",
+            requestedAt: "2026-08-15",
+            plannedPayAt: nil,
+            note: nil,
+            lines: [PaymentApplicationLineInput(containerCostId: "cost_1", amount: 250, note: nil)]
+        )
+        let json = try encodeJSONObject(body)
+        XCTAssertTrue(json["plannedPayAt"] is NSNull)
+        XCTAssertTrue(json["note"] is NSNull)
+    }
+
+    func testVendorBankPatchClearsOptionalFieldsWithoutReplacingAccountNumber() throws {
+        let body = VendorBankAccountPatchInput(
+            label: nil,
+            beneficiaryName: "Road Tire Supply",
+            bankName: "Example Bank",
+            accountNumber: nil,
+            bankCountry: "US",
+            currency: "USD",
+            routingNumber: nil,
+            swift: nil,
+            bankAddress: nil,
+            intermediaryBankName: nil,
+            intermediarySwift: nil,
+            intermediaryAccount: nil,
+            financeContactName: nil,
+            financeContactEmail: nil,
+            isDefault: true,
+            note: nil
+        )
+        let json = try encodeJSONObject(body)
+        XCTAssertTrue(json["label"] is NSNull)
+        XCTAssertTrue(json["routingNumber"] is NSNull)
+        XCTAssertTrue(json["note"] is NSNull)
+        XCTAssertFalse(json.keys.contains("accountNumber"))
+        XCTAssertFalse(json.keys.contains("intermediaryAccount"))
+    }
+
+    func testPaymentApplicationDetailDecodesRollingDeploymentOptionals() throws {
+        let application: PaymentApplicationDetail = try decode(
+            PaymentApplicationDetail.self,
+            """
+            {"id":"app_1","ref":"pa-260819001","status":"APPROVED",
+             "vendor":{"id":"v_1","name":"Road Tire","email":null},
+             "vendorKey":"road tire","payerName":"Tire Force","currency":"USD","purpose":"GOODS",
+             "requestedAt":"2026-08-19T04:00:00.000Z","plannedPayAt":null,"note":null,
+             "totalAmount":250,"paidAmount":0,"remaining":250,
+             "requestedBy":{"id":"u_1","fullName":"Alex Chen"},
+             "submittedAt":"2026-08-19T12:00:00.000Z","approvedBy":null,"decidedAt":null,
+             "decisionNote":null,"remainingCancelledAt":null,"remainingCancelledBy":null,
+             "voidedAt":null,"voidedBy":null,
+             "bank":{"accountId":"bank_1","snapshotAt":"2026-08-19T12:00:00.000Z",
+                     "beneficiaryName":"Road Tire","bankName":"Example Bank",
+                     "accountLast4":"7403","accountMasked":"****7403","bankCountry":"US",
+                     "routingNumber":null,"swift":null,"bankAddress":null,"intermediary":null,
+                     "intermediaryAccountLast4":null,"intermediaryAccountMasked":null,
+                     "financeEmail":null},
+             "lines":[],"approvals":[],
+             "attachments":[{"id":"att_1","kind":"BILL","filename":"bill.pdf",
+                             "mimeType":"application/pdf","sizeBytes":42,"note":null,
+                             "supplierPaymentId":null,"createdAt":"2026-08-19T12:00:00.000Z"}],
+             "emails":[]}
+            """
+        )
+        XCTAssertEqual(application.bank.accountMasked, "****7403")
+        XCTAssertNil(application.bank.accountNumber)
+        XCTAssertNil(application.attachments.first?.sourceContainerAttachmentId)
+        XCTAssertNil(application.supplierPayments)
+    }
+
+    func testPaymentApplicationSubmissionIdentitySurvivesRecreationUntilExplicitlyCleared() throws {
+        let suiteName = "PaymentApplicationSubmissionIdentityTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = PaymentApplicationSubmissionIdentity(
+            kind: "payment",
+            applicationID: "app_1",
+            userID: "user_1",
+            defaults: defaults
+        )
+        let original = PaymentApplicationLineInput(containerCostId: "cost_1", amount: 25, note: nil)
+        let originalKey = try first.key(for: original)
+
+        let recreated = PaymentApplicationSubmissionIdentity(
+            kind: "payment",
+            applicationID: "app_1",
+            userID: "user_1",
+            defaults: defaults
+        )
+        XCTAssertEqual(try recreated.key(for: original), originalKey)
+
+        let changed = PaymentApplicationLineInput(containerCostId: "cost_1", amount: 30, note: nil)
+        let changedKey = try recreated.key(for: changed)
+        XCTAssertEqual(changedKey, originalKey)
+
+        recreated.clear()
+        XCTAssertNotEqual(try recreated.key(for: changed), changedKey)
+    }
+
+    // MARK: - Purchasing bill due dates (#420)
+
+    func testContainerDecodesBalanceDueDate() throws {
+        let container: Container = try decode(
+            Container.self,
+            """
+            {"id":"ct_1","ref":"c-2026-0001","reference":"PO-9","bolNumber":null,
+             "supplierId":"sp_1","supplier":{"id":"sp_1","name":"Road Tire","country":"US"},
+             "status":"RECEIVED","isDDP":false,"location":"MAIN","costSpread":"VALUE",
+             "orderedAt":null,"etaAt":null,"arrivedAt":null,
+             "balanceDueAt":"2026-09-30T00:00:00.000Z","receivedAt":"2026-08-15T10:00:00.000Z",
+             "notes":null,"lines":[],"costs":[],"attachments":[],
+             "createdAt":"2026-08-01T10:00:00.000Z","updatedAt":null}
+            """
+        )
+        XCTAssertEqual(container.balanceDueAt, "2026-09-30T00:00:00.000Z")
+    }
+
+    func testContainerCostDueDatePatchSendsOnlyDueDate() throws {
+        let json = try encodeJSONObject(ContainerCostDueDateInput(dueAt: "2026-09-30"))
+        XCTAssertEqual(json.keys.sorted(), ["dueAt"])
+        XCTAssertEqual(json["dueAt"] as? String, "2026-09-30")
+    }
+
+    func testContainerCostDueDatePatchClearsWithExplicitNull() throws {
+        let json = try encodeJSONObject(ContainerCostDueDateInput(dueAt: nil))
+        XCTAssertEqual(json.keys.sorted(), ["dueAt"])
+        XCTAssertTrue(json["dueAt"] is NSNull)
+    }
+
+    // MARK: - Numbered commission payouts (#421)
+
+    func testCommissionPayoutListRowDecodes() throws {
+        let payout: CommissionPayout = try decode(
+            CommissionPayout.self,
+            """
+            {"id":"cp_1","ref":"cp-260818001","status":"DRAFT","amount":1250.5,
+             "entryCount":4,"periodFrom":"2026-08-01T00:00:00.000Z",
+             "periodTo":"2026-08-15T00:00:00.000Z",
+             "paymentMethod":{"id":"pm_1","name":"Cash"},
+             "paidAt":null,"voidedAt":null,"voidReason":null,
+             "createdAt":"2026-08-18T09:00:00.000Z","updatedAt":"2026-08-18T09:00:00.000Z"}
+            """
+        )
+        XCTAssertEqual(payout.ref, "cp-260818001")
+        XCTAssertEqual(payout.status, "DRAFT")
+        XCTAssertEqual(payout.entryCount, 4)
+        // The list endpoint carries neither of these; only the document does.
+        XCTAssertNil(payout.entries)
+        XCTAssertNil(payout.fundingAccount)
+    }
+
+    func testCommissionPayoutDetailDecodesLinesAndFundingAccount() throws {
+        let payout: CommissionPayout = try decode(
+            CommissionPayout.self,
+            """
+            {"id":"cp_1","ref":"cp-260818001","status":"PAID","amount":100,
+             "entryCount":1,"periodFrom":null,"periodTo":null,
+             "paymentMethod":{"id":"pm_1","name":"Cash"},
+             "fundingAccount":{"id":"ac_1","code":"1010","name":"Cash on Hand"},
+             "employee":{"id":"em_1","fullName":"Sam Rivera"},
+             "entries":[{"id":"ce_1","employeeId":"em_1","saleId":"sl_1","basis":"PROFIT",
+                         "basisAmount":400,"rate":0.25,"amount":100,"status":"PAID",
+                         "note":null,"payoutId":"cp_1","paidAt":"2026-08-18T09:05:00.000Z",
+                         "createdAt":"2026-08-10T12:00:00.000Z",
+                         "sale":{"id":"sl_1","ref":"s-2026-0007","total":900}}],
+             "paidAt":"2026-08-18T09:05:00.000Z","voidedAt":null,"voidReason":null,
+             "createdAt":"2026-08-18T09:00:00.000Z","updatedAt":"2026-08-18T09:05:00.000Z"}
+            """
+        )
+        XCTAssertEqual(payout.fundingAccount?.code, "1010")
+        XCTAssertEqual(payout.entries?.count, 1)
+        XCTAssertEqual(payout.entries?.first?.sale?.ref, "s-2026-0007")
+    }
+
+    func testCommissionPayoutPreviewDecodesSalesAndRollovers() throws {
+        let preview: CommissionPayoutPreview = try decode(
+            CommissionPayoutPreview.self,
+            """
+            {"sales":[{"id":"ce_1","employeeId":"em_1","saleId":"sl_1","basis":"PROFIT",
+                       "basisAmount":400,"rate":0.25,"amount":100,"status":"ACCRUED",
+                       "note":null,"payoutId":null,"paidAt":null,
+                       "createdAt":"2026-08-10T12:00:00.000Z","sale":null}],
+             "rollovers":[{"id":"ce_2","employeeId":"em_1","saleId":null,"basis":"PROFIT",
+                           "basisAmount":0,"rate":0,"amount":-25,"status":"ACCRUED",
+                           "note":"Rollover","payoutId":null,"paidAt":null,
+                           "createdAt":"2026-08-01T12:00:00.000Z","sale":null}],
+             "rolloverTotal":-25}
+            """
+        )
+        XCTAssertEqual(preview.sales.count, 1)
+        XCTAssertEqual(preview.rolloverTotal, -25)
+        // A rollover has no sale, which is what keeps it out of the selectable list.
+        XCTAssertNil(preview.rollovers.first?.saleId)
+    }
+
+    func testCommissionPayoutCreateSendsTheServersFieldNames() throws {
+        let json = try encodeJSONObject(
+            CommissionPayoutCreateInput(
+                entryIds: ["ce_1", "ce_2"],
+                paymentMethodId: "pm_1",
+                expectedAmount: 75,
+                from: "2026-08-01",
+                to: "2026-08-15"
+            )
+        )
+        XCTAssertEqual(
+            json.keys.sorted(),
+            ["entryIds", "expectedAmount", "from", "paymentMethodId", "to"]
+        )
+        XCTAssertEqual(json["expectedAmount"] as? Double, 75)
+    }
+
+    func testVoidedPayoutDecodesAsImmediateAndApprovalAlike() throws {
+        let immediate: ImmediateOrApproval<CommissionPayout> = try decode(
+            ImmediateOrApproval<CommissionPayout>.self,
+            """
+            {"id":"cp_1","ref":"cp-260818001","status":"VOID","amount":100,"entryCount":1,
+             "periodFrom":null,"periodTo":null,"paymentMethod":null,
+             "paidAt":null,"voidedAt":"2026-08-18T10:00:00.000Z","voidReason":"Wrong period",
+             "createdAt":"2026-08-18T09:00:00.000Z","updatedAt":"2026-08-18T10:00:00.000Z"}
+            """
+        )
+        guard case .immediate(let payout) = immediate else {
+            return XCTFail("Expected the payout document")
+        }
+        XCTAssertEqual(payout.voidReason, "Wrong period")
+
+        let queued: ImmediateOrApproval<CommissionPayout> = try decode(
+            ImmediateOrApproval<CommissionPayout>.self,
+            """
+            {"approvalRequest":{"id":"ar_1"}}
+            """
+        )
+        guard case .approval(let request) = queued else {
+            return XCTFail("Expected an approval request")
+        }
+        XCTAssertEqual(request.id, "ar_1")
+    }
+
+    // MARK: - Approval queue counts (#422)
+
+    func testPendingCountBreaksTheTotalDownPerQueue() throws {
+        let counts: ApprovalPendingCount = try decode(
+            ApprovalPendingCount.self,
+            """
+            {"count":7,"requests":5,"paymentApplications":2}
+            """
+        )
+        // `count` sums every queue, so a screen rendering only one of them has
+        // to badge off that queue's own field.
+        XCTAssertEqual(counts.count, 7)
+        XCTAssertEqual(counts.requests, 5)
+        XCTAssertEqual(counts.paymentApplications, 2)
     }
 }

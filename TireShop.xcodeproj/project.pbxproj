@@ -25,6 +25,7 @@
 		C28E3B592A560C32484F497E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8 /* Models.swift */; };
 		5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4C2DA3A8199A94893222 /* NativeComponents.swift */; };
 		0EE179D1BF9A2F7F9492D53D /* OrderScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35308617946D20EF1B7BEF2F /* OrderScreens.swift */; };
+		47C2233A77103DFFA2FAD67E /* PaymentApplicationScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF9AD69ADF0150C8F5A90A4 /* PaymentApplicationScreens.swift */; };
 		ADBB74DC4A2977B91478A152 /* PlaceholderModules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE733E38A18988BEF520070D /* PlaceholderModules.swift */; };
 		AB1BD885025C14A983045AC8 /* QuoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D72B874D73108C84EEA7FC /* QuoteStore.swift */; };
 		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
@@ -72,6 +73,7 @@
 		78FD430803560F137BDECEE8 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>"; };
 		365A4C2DA3A8199A94893222 /* NativeComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeComponents.swift"; sourceTree = "<group>"; };
 		35308617946D20EF1B7BEF2F /* OrderScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrderScreens.swift"; sourceTree = "<group>"; };
+		3CF9AD69ADF0150C8F5A90A4 /* PaymentApplicationScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentApplicationScreens.swift"; sourceTree = "<group>"; };
 		DE733E38A18988BEF520070D /* PlaceholderModules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaceholderModules.swift"; sourceTree = "<group>"; };
 		B3D72B874D73108C84EEA7FC /* QuoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuoteStore.swift"; sourceTree = "<group>"; };
 		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViews.swift"; sourceTree = "<group>"; };
@@ -153,6 +155,7 @@
 				78FD430803560F137BDECEE8 /* Models.swift */,
 				365A4C2DA3A8199A94893222 /* NativeComponents.swift */,
 				35308617946D20EF1B7BEF2F /* OrderScreens.swift */,
+				3CF9AD69ADF0150C8F5A90A4 /* PaymentApplicationScreens.swift */,
 				DE733E38A18988BEF520070D /* PlaceholderModules.swift */,
 				B3D72B874D73108C84EEA7FC /* QuoteStore.swift */,
 				B54402C1C6DDB15D78025760 /* RootViews.swift */,
@@ -330,6 +333,7 @@
 				C28E3B592A560C32484F497E /* Models.swift in Sources */,
 				5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */,
 				0EE179D1BF9A2F7F9492D53D /* OrderScreens.swift in Sources */,
+				47C2233A77103DFFA2FAD67E /* PaymentApplicationScreens.swift in Sources */,
 				ADBB74DC4A2977B91478A152 /* PlaceholderModules.swift in Sources */,
 				AB1BD885025C14A983045AC8 /* QuoteStore.swift in Sources */,
 				98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */,
@@ -490,7 +494,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026080801;
+				CURRENT_PROJECT_VERSION = 2026081601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -517,7 +521,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026080801;
+				CURRENT_PROJECT_VERSION = 2026081601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -544,7 +548,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026080801;
+				CURRENT_PROJECT_VERSION = 2026081601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -567,7 +571,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026080801;
+				CURRENT_PROJECT_VERSION = 2026081601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

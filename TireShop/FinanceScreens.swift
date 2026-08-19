@@ -151,19 +151,38 @@ private struct DocStatusBadge: View {
 
 struct MoneyNativeView: View {
     private enum Tab: String, CaseIterable {
-        case receivables = "Receivables"
-        case payables = "Payables"
-        case history = "History"
+        case receivables
+        case payables
+        case applications
+        case history
+
+        /// Tab labels track the web console's Money page so both consoles read
+        /// the same; see `apps/web/app/money/page.tsx`.
+        var titleKey: String {
+            switch self {
+            case .receivables: return "money.receivables"
+            case .payables: return "money.payables"
+            case .applications: return "pa.title"
+            case .history: return "receipt.history"
+            }
+        }
     }
 
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @State private var tab: Tab = .receivables
 
     private var tabs: [Tab] {
         var available: [Tab] = []
         if auth.has("receivables.view") { available.append(.receivables) }
         if auth.has("payables.view") { available.append(.payables) }
-        if !available.isEmpty { available.append(.history) }
+        if auth.has("paymentapps.view") { available.append(.applications) }
+        // Numbered documents carry their own permissions: someone who can only
+        // see payment applications must not mount the receipt and
+        // supplier-payment requests.
+        if auth.has("payments.collect") || auth.has("payables.view") {
+            available.append(.history)
+        }
         return available
     }
 
@@ -174,21 +193,30 @@ struct MoneyNativeView: View {
     var body: some View {
         VStack(spacing: 0) {
             if tabs.count > 1 {
-                Picker("Section", selection: Binding(
-                    get: { selectedTab ?? .receivables },
-                    set: { tab = $0 }
-                )) {
-                    ForEach(tabs, id: \.self) { Text($0.rawValue) }
+                // Four segments of the web's wording truncate to nothing at
+                // iPhone width, so scroll the labels the way its TabBar does.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Theme.Space.sm) {
+                        ForEach(tabs, id: \.self) { value in
+                            CompactFilterChip(
+                                title: i18n.t(value.titleKey),
+                                selected: selectedTab == value
+                            ) {
+                                tab = value
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Theme.Space.lg)
+                    .padding(.vertical, Theme.Space.sm)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, Theme.Space.lg)
-                .padding(.vertical, Theme.Space.sm)
+                .accessibilityLabel(i18n.t("nav.money"))
             }
 
             if let selectedTab {
                 switch selectedTab {
                 case .receivables: ReceivablesTabView()
                 case .payables: PayablesTabView()
+                case .applications: PaymentApplicationsNativeView()
                 case .history: MoneyDocumentsTabView()
                 }
             } else {
@@ -2118,19 +2146,33 @@ struct CashAccountsNativeView: View {
             ForEach(transfers) { transfer in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text("\(transfer.fromAccount.name) → \(transfer.toAccount.name)")
+                        Text(transfer.ref)
                             .font(.subheadline)
                             .fontWeight(.semibold)
                             .lineLimit(1)
+                        if transfer.reversedAt != nil {
+                            Text("REVERSED")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.red)
+                        }
                         Spacer()
                         Text(AppFormat.money(transfer.amount))
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
+                    Text("\(transfer.fromAccount.name) → \(transfer.toAccount.name)")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
                     HStack {
                         Text(AppFormat.shortDate(transfer.createdAt))
+                        if transfer.counts.depositChecks > 0 {
+                            Text("· \(transfer.counts.depositChecks) check\(transfer.counts.depositChecks == 1 ? "" : "s")")
+                        }
                         if let fee = Double(transfer.fee), fee > 0 {
                             Text("· fee \(AppFormat.money(fee))")
+                        }
+                        if let reference = transfer.reference?.nilIfBlank {
+                            Text("· \(reference)").lineLimit(1)
                         }
                         if let note = transfer.note?.nilIfBlank {
                             Text("· \(note)").lineLimit(1)
@@ -2141,10 +2183,11 @@ struct CashAccountsNativeView: View {
                     .foregroundStyle(Theme.muted)
                 }
                 .swipeActions {
-                    if canManage {
+                    if canManage && transfer.reversedAt == nil {
                         Button("Reverse", role: .destructive) { reverseTransferTarget = transfer }
                     }
                 }
+                .opacity(transfer.reversedAt == nil ? 1 : 0.55)
                 .onAppear {
                     if transfer.id == transfers.last?.id { Task { await loadMoreTransfers() } }
                 }
@@ -2526,6 +2569,7 @@ private struct TransferFundsSheet: View {
     @State private var toCode = ""
     @State private var amount = ""
     @State private var fee = ""
+    @State private var reference = ""
     @State private var note = ""
     @State private var checks: UndepositedChecks?
     @State private var checkedIds = Set<String>()
@@ -2620,6 +2664,7 @@ private struct TransferFundsSheet: View {
                 Section {
                     TextField("Fee $ (optional)", text: $fee)
                         .keyboardType(.decimalPad)
+                    TextField("Bank reference / deposit slip # (optional)", text: $reference)
                     TextField("Note (optional)", text: $note)
                 } footer: {
                     if let feeValue = Double(fee), feeValue > 0, effectiveAmount > 0 {
@@ -2689,6 +2734,7 @@ private struct TransferFundsSheet: View {
                 amount: effectiveAmount,
                 fee: Double(fee) ?? 0,
                 note: note.nilIfBlank,
+                reference: reference.nilIfBlank,
                 paymentIds: isCheckDeposit ? Array(checkedIds).sorted() : nil
             )
             let idempotencyKey = try submissionIdentity.key(for: input)

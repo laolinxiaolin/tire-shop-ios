@@ -2020,6 +2020,12 @@ struct SupplierSummary: Codable, Equatable {
 }
 
 struct SupplierDetail: Codable, Identifiable, Equatable {
+    struct PayeeVendor: Codable, Identifiable, Equatable {
+        let id: String
+        let name: String
+        let active: Bool
+    }
+
     let id: String
     let name: String
     let contactName: String?
@@ -2032,6 +2038,7 @@ struct SupplierDetail: Codable, Identifiable, Equatable {
     let notes: String?
     let createdAt: String?
     let updatedAt: String?
+    let payeeVendor: PayeeVendor?
     let summary: SupplierSummary
 }
 
@@ -2090,6 +2097,7 @@ struct SupplierCostRow: Codable, Identifiable, Equatable {
     let amountPaid: Double
     let vendor: String?
     let vendorId: String?
+    let occurredAt: String?
     let dueAt: String?
     let paidAt: String?
     let reference: String?
@@ -2308,6 +2316,7 @@ struct ContainerCost: Codable, Identifiable, Equatable {
     let amountPaid: String
     let vendor: String?
     let vendorId: String?
+    let occurredAt: String?
     let dueAt: String?
     let paidAt: String?
     let reference: String?
@@ -2396,6 +2405,8 @@ struct Container: Codable, Identifiable, Equatable {
     let orderedAt: String?
     let etaAt: String?
     let arrivedAt: String?
+    /// Due date stamped onto the supplier balance bill generated at receive.
+    let balanceDueAt: String?
     let receivedAt: String?
     let notes: String?
     let lines: [ContainerLine]
@@ -2419,6 +2430,7 @@ struct Container: Codable, Identifiable, Equatable {
         case orderedAt
         case etaAt
         case arrivedAt
+        case balanceDueAt
         case receivedAt
         case notes
         case lines
@@ -2538,14 +2550,329 @@ struct ExpenseAccount: Codable, Identifiable, Equatable {
     let name: String
 }
 
-struct CashTransfer: Codable, Identifiable, Equatable {
+// MARK: - Payment applications
+
+typealias PaymentApplicationStatus = String
+typealias PaymentApplicationPurpose = String
+typealias PaymentApplicationAttachmentKind = String
+
+struct VendorBankAccount: Codable, Identifiable, Equatable {
     let id: String
+    let vendorId: String
+    let label: String?
+    let beneficiaryName: String
+    let bankName: String
+    let accountLast4: String
+    let accountMasked: String
+    let accountNumber: String?
+    let bankCountry: String?
+    let currency: String
+    let routingNumber: String?
+    let swift: String?
+    let bankAddress: String?
+    let intermediaryBankName: String?
+    let intermediarySwift: String?
+    let intermediaryAccountMasked: String?
+    let intermediaryAccount: String?
+    let financeContactName: String?
+    let financeContactEmail: String?
+    let isDefault: Bool
+    let active: Bool
+    let note: String?
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct PaymentApplicationBankOption: Codable, Identifiable, Equatable {
+    let id: String
+    let label: String?
+    let beneficiaryName: String
+    let bankName: String
+    let accountLast4: String
+    let accountMasked: String
+    let currency: String
+    let isDefault: Bool
+}
+
+struct PaymentApplicationRow: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let status: PaymentApplicationStatus
+    let vendor: String
+    let vendorId: String
+    let currency: String
+    let purpose: PaymentApplicationPurpose
+    let requestedAt: String
+    let plannedPayAt: String?
+    let totalAmount: Double
+    let paidAmount: Double
+    let requestedBy: String
+    let approvedBy: String?
+    let decidedAt: String?
+    let lineCount: Int
+    let attachmentCount: Int
+}
+
+struct PaymentApplicationOpenBill: Codable, Identifiable, Equatable {
+    let id: String
+    let vendor: String?
+    let vendorId: String?
+    let category: String
+    let description: String?
+    let reference: String?
+    let poReference: String?
+    let amount: Double
+    let amountPaid: Double
+    let committed: Double
+    let applicable: Double
+    let occurredAt: String
+    let dueAt: String?
+    let createdAt: String
+}
+
+struct PaymentApplicationOpenBillVendor: Codable, Identifiable, Equatable {
+    let vendorId: String
+    let vendor: String?
+    let billCount: Int
+    let applicable: Double
+
+    var id: String { vendorId }
+}
+
+struct PaymentApplicationPerson: Codable, Identifiable, Equatable {
+    let id: String
+    let fullName: String
+}
+
+struct PaymentApplicationVendorRef: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let email: String?
+}
+
+struct PaymentApplicationBankSnapshot: Codable, Equatable {
+    let accountId: String?
+    let snapshotAt: String?
+    let beneficiaryName: String?
+    let bankName: String?
+    let accountLast4: String?
+    let accountMasked: String?
+    let accountNumber: String?
+    let bankCountry: String?
+    let routingNumber: String?
+    let swift: String?
+    let bankAddress: String?
+    let intermediary: String?
+    let intermediaryAccountLast4: String?
+    let intermediaryAccountMasked: String?
+    let intermediaryAccount: String?
+    let financeEmail: String?
+}
+
+struct PaymentApplicationLine: Codable, Identifiable, Equatable {
+    struct Source: Codable, Identifiable, Equatable {
+        let id: String
+        let ref: String?
+    }
+
+    struct Cost: Codable, Equatable {
+        let amount: Double
+        let amountPaid: Double
+        let status: String
+        let description: String?
+        let reference: String?
+        let container: Source?
+        let transfer: Source?
+    }
+
+    let id: String
+    let containerCostId: String
+    let amount: Double
+    let paidAmount: Double
+    let billAmount: Double
+    let category: String
+    let companyRef: String?
+    let poReference: String?
+    let vendorRef: String?
+    let description: String?
+    let note: String?
+    let cost: Cost
+}
+
+struct PaymentApplicationApproval: Codable, Identifiable, Equatable {
+    let id: String
+    let round: Int
+    let decision: String
+    let comment: String?
+    let amountAtDecision: Double
+    let decidedBy: String
+    let decidedAt: String
+}
+
+struct PaymentApplicationAttachment: Codable, Identifiable, Equatable {
+    let id: String
+    let kind: PaymentApplicationAttachmentKind
+    let filename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let note: String?
+    let supplierPaymentId: String?
+    let sourceContainerAttachmentId: String?
+    let createdAt: String
+}
+
+struct PaymentApplicationEmailAttachment: Codable, Identifiable, Equatable {
+    let id: String
+    let attachmentId: String?
+    let kind: PaymentApplicationAttachmentKind
+    let filename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let sha256: String
+}
+
+struct PaymentApplicationEmail: Codable, Identifiable, Equatable {
+    let id: String
+    let toAddress: String
+    let ccAddresses: String?
+    let subject: String
+    let bodyPreview: String
+    let variant: String
+    let attachmentFilename: String
+    let attachmentSha256: String
+    let extraAttachments: [PaymentApplicationEmailAttachment]?
+    let docStatusAtSend: String
+    let paidAmountAtSend: Double
+    let status: String
+    let errorMessage: String?
+    let messageId: String?
+    let sentAt: String
+}
+
+struct PaymentApplicationSupplierPayment: Codable, Identifiable, Equatable {
+    struct FundingAccount: Codable, Identifiable, Equatable {
+        let id: String?
+        let code: String
+        let name: String
+    }
+
+    let id: String?
+    let ref: String
+    let total: Double
+    let paidAt: String
+    let method: String?
+    let reference: String?
+    let status: String?
+    let fundingAccount: FundingAccount?
+
+    var stableID: String { id ?? ref }
+}
+
+struct PaymentApplicationDetail: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let status: PaymentApplicationStatus
+    let vendor: PaymentApplicationVendorRef
+    let vendorKey: String
+    let payerName: String
+    let currency: String
+    let purpose: PaymentApplicationPurpose
+    let requestedAt: String
+    let plannedPayAt: String?
+    let note: String?
+    let totalAmount: Double
+    let paidAmount: Double
+    let remaining: Double
+    let requestedBy: PaymentApplicationPerson
+    let submittedAt: String?
+    let approvedBy: PaymentApplicationPerson?
+    let decidedAt: String?
+    let decisionNote: String?
+    let remainingCancelledAt: String?
+    let remainingCancelledBy: PaymentApplicationPerson?
+    let voidedAt: String?
+    let voidedBy: PaymentApplicationPerson?
+    let bank: PaymentApplicationBankSnapshot
+    let lines: [PaymentApplicationLine]
+    let approvals: [PaymentApplicationApproval]
+    let attachments: [PaymentApplicationAttachment]
+    let emails: [PaymentApplicationEmail]
+    let supplierPayments: [PaymentApplicationSupplierPayment]?
+}
+
+struct PaymentFundingAccount: Codable, Identifiable, Equatable {
+    let id: String
+    let code: String
+    let name: String
+    let type: String?
+}
+
+struct PaymentApplicationEmailDocument: Codable, Identifiable, Equatable {
+    let id: String
+    let kind: PaymentApplicationAttachmentKind
+    let filename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let note: String?
+    let createdAt: String
+}
+
+struct PaymentApplicationEmailPreview: Codable, Equatable {
+    let to: String
+    let cc: String?
+    let variant: String
+    let subject: String
+    let body: String
+    let filename: String
+    let status: String
+    let amount: Double
+    let currency: String
+    let documents: [PaymentApplicationEmailDocument]?
+    let documentsTruncated: Bool?
+    let maxAttachments: Int?
+    let maxAttachmentBytes: Int?
+}
+
+struct PaymentApplicationEmailResult: Codable, Equatable {
+    let id: String
+    let toAddress: String
+    let subject: String
+    let status: String
+    let messageId: String?
+    let sentAt: String
+    let warning: String?
+}
+
+struct CashTransfer: Codable, Identifiable, Equatable {
+    struct Counts: Codable, Equatable {
+        let depositChecks: Int
+    }
+
+    let id: String
+    let ref: String
     let fromAccount: JournalLine.AccountInfo
     let toAccount: JournalLine.AccountInfo
     let amount: String
     let fee: String
     let note: String?
+    let reference: String?
+    let reversedAt: String?
     let createdAt: String
+    let counts: Counts
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case ref
+        case fromAccount
+        case toAccount
+        case amount
+        case fee
+        case note
+        case reference
+        case reversedAt
+        case createdAt
+        case counts = "_count"
+    }
 }
 
 struct PaymentMethod: Codable, Identifiable, Equatable {
@@ -3094,8 +3421,16 @@ struct OkResponse: Codable, Equatable {
     let deleted: Bool?
 }
 
-struct CountResponse: Codable, Equatable {
+/// `GET /approvals/pending-count`.
+///
+/// `count` sums every queue; `requests` is the generic `ApprovalRequest` queue
+/// minus the caller's own rows, and each remaining field is a domain queue that
+/// registered itself server-side. A client that renders only some of the queues
+/// must badge off those queues' own fields rather than off `count`.
+struct ApprovalPendingCount: Codable, Equatable {
     let count: Int
+    let requests: Int
+    let paymentApplications: Int
 }
 
 struct CreditBalance: Codable, Equatable {
@@ -3306,64 +3641,74 @@ struct CommissionEntry: Codable, Identifiable, Equatable {
     let sale: CommissionSaleRef?
 }
 
-// MARK: - Pay-period commission payouts
+// MARK: - Numbered commission payouts
 
-/// A single commission entry available to include in a pay-period payout.
-struct CommissionPayoutEligibleEntry: Codable, Identifiable, Equatable {
+/// `DRAFT` reserves its lines while the document is open, `PAID` has posted its
+/// journal, `VOID` has released or reversed it.
+typealias CommissionPayoutStatus = String
+
+/// A numbered commission payout (`cp-YYMMDD###`).
+///
+/// Created as a draft that reserves the selected commission lines and the
+/// mandatory rollover adjustments, then either marked paid — which posts the
+/// journal atomically — or voided, which releases draft lines or reverses the
+/// accounting and re-accrues the eligible ones.
+struct CommissionPayout: Codable, Identifiable, Equatable {
+    struct MethodRef: Codable, Identifiable, Equatable {
+        let id: String
+        let name: String
+    }
+
+    struct AccountRef: Codable, Identifiable, Equatable {
+        let id: String
+        let code: String
+        let name: String
+    }
+
     let id: String
-    let employeeId: String
-    let employeeName: String
-    let saleId: String?
-    let saleRef: String?
-    let basis: CommissionBasis
-    let basisAmount: Double
-    let rate: Double
-    let amount: Double
-    let note: String?
-    let createdAt: String
-}
-
-/// Server preview of a proposed pay-period payout: selected entries plus any
-/// automatic rollover lines that fall into the period.
-struct CommissionPayoutPreview: Codable, Equatable {
-    let entries: [CommissionPayoutEligibleEntry]
-    let rollovers: [CommissionPayoutEligibleEntry]
-    let entryTotal: Double
-    let rolloverTotal: Double
-    let total: Double
-    let availableMethods: [PaymentMethod]
-}
-
-/// Enriched payout history row returned by the pay-period endpoint.
-struct CommissionPayoutRecord: Codable, Identifiable, Equatable {
-    let id: String
-    let periodFrom: String
-    let periodTo: String
+    let ref: String
+    let status: CommissionPayoutStatus
     let amount: Double
     let entryCount: Int
-    let rolloverCount: Int
-    let methodId: String?
-    let methodName: String?
-    let note: String?
+    let periodFrom: String?
+    let periodTo: String?
+    let paymentMethod: MethodRef?
+    /// Snapshotted at payout so an incoming Check/Card clearing account is never
+    /// silently reused for outgoing commission cash. Detail endpoint only.
+    let fundingAccount: AccountRef?
+    let employee: CommissionEmployeeRef?
+    /// Detail endpoint only — the lines the payout reserved.
+    let entries: [CommissionEntry]?
+    let paidAt: String?
+    let voidedAt: String?
+    let voidReason: String?
     let createdAt: String
-    let employeeName: String?
+    let updatedAt: String?
+}
+
+/// `GET /employees/:id/payout-preview` — every commission entry whose sale falls
+/// in the period, plus the outstanding negative rollovers that ride along with
+/// any payout regardless of the period.
+struct CommissionPayoutPreview: Codable, Equatable {
+    let sales: [CommissionEntry]
+    let rollovers: [CommissionEntry]
+    let rolloverTotal: Double
 }
 
 struct CommissionPayoutCreateInput: Codable, Equatable {
-    let employeeId: String?
+    let entryIds: [String]
+    let paymentMethodId: String
+    /// Checked server-side against what the selection actually totals, so a
+    /// stale screen cannot post an amount the operator never saw.
+    let expectedAmount: Double
     let from: String
     let to: String
-    let entryIds: [String]
-    let rolloverIds: [String]
-    let methodId: String?
-    let note: String?
 }
 
-struct CommissionPayoutEligibleRequest: Codable, Equatable {
-    let from: String
-    let to: String
-    let employeeId: String?
+struct CommissionPayoutVoidInput: Codable, Equatable {
+    let reason: String?
 }
+
 
 // MARK: - Charge preflights
 

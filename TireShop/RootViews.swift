@@ -23,6 +23,8 @@ enum AppRoute: Hashable {
     case containerDetail(String)
     case supplierDetail(String)
     case vendorDetail(String)
+    case paymentApplicationDetail(String)
+    case paymentApplicationEditor(id: String?, vendorId: String?)
     case tapToPay(invoiceId: String, amount: Double, saleId: String?, saleRef: String?, customerName: String?)
     case customerDetail(id: String, name: String)
     case employeeDetail(String)
@@ -417,6 +419,14 @@ struct NavigationShell<Content: View>: View {
         case .vendorDetail(let id):
             authorized(auth.has("vendors.view")) {
                 VendorDetailNativeView(id: id)
+            }
+        case .paymentApplicationDetail(let id):
+            authorized(auth.has("paymentapps.view")) {
+                PaymentApplicationDetailNativeView(id: id)
+            }
+        case .paymentApplicationEditor(let id, let vendorId):
+            authorized(auth.has("paymentapps.manage")) {
+                PaymentApplicationEditorNativeView(id: id, presetVendorId: vendorId)
             }
         case .tapToPay(let invoiceId, let amount, let saleId, let saleRef, let customerName):
             authorized(auth.has("payments.collect")) {

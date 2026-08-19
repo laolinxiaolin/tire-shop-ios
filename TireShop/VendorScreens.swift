@@ -469,6 +469,8 @@ struct VendorDetailNativeView: View {
                     ("Notes", vendor.notes ?? "-")
                 ])
 
+                VendorBankAccountsSection(vendorId: vendor.id)
+
                 SectionHeader("Recent costs")
                 if let costsError, costs == nil {
                     RetryView(message: costsError) { Task { await loadCosts() } }
