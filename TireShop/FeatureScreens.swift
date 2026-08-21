@@ -1959,14 +1959,6 @@ private struct SalesStatusBadge: View {
         SalesLabels.status(status)
     }
 
-    private var systemImage: String {
-        switch status {
-        case "PAID": return "checkmark.circle.fill"
-        case "INVOICED": return "doc.text.fill"
-        default: return "circle.fill"
-        }
-    }
-
     private var foreground: Color {
         switch status {
         case "PAID": return Color(lightHex: 0x0757b7, darkHex: 0x8fc5ff)
@@ -1992,7 +1984,7 @@ private struct SalesStatusBadge: View {
     }
 
     var body: some View {
-        Label(label, systemImage: systemImage)
+        Text(label)
             .font(.caption.weight(.bold))
             .foregroundStyle(foreground)
             .padding(.horizontal, 9)
@@ -2002,6 +1994,87 @@ private struct SalesStatusBadge: View {
             .overlay(Capsule().stroke(border, lineWidth: status == "INVOICED" ? 2 : 1))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Status: \(label)")
+    }
+}
+
+private struct SalesPaymentMethodBadge: View {
+    let invoiceId: String?
+    let refreshID: UUID
+
+    private enum LoadState {
+        case idle
+        case loading
+        case loaded(String)
+        case unavailable
+    }
+
+    @State private var loadState: LoadState = .idle
+
+    private var taskID: String {
+        "\(invoiceId ?? "not-invoiced")-\(refreshID.uuidString)"
+    }
+
+    private var label: String? {
+        guard invoiceId != nil else { return nil }
+        switch loadState {
+        case .loaded(let method) where method != "Unpaid": return method
+        case .idle, .loading, .loaded, .unavailable: return nil
+        }
+    }
+
+    var body: some View {
+        Group {
+            if let label {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Theme.primary.opacity(0.1))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Theme.primary.opacity(0.35)))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Payment method: \(label)")
+            } else {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+        }
+        .task(id: taskID) {
+            await loadPaymentMethod()
+        }
+    }
+
+    @MainActor
+    private func loadPaymentMethod() async {
+        guard let invoiceId else {
+            loadState = .loaded("No payment")
+            return
+        }
+
+        loadState = .loading
+        do {
+            let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
+            guard !Task.isCancelled else { return }
+
+            var seen = Set<String>()
+            let methods = payments.compactMap { payment -> String? in
+                let status = payment.status.uppercased()
+                guard status != "REVERSED", status != "VOIDED" else { return nil }
+                let name = payment.paymentMethod?.name.nilIfBlank ?? payment.processor?.nilIfBlank
+                guard let name, seen.insert(name.lowercased()).inserted else { return nil }
+                return name
+            }
+            loadState = .loaded(methods.isEmpty ? "Unpaid" : methods.joined(separator: " + "))
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadState = .unavailable
+        }
     }
 }
 
@@ -2620,6 +2693,7 @@ struct SalesListNativeView: View {
     @State private var hasLoaded = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
+    @State private var paymentMethodsRefreshID = UUID()
 
     init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3, initialBestSellerWarehouse: String? = nil) {
         _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
@@ -2809,8 +2883,22 @@ struct SalesListNativeView: View {
 
     private func saleRow(_ sale: SaleListItem) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                Text(invoiceLabel(sale))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+
+                Spacer(minLength: Theme.Space.sm)
+
+                Text(AppFormat.dateTime(sale.createdAt))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            }
+
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.md) {
-                Text("\(sale.ref ?? "Sale") - \(sale.customer.company ?? sale.customer.name)")
+                Text(sale.customer.name)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
@@ -2818,20 +2906,52 @@ struct SalesListNativeView: View {
                 Spacer(minLength: Theme.Space.sm)
 
                 Text(AppFormat.money(sale.total))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold).monospacedDigit())
                     .foregroundStyle(Theme.text)
+                    .lineLimit(1)
             }
 
             HStack(spacing: Theme.Space.sm) {
                 SalesStatusBadge(status: sale.status)
 
-                Text(saleSubtitle(sale))
-                    .font(.subheadline)
+                SalesPaymentMethodBadge(
+                    invoiceId: sale.invoice?.id,
+                    refreshID: paymentMethodsRefreshID
+                )
+
+                Spacer(minLength: Theme.Space.xs)
+
+                Label(tireSummaryLabel(sale), systemImage: "tire")
+                    .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
+                    .layoutPriority(1)
             }
         }
         .padding(.vertical, Theme.Space.xs)
+    }
+
+    private func invoiceLabel(_ sale: SaleListItem) -> String {
+        if let invoiceRef = sale.invoice?.ref?.nilIfBlank {
+            return "Invoice \(invoiceRef)"
+        }
+        if let saleRef = sale.ref?.nilIfBlank {
+            return "Sale \(saleRef)"
+        }
+        return "Sale"
+    }
+
+    private func tireSummaryLabel(_ sale: SaleListItem) -> String {
+        let skuCount = Set(sale.lines.compactMap { line -> String? in
+            guard line.itemType.uppercased() == "SKU" else { return nil }
+            return line.itemId.nilIfBlank
+                ?? line.sku?.id?.nilIfBlank
+                ?? line.skuCode?.nilIfBlank
+                ?? line.id
+        }).count
+        let tireLabel = "\(sale.tireQty) tire\(sale.tireQty == 1 ? "" : "s")"
+        let skuLabel = "\(skuCount) SKU\(skuCount == 1 ? "" : "s")"
+        return "\(tireLabel) · \(skuLabel)"
     }
 
     private var salesHeader: some View {
@@ -3073,20 +3193,6 @@ struct SalesListNativeView: View {
         return "No sales found."
     }
 
-    private func saleSubtitle(_ sale: SaleListItem) -> String {
-        var parts = [
-            sale.location,
-            AppFormat.dateTime(sale.createdAt)
-        ]
-
-        if sale.tireQty > 0 {
-            let more = sale.extraLineCount > 0 ? " +\(sale.extraLineCount) more" : ""
-            parts.append("\(sale.tireQty) tires - \(sale.sampleDescription ?? "SKU lines")\(more)")
-        }
-
-        return parts.joined(separator: " - ")
-    }
-
     private func updateStatus(_ value: String) {
         guard status != value else { return }
         status = value
@@ -3179,6 +3285,7 @@ struct SalesListNativeView: View {
             guard loadRequestID == requestID else { return }
             items = response.items
             summary = response.summary
+            paymentMethodsRefreshID = UUID()
             hasMore = response.items.count >= pageSize
             nextPage = response.page + 1
             nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
