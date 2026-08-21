@@ -842,6 +842,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
     let sampleDescription: String?
     let extraLineCount: Int
     let grossProfit: String
+    let paymentMethods: [String]
     let salespersonId: String?
     let salesperson: CustomerSalesperson?
 
@@ -863,6 +864,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         case sampleDescription
         case extraLineCount
         case grossProfit
+        case paymentMethods
         case salespersonId
         case salesperson
         case soldBy
@@ -887,6 +889,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         sampleDescription = try container.decodeIfPresent(String.self, forKey: .sampleDescription)
         extraLineCount = try container.decode(Int.self, forKey: .extraLineCount)
         grossProfit = try container.decode(String.self, forKey: .grossProfit)
+        paymentMethods = try container.decodeIfPresent([String].self, forKey: .paymentMethods) ?? []
         salespersonId = try container.decodeIfPresent(String.self, forKey: .salespersonId)
         if let salesperson = try? container.decodeIfPresent(CustomerSalesperson.self, forKey: .salesperson) {
             self.salesperson = salesperson
@@ -916,6 +919,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         try container.encodeIfPresent(sampleDescription, forKey: .sampleDescription)
         try container.encode(extraLineCount, forKey: .extraLineCount)
         try container.encode(grossProfit, forKey: .grossProfit)
+        try container.encode(paymentMethods, forKey: .paymentMethods)
         try container.encodeIfPresent(salespersonId, forKey: .salespersonId)
         try container.encodeIfPresent(salesperson, forKey: .salesperson)
     }

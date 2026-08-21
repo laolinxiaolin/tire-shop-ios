@@ -1998,82 +1998,34 @@ private struct SalesStatusBadge: View {
 }
 
 private struct SalesPaymentMethodBadge: View {
-    let invoiceId: String?
-    let refreshID: UUID
-
-    private enum LoadState {
-        case idle
-        case loading
-        case loaded(String)
-        case unavailable
-    }
-
-    @State private var loadState: LoadState = .idle
-
-    private var taskID: String {
-        "\(invoiceId ?? "not-invoiced")-\(refreshID.uuidString)"
-    }
+    let methods: [String]
 
     private var label: String? {
-        guard invoiceId != nil else { return nil }
-        switch loadState {
-        case .loaded(let method) where method != "Unpaid": return method
-        case .idle, .loading, .loaded, .unavailable: return nil
+        var seen = Set<String>()
+        let names = methods.compactMap { method -> String? in
+            guard let name = method.nilIfBlank,
+                  seen.insert(name.lowercased()).inserted
+            else { return nil }
+            return name
         }
+        return names.isEmpty ? nil : names.joined(separator: " + ")
     }
 
+    @ViewBuilder
     var body: some View {
-        Group {
-            if let label {
-                Text(label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Theme.primary.opacity(0.1))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Theme.primary.opacity(0.35)))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Payment method: \(label)")
-            } else {
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .accessibilityHidden(true)
-            }
-        }
-        .task(id: taskID) {
-            await loadPaymentMethod()
-        }
-    }
-
-    @MainActor
-    private func loadPaymentMethod() async {
-        guard let invoiceId else {
-            loadState = .loaded("No payment")
-            return
-        }
-
-        loadState = .loading
-        do {
-            let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
-            guard !Task.isCancelled else { return }
-
-            var seen = Set<String>()
-            let methods = payments.compactMap { payment -> String? in
-                let status = payment.status.uppercased()
-                guard status != "REVERSED", status != "VOIDED" else { return nil }
-                let name = payment.paymentMethod?.name.nilIfBlank ?? payment.processor?.nilIfBlank
-                guard let name, seen.insert(name.lowercased()).inserted else { return nil }
-                return name
-            }
-            loadState = .loaded(methods.isEmpty ? "Unpaid" : methods.joined(separator: " + "))
-        } catch is CancellationError {
-            return
-        } catch {
-            guard !Task.isCancelled else { return }
-            loadState = .unavailable
+        if let label {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Theme.primary.opacity(0.1))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Theme.primary.opacity(0.35)))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Payment method: \(label)")
         }
     }
 }
@@ -2693,7 +2645,6 @@ struct SalesListNativeView: View {
     @State private var hasLoaded = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
-    @State private var paymentMethodsRefreshID = UUID()
 
     init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3, initialBestSellerWarehouse: String? = nil) {
         _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
@@ -2914,10 +2865,7 @@ struct SalesListNativeView: View {
             HStack(spacing: Theme.Space.sm) {
                 SalesStatusBadge(status: sale.status)
 
-                SalesPaymentMethodBadge(
-                    invoiceId: sale.invoice?.id,
-                    refreshID: paymentMethodsRefreshID
-                )
+                SalesPaymentMethodBadge(methods: displayedPaymentMethods(sale))
 
                 Spacer(minLength: Theme.Space.xs)
 
@@ -2952,6 +2900,11 @@ struct SalesListNativeView: View {
         let tireLabel = "\(sale.tireQty) tire\(sale.tireQty == 1 ? "" : "s")"
         let skuLabel = "\(skuCount) SKU\(skuCount == 1 ? "" : "s")"
         return "\(tireLabel) · \(skuLabel)"
+    }
+
+    private func displayedPaymentMethods(_ sale: SaleListItem) -> [String] {
+        guard (Double(sale.invoice?.paidTotal ?? "") ?? 0) > 0 else { return [] }
+        return sale.paymentMethods
     }
 
     private var salesHeader: some View {
@@ -3285,7 +3238,6 @@ struct SalesListNativeView: View {
             guard loadRequestID == requestID else { return }
             items = response.items
             summary = response.summary
-            paymentMethodsRefreshID = UUID()
             hasMore = response.items.count >= pageSize
             nextPage = response.page + 1
             nextCursor = response.items.last.map { SalesCursor(before: $0.createdAt, beforeId: $0.id) }
