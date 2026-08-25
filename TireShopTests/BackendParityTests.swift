@@ -23,6 +23,108 @@ final class BackendParityTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    // MARK: - Manual payment overpayment
+
+    func testCustomerManualPaymentCanCreateStoreCredit() {
+        XCTAssertTrue(ManualPaymentOverpaymentPolicy.allowsOverpayment(
+            customerId: "customer_1",
+            storeCreditApplied: 0
+        ))
+        XCTAssertTrue(ManualPaymentOverpaymentPolicy.isOverpayment(
+            totalApplied: 125,
+            balance: 100
+        ))
+        XCTAssertEqual(ManualPaymentOverpaymentPolicy.amount(
+            totalApplied: 125,
+            balance: 100
+        ), 25)
+        XCTAssertEqual(ManualPaymentOverpaymentPolicy.appliedToInvoice(
+            totalApplied: 125,
+            balance: 100
+        ), 100)
+    }
+
+    func testManualPaymentRejectsOverpaymentWithoutCustomer() {
+        XCTAssertFalse(ManualPaymentOverpaymentPolicy.allowsOverpayment(
+            customerId: nil,
+            storeCreditApplied: 0
+        ))
+        XCTAssertFalse(ManualPaymentOverpaymentPolicy.allowsOverpayment(
+            customerId: "  ",
+            storeCreditApplied: 0
+        ))
+    }
+
+    func testStoreCreditCannotFundAnOverpayment() {
+        XCTAssertFalse(ManualPaymentOverpaymentPolicy.allowsOverpayment(
+            customerId: "customer_1",
+            storeCreditApplied: 10
+        ))
+    }
+
+    func testReceivableQuickSplitCarriesExcessIntoReceiptSubmission() {
+        let visibleApplications = [
+            ReceivableApplication(invoiceId: "invoice_1", amount: 4_032),
+            ReceivableApplication(invoiceId: "invoice_2", amount: 5_040),
+        ]
+
+        let excess = ReceivableOverpaymentPolicy.excess(
+            received: 10_000,
+            openBalance: 9_072
+        )
+        let submittedApplications = ReceivableOverpaymentPolicy.applicationsForSubmission(
+            visibleApplications,
+            excess: excess
+        )
+
+        XCTAssertEqual(excess, 928)
+        XCTAssertEqual(submittedApplications, [
+            ReceivableApplication(invoiceId: "invoice_1", amount: 4_032),
+            ReceivableApplication(invoiceId: "invoice_2", amount: 5_968),
+        ])
+        XCTAssertEqual(submittedApplications.reduce(0) { $0 + $1.amount }, 10_000)
+    }
+
+    func testReceivableStoreCreditTenderCannotCreateStoreCredit() {
+        XCTAssertFalse(ReceivableOverpaymentPolicy.allowsStoreCredit(
+            excess: 928,
+            paymentMethodAccountCode: "2400"
+        ))
+        XCTAssertTrue(ReceivableOverpaymentPolicy.allowsStoreCredit(
+            excess: 928,
+            paymentMethodAccountCode: "1010"
+        ))
+    }
+
+    func testOverpaymentSafeguardsHaveEnglishAndChineseMessages() {
+        let keys = [
+            "payment.confirmOverpayment",
+            "payment.confirmCustomerOverpayment",
+            "payment.confirmSingleOverpayment",
+            "payment.feeAppliesSummary",
+            "payment.verifyCustomerOverpayment",
+            "payment.verifyManualOverpayment",
+            "payment.warningOverpayment",
+        ]
+
+        for key in keys {
+            let english = I18nStore.messages[.en]?[key]
+            let chinese = I18nStore.messages[.zh]?[key]
+            XCTAssertNotNil(english, "Missing English localization for \(key)")
+            XCTAssertNotNil(chinese, "Missing Chinese localization for \(key)")
+            XCTAssertNotEqual(english, chinese, "Chinese localization should not fall back for \(key)")
+        }
+
+        XCTAssertEqual(
+            I18nStore.messages[.zh]?["payment.storeCredit"],
+            "客户预存余额"
+        )
+        XCTAssertFalse(
+            I18nStore.messages[.zh]?.values.contains { $0.contains("店内信用") } == true,
+            "Chinese copy should use the clearer customer prepaid-balance term"
+        )
+    }
+
     // MARK: - Sales list light mode (#406)
 
     func testSalesListDecodesFullMode() throws {

@@ -4064,7 +4064,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "保留为店铺信用"
+            "value" : "保留为客户预存余额"
           }
         }
       }
@@ -6002,7 +6002,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "永久删除该客户。一旦存在销售、订单或店内信用记录则不可删除。"
+            "value" : "永久删除该客户。一旦存在销售、订单或客户预存余额记录则不可删除。"
           }
         }
       }
@@ -8109,7 +8109,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "店铺余额"
+            "value" : "客户预存余额"
           }
         }
       }
@@ -8120,7 +8120,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已发放店铺余额"
+            "value" : "已存入客户预存余额"
           }
         }
       }

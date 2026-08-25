@@ -101,6 +101,34 @@ struct CompactFilterChip: View {
     }
 }
 
+enum ManualPaymentOverpaymentPolicy {
+    static func isOverpayment(totalApplied: Double, balance: Double) -> Bool {
+        totalApplied - balance > 0.01
+    }
+
+    static func amount(totalApplied: Double, balance: Double) -> Double {
+        guard isOverpayment(totalApplied: totalApplied, balance: balance) else { return 0 }
+        return roundMoney(totalApplied - balance)
+    }
+
+    static func appliedToInvoice(totalApplied: Double, balance: Double) -> Double {
+        isOverpayment(totalApplied: totalApplied, balance: balance)
+            ? max(0, roundMoney(balance))
+            : max(0, roundMoney(totalApplied))
+    }
+
+    static func allowsOverpayment(customerId: String?, storeCreditApplied: Double) -> Bool {
+        guard customerId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return storeCreditApplied <= 0.005
+    }
+
+    private static func roundMoney(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+}
+
 struct PaymentSheetNativeView: View {
     private let storeCreditCode = "2400"
 
@@ -110,6 +138,7 @@ struct PaymentSheetNativeView: View {
     let onPaid: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var methods: [PaymentMethod] = []
     @State private var creditBalance: Double?
@@ -120,6 +149,7 @@ struct PaymentSheetNativeView: View {
     @State private var postedApplied = 0.0
     @State private var recordingTask: Task<Void, Never>?
     @State private var showCardSheet = false
+    @State private var showOverpaymentConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -170,15 +200,50 @@ struct PaymentSheetNativeView: View {
                     Section("Totals") {
                         let totals = paymentTotals
                         let remainder = remaining(totals)
-                        RowLine(title: "Applied to invoice", trailing: AppFormat.money(totals.applied))
+                        RowLine(
+                            title: i18n.t("payment.appliedToInvoice"),
+                            trailing: AppFormat.money(ManualPaymentOverpaymentPolicy.appliedToInvoice(
+                                totalApplied: totals.applied,
+                                balance: effectiveBalance
+                            ))
+                        )
                         if totals.surcharge > 0 {
                             RowLine(title: "Card fee", trailing: AppFormat.money(totals.surcharge))
                             RowLine(title: "Customer pays", trailing: AppFormat.money(totals.customerPays))
                         }
-                        RowLine(
-                            title: remainder >= 0 ? "Remaining balance" : "Overpayment",
-                            trailing: AppFormat.money(abs(remainder))
-                        )
+                        if isOverpay(totals) {
+                            let overpayment = ManualPaymentOverpaymentPolicy.amount(
+                                totalApplied: totals.applied,
+                                balance: effectiveBalance
+                            )
+                            RowLine(
+                                title: allowsOverpay(totals)
+                                    ? i18n.t("payment.storeCredit")
+                                    : i18n.t("payment.overpayment"),
+                                subtitle: allowsOverpay(totals)
+                                    ? i18n.t("payment.creditFromOverpayment")
+                                    : nil,
+                                trailing: AppFormat.money(overpayment)
+                            )
+                            if let message = overpaymentError(totals) {
+                                Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.danger)
+                            } else {
+                                Label(
+                                    i18n.t("payment.verifyManualOverpayment"),
+                                    systemImage: "exclamationmark.triangle.fill"
+                                )
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.orange)
+                            }
+                        } else {
+                            RowLine(
+                                title: "Remaining balance",
+                                trailing: AppFormat.money(max(0, remainder))
+                            )
+                        }
                     }
                 }
 
@@ -192,7 +257,7 @@ struct PaymentSheetNativeView: View {
                 Section {
                     let totals = paymentTotals
                     Button(recording ? "Recording..." : recordTitle(totals)) {
-                        startRecording()
+                        requestRecording(totals)
                     }
                     .disabled(!canRecord(totals))
                 }
@@ -223,6 +288,13 @@ struct PaymentSheetNativeView: View {
                         dismiss()
                     }
                 )
+            }
+            .alert(i18n.t("payment.confirmOverpayment"), isPresented: $showOverpaymentConfirmation) {
+                Button(i18n.t("common.cancel"), role: .cancel) {}
+                Button(i18n.t("payment.confirmRecordCredit")) { startRecording() }
+            } message: {
+                let totals = paymentTotals
+                Text(overpaymentConfirmationMessage(totals))
             }
             .interactiveDismissDisabled(recording)
             .onDisappear {
@@ -280,7 +352,25 @@ struct PaymentSheetNativeView: View {
     }
 
     private func isOverpay(_ totals: PaymentTotals) -> Bool {
-        totals.applied - effectiveBalance > 0.01
+        ManualPaymentOverpaymentPolicy.isOverpayment(
+            totalApplied: totals.applied,
+            balance: effectiveBalance
+        )
+    }
+
+    private func allowsOverpay(_ totals: PaymentTotals) -> Bool {
+        ManualPaymentOverpaymentPolicy.allowsOverpayment(
+            customerId: customerId,
+            storeCreditApplied: totals.storeCredit
+        )
+    }
+
+    private func overpaymentError(_ totals: PaymentTotals) -> String? {
+        guard isOverpay(totals), !allowsOverpay(totals) else { return nil }
+        if customerId?.nilIfBlank == nil {
+            return i18n.t("payment.customerRequiredForOverpayment")
+        }
+        return i18n.t("payment.storeCreditCannotCreateCredit")
     }
 
     private func isOverCredit(_ totals: PaymentTotals) -> Bool {
@@ -290,13 +380,33 @@ struct PaymentSheetNativeView: View {
 
     private func canRecord(_ totals: PaymentTotals) -> Bool {
         !recording && totals.validRowCount > 0
-            && !isOverpay(totals) && !isOverCredit(totals)
+            && (!isOverpay(totals) || allowsOverpay(totals))
+            && !isOverCredit(totals)
     }
 
     private func recordTitle(_ totals: PaymentTotals) -> String {
         totals.validRowCount <= 1
             ? "Record manual payment"
             : "Record \(totals.validRowCount) manual payments"
+    }
+
+    private func overpaymentConfirmationMessage(_ totals: PaymentTotals) -> String {
+        let overpayment = ManualPaymentOverpaymentPolicy.amount(
+            totalApplied: totals.applied,
+            balance: effectiveBalance
+        )
+        var message = i18n.t("payment.confirmSingleOverpayment", [
+            "balance": AppFormat.money(effectiveBalance),
+            "payment": AppFormat.money(totals.applied),
+            "credit": AppFormat.money(overpayment),
+        ])
+        if totals.surcharge > 0.005 {
+            message += " " + i18n.t("payment.feeAppliesSummary", [
+                "fee": AppFormat.money(totals.surcharge),
+                "total": AppFormat.money(totals.customerPays),
+            ])
+        }
+        return message
     }
 
     @MainActor
@@ -352,8 +462,8 @@ struct PaymentSheetNativeView: View {
             if totals.validRowCount == 0 {
                 throw APIError(status: 0, message: "Add at least one payment.")
             }
-            if isOverpay(totals) {
-                throw APIError(status: 0, message: "Payment exceeds the invoice balance.")
+            if let message = overpaymentError(totals) {
+                throw APIError(status: 0, message: message)
             }
             if isOverCredit(totals) {
                 throw APIError(status: 0, message: "Store credit exceeds the available balance.")
@@ -372,13 +482,12 @@ struct PaymentSheetNativeView: View {
                     rows[index].attempted = true
                 }
 
-                let gross = roundMoney(row.amountValue + surcharge(for: row))
                 do {
                     _ = try await PaymentsAPI().record(
                         invoiceId: invoiceId,
                         body: PaymentRecordInput(
                             paymentMethodId: row.paymentMethodId,
-                            amount: gross,
+                            amount: row.amountValue,
                             reference: row.reference.nilIfBlank,
                             note: row.reconciliationMarker
                         ),
@@ -417,6 +526,15 @@ struct PaymentSheetNativeView: View {
         }
     }
 
+    private func requestRecording(_ totals: PaymentTotals) {
+        guard recordingTask == nil else { return }
+        if isOverpay(totals) {
+            showOverpaymentConfirmation = true
+        } else {
+            startRecording()
+        }
+    }
+
     @MainActor
     private func paymentWasRecorded(_ row: PaymentRow) async throws -> Bool {
         let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
@@ -426,7 +544,7 @@ struct PaymentSheetNativeView: View {
     @MainActor
     private func applyRecorded(_ row: PaymentRow) {
         guard rows.contains(where: { $0.id == row.id }) else { return }
-        postedApplied = roundMoney(postedApplied + row.amountValue)
+        postedApplied = roundMoney(postedApplied + min(row.amountValue, effectiveBalance))
         if method(for: row)?.account.code == storeCreditCode, let creditBalance {
             self.creditBalance = max(0, roundMoney(creditBalance - row.amountValue))
         }

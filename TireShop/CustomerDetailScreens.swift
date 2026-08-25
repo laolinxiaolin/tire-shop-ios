@@ -76,6 +76,7 @@ private struct CustomerPasswordResetTarget: Identifiable {
 
 struct CustomerDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @Environment(\.dismiss) private var dismiss
 
     let id: String
@@ -84,6 +85,7 @@ struct CustomerDetailNativeView: View {
     @State private var tab: CustomerDetailTab = .profile
     @State private var customer: Customer?
     @State private var account: CustomerAccount?
+    @State private var storeCreditBalance: Double?
     @State private var storefrontUsers: [CustomerUser] = []
     @State private var priceTiers: [PriceTier] = []
     @State private var salespersonOptions: [CustomerSalesperson] = []
@@ -587,6 +589,12 @@ struct CustomerDetailNativeView: View {
                         RowLine(title: "Credit limit", trailing: AppFormat.money(limit))
                     }
                 }
+                if let storeCreditBalance {
+                    RowLine(
+                        title: i18n.t("payment.storeCredit"),
+                        trailing: AppFormat.money(storeCreditBalance)
+                    )
+                }
                 if canManageCustomers {
                     Button {
                         Task { await saveAccountSettings() }
@@ -1010,11 +1018,11 @@ struct CustomerDetailNativeView: View {
 
     @MainActor
     private func loadAccount() async {
-        do {
-            account = try await CustomersAPI().account(id: id)
-        } catch {
-            account = nil
-        }
+        async let accountRequest = try? CustomersAPI().account(id: id)
+        async let storeCreditRequest = try? CustomersAPI().creditBalance(id: id)
+        let (loadedAccount, loadedStoreCredit) = await (accountRequest, storeCreditRequest)
+        account = loadedAccount
+        storeCreditBalance = loadedStoreCredit?.balance
     }
 
     @MainActor

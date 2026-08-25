@@ -1580,7 +1580,7 @@ struct VendorsAPI {
     }
 }
 
-struct ReceivableApplication: Codable {
+struct ReceivableApplication: Codable, Equatable {
     let invoiceId: String
     let amount: Double
 }

@@ -43,6 +43,39 @@ private struct FinanceSubmissionIdentity {
     }
 }
 
+enum ReceivableOverpaymentPolicy {
+    static let storeCreditAccountCode = "2400"
+
+    static func excess(received: Double, openBalance: Double) -> Double {
+        let difference = roundMoney(received - openBalance)
+        return difference > 0.01 ? difference : 0
+    }
+
+    static func allowsStoreCredit(excess: Double, paymentMethodAccountCode: String?) -> Bool {
+        excess <= 0.005 || paymentMethodAccountCode != storeCreditAccountCode
+    }
+
+    /// The receipts endpoint accepts invoice lines only. Put the unapplied
+    /// tender on the final line so the server can cap that invoice and create
+    /// the matching customer-credit ledger entry for the excess.
+    static func applicationsForSubmission(
+        _ applications: [ReceivableApplication],
+        excess: Double
+    ) -> [ReceivableApplication] {
+        guard excess > 0.005, let last = applications.indices.last else { return applications }
+        var result = applications
+        result[last] = ReceivableApplication(
+            invoiceId: result[last].invoiceId,
+            amount: roundMoney(result[last].amount + excess)
+        )
+        return result
+    }
+
+    private static func roundMoney(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+}
+
 /// Human label for a container-cost category code.
 private func prettyCostCategory(_ c: String) -> String {
     switch c {
@@ -471,6 +504,7 @@ private struct CollectReceivableSheet: View {
     let onPaid: () -> Void
 
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var detail: ReceivableCustomerDetail?
@@ -480,13 +514,28 @@ private struct CollectReceivableSheet: View {
     @State private var note = ""
     @State private var bulkAmount = ""
     @State private var allocations: [String: String] = [:]
+    @State private var overpaymentAmount = 0.0
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var postedRef: String?
+    @State private var postedStoreCredit = 0.0
     @State private var submissionIdentity = FinanceSubmissionIdentity()
     @State private var submissionTask: Task<Void, Never>?
+    @State private var showOverpaymentConfirmation = false
 
     private var canCollect: Bool { auth.has("payments.collect") }
+
+    private var selectedMethod: PaymentMethod? {
+        methods.first { $0.id == paymentMethodId }
+    }
+
+    private var overpaymentError: String? {
+        guard !ReceivableOverpaymentPolicy.allowsStoreCredit(
+            excess: overpaymentAmount,
+            paymentMethodAccountCode: selectedMethod?.account.code
+        ) else { return nil }
+        return i18n.t("payment.storeCreditCannotCreateCredit")
+    }
 
     /// What the entered allocations add up to, and which rows are unusable.
     /// Resolved in one pass: the invoice list re-read these per rendered row,
@@ -548,16 +597,23 @@ private struct CollectReceivableSheet: View {
                 }
                 if canCollect {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(busy ? "Posting..." : "Collect") { startSubmission() }
+                        Button(busy ? "Posting..." : "Collect") { requestSubmission() }
                             .disabled(
                                 busy
                                     || state.totalApplied <= 0
                                     || paymentMethodId.isEmpty
                                     || !state.invalidRows.isEmpty
                                     || !state.overpaidRows.isEmpty
+                                    || overpaymentError != nil
                             )
                     }
                 }
+            }
+            .alert(i18n.t("payment.confirmOverpayment"), isPresented: $showOverpaymentConfirmation) {
+                Button(i18n.t("common.cancel"), role: .cancel) {}
+                Button(i18n.t("payment.confirmCollectCredit")) { startSubmission() }
+            } message: {
+                Text(overpaymentConfirmationMessage(totalApplied: state.totalApplied))
             }
             .alert("Payment recorded", isPresented: Binding(
                 get: { postedRef != nil },
@@ -565,7 +621,16 @@ private struct CollectReceivableSheet: View {
             )) {
                 Button("OK") {}
             } message: {
-                Text("Receipt # \(postedRef ?? "")")
+                if postedStoreCredit > 0.005 {
+                    Text(
+                        "Receipt # \(postedRef ?? "")\n"
+                            + i18n.t("payment.creditSaved", [
+                                "credit": AppFormat.money(postedStoreCredit),
+                            ])
+                    )
+                } else {
+                    Text("Receipt # \(postedRef ?? "")")
+                }
             }
         }
         .task { if detail == nil { await load() } }
@@ -602,7 +667,11 @@ private struct CollectReceivableSheet: View {
                 } header: {
                     Text("Quick split")
                 } footer: {
-                    Text("Or type an amount on each invoice below.")
+                    if overpaymentAmount > 0.005 {
+                        Text(i18n.t("payment.excessBecomesCredit"))
+                    } else {
+                        Text("Or type an amount on each invoice below.")
+                    }
                 }
             }
 
@@ -625,7 +694,11 @@ private struct CollectReceivableSheet: View {
                                     .foregroundStyle(Theme.muted)
                                 TextField("0.00", text: Binding(
                                     get: { allocations[inv.id] ?? "" },
-                                    set: { allocations[inv.id] = $0 }
+                                    set: {
+                                        allocations[inv.id] = $0
+                                        bulkAmount = ""
+                                        overpaymentAmount = 0
+                                    }
                                 ))
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
@@ -646,20 +719,53 @@ private struct CollectReceivableSheet: View {
 
                 if canCollect {
                     HStack {
-                        Text("Total applied")
+                        Text(i18n.t("payment.appliedToInvoices"))
                             .fontWeight(.semibold)
                         Spacer()
                         Text(AppFormat.money(state.totalApplied))
                             .fontWeight(.semibold)
                     }
+                    if overpaymentAmount > 0.005 {
+                        RowLine(
+                            title: i18n.t("payment.storeCredit"),
+                            subtitle: i18n.t("payment.creditFromOverpayment"),
+                            trailing: AppFormat.money(overpaymentAmount)
+                        )
+                        HStack {
+                            Text(i18n.t("payment.totalReceived"))
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Text(AppFormat.money(state.totalApplied + overpaymentAmount))
+                                .fontWeight(.semibold)
+                        }
+                    }
                 }
             }
 
-            if canCollect, let fee = feeNote(totalApplied: state.totalApplied) {
+            if canCollect, let fee = feeNote(totalApplied: state.totalApplied + overpaymentAmount) {
                 Section {
                     Text(fee)
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+            }
+
+            if overpaymentAmount > 0.005, overpaymentError == nil {
+                Section {
+                    Label(i18n.t("payment.warningOverpayment"), systemImage: "exclamationmark.triangle.fill")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.orange)
+                    Text(i18n.t("payment.verifyCustomerOverpayment", [
+                        "credit": AppFormat.money(overpaymentAmount),
+                    ]))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text)
+                }
+            }
+
+            if let overpaymentError {
+                Section {
+                    Text(overpaymentError).foregroundStyle(.red).font(.subheadline)
                 }
             }
 
@@ -679,13 +785,32 @@ private struct CollectReceivableSheet: View {
         return "A \(String(format: "%.1f", rate * 100))% card fee applies: +\(AppFormat.money(fee)) (customer pays \(AppFormat.money(totalApplied + fee)))."
     }
 
+    private func overpaymentConfirmationMessage(totalApplied: Double) -> String {
+        let totalReceived = totalApplied + overpaymentAmount
+        let methodName = selectedMethod?.name ?? "the selected payment method"
+        var message = i18n.t("payment.confirmCustomerOverpayment", [
+            "applied": AppFormat.money(totalApplied),
+            "credit": AppFormat.money(overpaymentAmount),
+            "total": AppFormat.money(totalReceived),
+            "method": methodName,
+        ])
+        if let rate = selectedMethod?.feeRate.flatMap(Double.init), rate > 0 {
+            let fee = (totalReceived * rate * 100).rounded() / 100
+            message += " " + i18n.t("payment.feeAppliesSummary", [
+                "fee": AppFormat.money(fee),
+                "total": AppFormat.money(totalReceived + fee),
+            ])
+        }
+        return message
+    }
+
     private func collectAllInFull(_ detail: ReceivableCustomerDetail) {
         bulkAmount = String(format: "%.2f", detail.totalBalance)
         split(detail, total: detail.totalBalance)
     }
 
     private func applyOldestFirst(_ detail: ReceivableCustomerDetail) {
-        guard let total = Double(bulkAmount), total > 0 else {
+        guard let total = Double(bulkAmount), total.isFinite, total > 0 else {
             errorMessage = "Enter a positive amount first"
             return
         }
@@ -702,6 +827,10 @@ private struct CollectReceivableSheet: View {
             remaining = ((remaining - apply) * 100).rounded() / 100
         }
         allocations = next
+        overpaymentAmount = ReceivableOverpaymentPolicy.excess(
+            received: total,
+            openBalance: detail.totalBalance
+        )
     }
 
     @MainActor
@@ -712,7 +841,9 @@ private struct CollectReceivableSheet: View {
             async let ms = CashAccountsAPI().methods()
             let (loadedDetail, loadedMethods) = try await (d, ms)
             detail = loadedDetail
-            methods = loadedMethods.filter(\.isActive)
+            // This endpoint records manual tenders. Processor-backed methods
+            // must use their gateway flow and are rejected by the backend here.
+            methods = loadedMethods.filter { $0.isActive && $0.processor == nil }
             if paymentMethodId.isEmpty { paymentMethodId = methods.first?.id ?? "" }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load invoices."
@@ -738,6 +869,10 @@ private struct CollectReceivableSheet: View {
             errorMessage = "One or more amounts exceed the remaining invoice balance."
             return
         }
+        guard overpaymentError == nil else {
+            errorMessage = overpaymentError
+            return
+        }
         guard !paymentMethodId.isEmpty else {
             errorMessage = "Select a payment method."
             return
@@ -748,10 +883,14 @@ private struct CollectReceivableSheet: View {
         defer { busy = false }
 
         do {
+            let applications = ReceivableOverpaymentPolicy.applicationsForSubmission(
+                state.applications,
+                excess: overpaymentAmount
+            )
             let input = ReceivablesPayInput(
                 customerId: customer.id,
                 paymentMethodId: paymentMethodId,
-                applications: state.applications,
+                applications: applications,
                 reference: reference.nilIfBlank,
                 note: note.nilIfBlank
             )
@@ -761,6 +900,7 @@ private struct CollectReceivableSheet: View {
                 idempotencyKey: idempotencyKey
             )
             if let ref = result.ref {
+                postedStoreCredit = overpaymentAmount
                 postedRef = ref
             } else {
                 busy = false
@@ -779,6 +919,15 @@ private struct CollectReceivableSheet: View {
         submissionTask = Task { @MainActor in
             await submit()
             submissionTask = nil
+        }
+    }
+
+    private func requestSubmission() {
+        guard submissionTask == nil else { return }
+        if overpaymentAmount > 0.005 {
+            showOverpaymentConfirmation = true
+        } else {
+            startSubmission()
         }
     }
 }
