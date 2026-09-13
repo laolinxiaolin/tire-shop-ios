@@ -42,7 +42,28 @@ struct RootGateView: View {
     var body: some View {
         Group {
             if !auth.ready {
-                LoadingView(label: i18n.t("common.loading"))
+                if let error = auth.restoreError {
+                    VStack(spacing: Theme.Space.md) {
+                        Text(i18n.t("login.restoreTitle"))
+                            .font(.headline)
+                        Text(i18n.t(error))
+                            .foregroundStyle(Theme.muted)
+                            .multilineTextAlignment(.center)
+                        PrimaryButton(title: i18n.t("common.retry")) {
+                            if error == "login.sessionRemovalFailed" {
+                                auth.signOut()
+                            } else {
+                                Task { await auth.restore() }
+                            }
+                        }
+                        SecondaryButton(title: i18n.t("login.signIn")) {
+                            auth.signOut()
+                        }
+                    }
+                    .padding(Theme.Space.lg)
+                } else {
+                    LoadingView(label: i18n.t("common.loading"))
+                }
             } else if let user = auth.user {
                 if shopClock.isReady(for: user.id) {
                     RootNavigatorView()
@@ -55,7 +76,7 @@ struct RootGateView: View {
         }
         .task {
             if !auth.ready {
-                auth.restore()
+                await auth.restore()
             }
         }
         .task(id: auth.user?.id) {

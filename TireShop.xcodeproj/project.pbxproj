@@ -40,6 +40,7 @@
 		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
 		DA2CAB89D93A492949D61FEF /* SalePriceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A2C561FAA11164DC7245F8 /* SalePriceHistory.swift */; };
 		67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1782DD0F092018F372E6865E /* Services.swift */; };
+		C3D4CD55072FBD511C927CE7 /* SessionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FA4AB024B3DF70120413E31 /* SessionStorage.swift */; };
 		54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867D8A179010B63034C1EDCF /* SharedViews.swift */; };
 		DFB7520D8F37E61ABA5D26B9 /* ShopClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B20C04BE21A066E3A097CBB /* ShopClock.swift */; };
 		971787390F5A55BBE93AA760 /* ShopClockStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE787CB12540A948C415CEC /* ShopClockStore.swift */; };
@@ -64,6 +65,7 @@
 		07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D98F989BA35BDAA193F641 /* PayLinkTests.swift */; };
 		41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */; };
 		0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */; };
+		82AB75B15112E008D0AD4C1F /* SessionStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */; };
 		0CEC6E0C266A079105949932 /* SupplierCorrectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2DAA9876D085B53C96C73B /* SupplierCorrectionTests.swift */; };
 		9EF30F5D48ACFBB6C1DAEDF5 /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 861E4BCC7361F5BA4FD4E259 /* StripeTerminal */; };
 		A6DA2354BC96D7241DD366C5 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = EE2423EE6B9A6599B9A70A15 /* StripePaymentSheet */; };
@@ -106,6 +108,7 @@
 		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViews.swift"; sourceTree = "<group>"; };
 		05A2C561FAA11164DC7245F8 /* SalePriceHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePriceHistory.swift"; sourceTree = "<group>"; };
 		1782DD0F092018F372E6865E /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services.swift"; sourceTree = "<group>"; };
+		7FA4AB024B3DF70120413E31 /* SessionStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionStorage.swift"; sourceTree = "<group>"; };
 		867D8A179010B63034C1EDCF /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedViews.swift"; sourceTree = "<group>"; };
 		3B20C04BE21A066E3A097CBB /* ShopClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopClock.swift"; sourceTree = "<group>"; };
 		CFE787CB12540A948C415CEC /* ShopClockStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShopClockStore.swift"; sourceTree = "<group>"; };
@@ -130,6 +133,7 @@
 		02D98F989BA35BDAA193F641 /* PayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PayLinkTests.swift"; sourceTree = "<group>"; };
 		12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentMethodPatchInputTests.swift"; sourceTree = "<group>"; };
 		0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePricingTests.swift"; sourceTree = "<group>"; };
+		B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionStorageTests.swift"; sourceTree = "<group>"; };
 		0D2DAA9876D085B53C96C73B /* SupplierCorrectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SupplierCorrectionTests.swift"; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F219C0274590DA45E4BEF1EA /* TireShopTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TireShopTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -206,6 +210,7 @@
 				B54402C1C6DDB15D78025760 /* RootViews.swift */,
 				05A2C561FAA11164DC7245F8 /* SalePriceHistory.swift */,
 				1782DD0F092018F372E6865E /* Services.swift */,
+				7FA4AB024B3DF70120413E31 /* SessionStorage.swift */,
 				867D8A179010B63034C1EDCF /* SharedViews.swift */,
 				3B20C04BE21A066E3A097CBB /* ShopClock.swift */,
 				CFE787CB12540A948C415CEC /* ShopClockStore.swift */,
@@ -243,6 +248,7 @@
 				02D98F989BA35BDAA193F641 /* PayLinkTests.swift */,
 				12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */,
 				0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */,
+				B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */,
 				0D2DAA9876D085B53C96C73B /* SupplierCorrectionTests.swift */,
 			);
 			path = TireShopTests;
@@ -402,6 +408,7 @@
 				98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */,
 				DA2CAB89D93A492949D61FEF /* SalePriceHistory.swift in Sources */,
 				67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */,
+				C3D4CD55072FBD511C927CE7 /* SessionStorage.swift in Sources */,
 				54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */,
 				DFB7520D8F37E61ABA5D26B9 /* ShopClock.swift in Sources */,
 				971787390F5A55BBE93AA760 /* ShopClockStore.swift in Sources */,
@@ -433,6 +440,7 @@
 				07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */,
 				41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */,
 				0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */,
+				82AB75B15112E008D0AD4C1F /* SessionStorageTests.swift in Sources */,
 				0CEC6E0C266A079105949932 /* SupplierCorrectionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -566,7 +574,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091202;
+				CURRENT_PROJECT_VERSION = 2026091301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -593,7 +601,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091202;
+				CURRENT_PROJECT_VERSION = 2026091301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -620,7 +628,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091202;
+				CURRENT_PROJECT_VERSION = 2026091301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -643,7 +651,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091202;
+				CURRENT_PROJECT_VERSION = 2026091301;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

@@ -279,7 +279,7 @@ final class APIClient {
         set { tokenLock.withLock { $0 = newValue } }
     }
 
-    var onUnauthorized: (() -> Void)?
+    var onUnauthorized: ((String) -> Void)?
 
     private let session: URLSession
     private let decoder = JSONDecoder()
@@ -337,6 +337,12 @@ final class APIClient {
             noAuthBounce: true,
             includeAuth: false
         )
+    }
+
+    func currentSession() async throws -> SessionUser {
+        // AuthStore handles an expired saved session separately from a
+        // temporary failure so an outage cannot delete the saved credential.
+        try await request("/auth/session", noAuthBounce: true, cachePolicy: .reloadIgnoringLocalCacheData)
     }
 
     func uploadMultipart<T: Decodable>(
@@ -473,7 +479,8 @@ final class APIClient {
         method: String = "GET",
         noAuthBounce: Bool = false,
         includeAuth: Bool = true,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> T {
         try await performRequest(
             path,
@@ -481,7 +488,8 @@ final class APIClient {
             bodyData: nil,
             noAuthBounce: noAuthBounce,
             includeAuth: includeAuth,
-            idempotencyKey: idempotencyKey
+            idempotencyKey: idempotencyKey,
+            cachePolicy: cachePolicy
         )
     }
 
@@ -510,9 +518,10 @@ final class APIClient {
         bodyData: Data?,
         noAuthBounce: Bool,
         includeAuth: Bool,
-        idempotencyKey: String?
+        idempotencyKey: String?,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> T {
-        var request = URLRequest(url: try Self.endpointURL(for: path))
+        var request = URLRequest(url: try Self.endpointURL(for: path), cachePolicy: cachePolicy)
         request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -612,8 +621,7 @@ final class APIClient {
         }
 
         guard didInvalidate else { return }
-        KeychainStore.deleteToken()
-        onUnauthorized?()
+        onUnauthorized?(requestToken)
     }
 
     private static func makeMultipartBodyFile(

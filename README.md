@@ -37,6 +37,10 @@ These workflows require the corresponding backend endpoints. Wholesale pricing r
 
 Regression tests live in `TireShopTests/`. Build and run the `TireShop` scheme's tests against an installed iOS simulator. Camera capture must also be checked on a physical iPhone; simulators offer Photos and Files.
 
+Login survives closing and reopening the app. The access token and its server URL are stored together in the device-only Keychain; passwords and user permissions are not cached. Each cold launch validates the token through `GET /api/auth/session` and loads current user permissions before opening the app. A network or server failure keeps the credential for Retry; an expired/revoked session or explicit sign-out removes it. Changing servers never sends the saved token to the new server.
+
+Deploy the backend's `GET /api/auth/session` endpoint and seven-day staff access-token lifetime before distributing this app change. No database migration or environment change is required. Until the endpoint is deployed, reopening offers password login with an explanation. New logins last one week; existing tokens retain their original expiration. Sessions are not renewed on reopening, and sign-out or server-side revocation ends access sooner. Users need to sign in once after updating because earlier app versions did not save a session. Authentication regression coverage is in `AuthStoreTests` and `SessionStorageTests`.
+
 The native cheque workflows also follow web/backend [PR #465](https://github.com/laolinxiaolin/tire-shop/pull/465):
 
 - Invoice and receivables cheque collection require a valid planned calendar date before any payment is submitted, including split tenders.
