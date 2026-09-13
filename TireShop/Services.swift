@@ -98,6 +98,7 @@ struct PaymentRecordInput: Codable {
     let amount: Double
     let reference: String?
     let note: String?
+    var plannedDepositDate: String? = nil
 }
 
 struct ReasonInput: Codable {
@@ -1475,7 +1476,9 @@ struct ReturnsAPI {
     }
 
     func post(id: String, body: PostReturnInput? = nil) async throws -> ReturnRecord {
-        try await client.request("/returns/\(id)/post", method: "POST", body: body ?? PostReturnInput(netPayment: nil, netRefund: nil))
+        let result: ReturnRecord = try await client.request("/returns/\(id)/post", method: "POST", body: body ?? PostReturnInput(netPayment: nil, netRefund: nil))
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func void(id: String, reason: String? = nil) async throws -> ReturnRecord {
@@ -1591,6 +1594,7 @@ struct ReceivablesPayInput: Codable {
     let applications: [ReceivableApplication]
     let reference: String?
     let note: String?
+    var plannedDepositDate: String? = nil
 }
 
 struct StatementEmailInput: Codable {
@@ -1627,12 +1631,14 @@ struct MoneyAPI {
         _ body: ReceivablesPayInput,
         idempotencyKey: String? = nil
     ) async throws -> SettlementResult {
-        try await client.request(
+        let result: SettlementResult = try await client.request(
             "/receivables/pay",
             method: "POST",
             body: body,
             idempotencyKey: idempotencyKey
         )
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func downloadStatement(customerId: String) async throws -> URL {
@@ -1673,7 +1679,9 @@ struct MoneyAPI {
     }
 
     func reverseReceipt(id: String) async throws -> SettlementResult {
-        try await client.request("/receipts/\(id)/reverse", method: "POST", body: EmptyBody())
+        let result: SettlementResult = try await client.request("/receipts/\(id)/reverse", method: "POST", body: EmptyBody())
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func supplierPayments(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<SupplierPayment> {
@@ -1899,6 +1907,31 @@ struct AccountingAPI {
     func accountHistory(code: String, page: Int? = nil, pageSize: Int? = nil) async throws -> AccountHistory {
         let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? code
         return try await client.request("/accounting/accounts/\(encoded)/history\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func checkReminders() async throws -> CheckReminderSummary {
+        try await client.request("/accounting/check-reminders")
+    }
+
+    func undepositedCheckReport(asOf: String) async throws -> UndepositedCheckReport {
+        try await client.request("/accounting/reports/undeposited-checks\(query(["asOf": asOf]))")
+    }
+
+    func exportUndepositedChecks(asOf: String) async throws -> URL {
+        try await client.download(
+            "/accounting/reports/undeposited-checks/export\(query(["asOf": asOf]))",
+            fileName: "undeposited-checks-\(asOf).xlsx"
+        )
+    }
+
+    func updatePlannedDepositDate(paymentId: String, plannedDepositDate: String) async throws -> CheckPlannedDateResult {
+        let result: CheckPlannedDateResult = try await client.request(
+            "/accounting/checks/\(paymentId)/planned-deposit-date",
+            method: "PATCH",
+            body: ["plannedDepositDate": plannedDepositDate]
+        )
+        await CheckRegisterEvents.changed()
+        return result
     }
 }
 
@@ -2126,20 +2159,33 @@ struct CashAccountsAPI {
         try await client.request("/accounting/transfers\(query(["page": page, "pageSize": pageSize]))")
     }
 
+    /// Filtered on the server before pagination, including reversed deposits.
+    func checkDeposits(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<CashTransferDetail> {
+        try await client.request("/accounting/check-deposits\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    func transfer(id: String) async throws -> CashTransferDetail {
+        try await client.request("/accounting/transfers/\(id)")
+    }
+
     func createTransfer(
         _ body: TransferCreateInput,
         idempotencyKey: String? = nil
     ) async throws -> OkResponse {
-        try await client.request(
+        let result: OkResponse = try await client.request(
             "/accounting/transfers",
             method: "POST",
             body: body,
             idempotencyKey: idempotencyKey
         )
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func reverseTransfer(id: String) async throws -> OkResponse {
-        try await client.request("/accounting/transfers/\(id)/reverse", method: "POST", body: EmptyBody())
+        let result: OkResponse = try await client.request("/accounting/transfers/\(id)/reverse", method: "POST", body: EmptyBody())
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func undepositedChecks() async throws -> UndepositedChecks {
@@ -2684,16 +2730,20 @@ struct PaymentsAPI {
         body: PaymentRecordInput,
         idempotencyKey: String? = nil
     ) async throws -> InvoicePayment {
-        try await client.request(
+        let result: InvoicePayment = try await client.request(
             "/invoices/\(invoiceId)/payments",
             method: "POST",
             body: body,
             idempotencyKey: idempotencyKey
         )
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func reverse(paymentId: String, reason: String? = nil) async throws -> ReverseResult {
-        try await client.request("/payments/\(paymentId)/reverse", method: "POST", body: ReasonInput(reason: reason))
+        let result: ReverseResult = try await client.request("/payments/\(paymentId)/reverse", method: "POST", body: ReasonInput(reason: reason))
+        await CheckRegisterEvents.changed()
+        return result
     }
 
     func refundProcessor(paymentId: String, reason: String? = nil) async throws -> ReverseResult {

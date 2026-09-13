@@ -1537,6 +1537,7 @@ struct InvoicePayment: Codable, Identifiable, Equatable {
     let note: String?
     let processor: String?
     let paymentMethod: Method?
+    var plannedDepositDate: String? = nil
 }
 
 struct ReverseResult: Codable, Equatable {
@@ -1689,6 +1690,7 @@ struct PostReturnInput: Codable, Equatable {
         let amount: Double
         let reference: String?
         let note: String?
+        var plannedDepositDate: String? = nil
     }
 
     struct NetRefund: Codable, Equatable {
@@ -1849,6 +1851,7 @@ struct CustomerReceiptDetail: Codable, Identifiable, Equatable {
         let paymentMethod: String?
         let amount: Double
         let surchargeAmount: Double
+        var plannedDepositDate: String? = nil
     }
 
     let id: String
@@ -2948,11 +2951,126 @@ struct UndepositedCheck: Codable, Identifiable, Equatable {
     let methodName: String
     let invoiceRef: String?
     let customerName: String
+    var plannedDepositDate: String? = nil
+    var receiptRef: String? = nil
 }
 
 struct UndepositedChecks: Codable, Equatable {
     let accountCode: String
     let items: [UndepositedCheck]
+}
+
+/// Permanent received-check identity. Historical rows can outlive their payment.
+struct CheckRegisterItem: Codable, Identifiable, Equatable {
+    let id: String
+    let paymentId: String?
+    let amount: Double
+    let reference: String?
+    let note: String?
+    let createdAt: String
+    var plannedDepositDate: String?
+    let receiptRef: String?
+    let invoiceRef: String?
+    let customerName: String?
+    let methodName: String?
+    var status: CheckDepositStatus?
+
+    init(
+        id: String,
+        paymentId: String?,
+        amount: Double,
+        reference: String?,
+        note: String?,
+        createdAt: String,
+        plannedDepositDate: String?,
+        receiptRef: String?,
+        invoiceRef: String?,
+        customerName: String?,
+        methodName: String?,
+        status: CheckDepositStatus? = nil
+    ) {
+        self.id = id
+        self.paymentId = paymentId
+        self.amount = amount
+        self.reference = reference
+        self.note = note
+        self.createdAt = createdAt
+        self.plannedDepositDate = plannedDepositDate
+        self.receiptRef = receiptRef
+        self.invoiceRef = invoiceRef
+        self.customerName = customerName
+        self.methodName = methodName
+        self.status = status
+    }
+
+    init(_ current: UndepositedCheck) {
+        self.init(
+            id: current.id,
+            paymentId: current.id,
+            amount: current.amount,
+            reference: current.reference,
+            note: current.note,
+            createdAt: current.createdAt,
+            plannedDepositDate: current.plannedDepositDate,
+            receiptRef: current.receiptRef,
+            invoiceRef: current.invoiceRef,
+            customerName: current.customerName,
+            methodName: current.methodName
+        )
+    }
+}
+
+struct UndepositedCheckReport: Codable, Equatable {
+    let asOf: String
+    let timezone: String
+    let totalAmount: Double
+    let count: Int
+    let items: [CheckRegisterItem]
+}
+
+struct CheckReminderSummary: Codable, Equatable {
+    let asOf: String
+    let timezone: String
+    let dueTodayCount: Int
+    let overdueCount: Int
+    let unscheduledCount: Int
+    let totalAmount: Double
+    let items: [CheckRegisterItem]
+}
+
+struct CheckPlannedDateResult: Codable, Equatable {
+    let id: String
+    let plannedDepositDate: String
+}
+
+struct CashTransferCheck: Codable, Identifiable, Equatable {
+    let id: String
+    let amount: Double
+    let checkNumber: String?
+    let receiptRef: String?
+    let invoiceRef: String?
+    let customerName: String?
+    let methodName: String?
+    let note: String?
+}
+
+/// Full transfer detail uses numeric amounts and permanent check snapshots;
+/// the general transfer list uses decimal strings and only a membership count.
+struct CashTransferDetail: Codable, Identifiable, Equatable {
+    let id: String
+    let ref: String
+    let reference: String?
+    let note: String?
+    let amount: Double
+    let fee: Double
+    let netAmount: Double
+    let reversedAt: String?
+    let createdAt: String
+    let fromAccount: JournalLine.AccountInfo
+    let toAccount: JournalLine.AccountInfo
+    let createdByName: String?
+    let checkCount: Int
+    let checks: [CashTransferCheck]
 }
 
 struct ExpensePayment: Codable, Identifiable, Equatable {

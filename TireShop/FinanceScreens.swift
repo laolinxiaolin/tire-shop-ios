@@ -512,6 +512,7 @@ private struct CollectReceivableSheet: View {
     @State private var paymentMethodId = ""
     @State private var reference = ""
     @State private var note = ""
+    @State private var plannedDepositDate = ""
     @State private var bulkAmount = ""
     @State private var allocations: [String: String] = [:]
     @State private var overpaymentAmount = 0.0
@@ -527,6 +528,12 @@ private struct CollectReceivableSheet: View {
 
     private var selectedMethod: PaymentMethod? {
         methods.first { $0.id == paymentMethodId }
+    }
+
+    private var plannedDepositDateError: String? {
+        selectedMethod?.account.code == "1010" && !CheckDates.isValid(plannedDepositDate)
+            ? i18n.t("payment.depositDateRequired")
+            : nil
     }
 
     private var overpaymentError: String? {
@@ -650,6 +657,12 @@ private struct CollectReceivableSheet: View {
                         ForEach(methods) { m in
                             Text(m.name).tag(m.id)
                         }
+                    }
+                    .onChange(of: paymentMethodId) { _, _ in
+                        plannedDepositDate = ""
+                    }
+                    if selectedMethod?.account.code == "1010" {
+                        PlannedCheckDepositDateField(date: $plannedDepositDate)
                     }
                     TextField("Reference / check #", text: $reference)
                     TextField("Note (optional)", text: $note)
@@ -877,6 +890,10 @@ private struct CollectReceivableSheet: View {
             errorMessage = "Select a payment method."
             return
         }
+        guard plannedDepositDateError == nil else {
+            errorMessage = plannedDepositDateError
+            return
+        }
 
         busy = true
         errorMessage = nil
@@ -892,7 +909,10 @@ private struct CollectReceivableSheet: View {
                 paymentMethodId: paymentMethodId,
                 applications: applications,
                 reference: reference.nilIfBlank,
-                note: note.nilIfBlank
+                note: note.nilIfBlank,
+                plannedDepositDate: selectedMethod?.account.code == "1010"
+                    ? plannedDepositDate
+                    : nil
             )
             let idempotencyKey = try submissionIdentity.key(for: input)
             let result = try await MoneyAPI().payReceivables(
@@ -924,6 +944,10 @@ private struct CollectReceivableSheet: View {
 
     private func requestSubmission() {
         guard submissionTask == nil else { return }
+        if let message = plannedDepositDateError {
+            errorMessage = message
+            return
+        }
         if overpaymentAmount > 0.005 {
             showOverpaymentConfirmation = true
         } else {
@@ -2709,167 +2733,343 @@ private struct AccountHistorySheet: View {
     }
 }
 
-private struct TransferFundsSheet: View {
+struct TransferFundsSheet: View {
     let accounts: [CashAccount]
     let onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var fromCode = ""
-    @State private var toCode = ""
+    @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var i18n: I18nStore
+    @State private var fromCode: String
+    @State private var toCode: String
     @State private var amount = ""
     @State private var fee = ""
     @State private var reference = ""
     @State private var note = ""
     @State private var checks: UndepositedChecks?
+    @State private var checksError: String?
+    @State private var loadingChecks = false
     @State private var checkedIds = Set<String>()
+    @State private var today = CheckDates.string(Date())
+    @State private var confirmationFor: CheckDepositDraft?
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var submissionIdentity = FinanceSubmissionIdentity()
     @State private var submissionTask: Task<Void, Never>?
+    @AccessibilityFocusState private var warningFocused: Bool
 
-    // When transferring out of the Undeposited Checks account, the operator
-    // picks the specific checks being deposited instead of typing an amount.
-    private var isCheckDeposit: Bool {
-        guard let checks else { return false }
-        return fromCode == checks.accountCode && !checks.items.isEmpty
+    init(
+        accounts: [CashAccount],
+        initialFromCode: String? = nil,
+        initialToCode: String? = nil,
+        onDone: @escaping () -> Void
+    ) {
+        self.accounts = accounts
+        self.onDone = onDone
+        let codes = accounts.map(\.code)
+        _fromCode = State(initialValue: CheckDepositDraft.initialAccountCode(
+            preset: initialFromCode, accountCodes: codes, fallbackIndex: 0
+        ))
+        _toCode = State(initialValue: CheckDepositDraft.initialAccountCode(
+            preset: initialToCode, accountCodes: codes, fallbackIndex: 1
+        ))
     }
 
-    private var checkedTotal: Double {
-        (checks?.items ?? []).filter { checkedIds.contains($0.id) }.reduce(0) { $0 + $1.amount }
+    // An empty or failed check lookup must never turn account 1010 into a
+    // manual-amount transfer, which would leave the check payments unlinked.
+    private var isCheckDeposit: Bool { fromCode == "1010" }
+
+    private var checkedItems: [UndepositedCheck] {
+        (checks?.items ?? []).filter { checkedIds.contains($0.id) }
     }
 
-    private var effectiveAmount: Double {
-        isCheckDeposit ? checkedTotal : (Double(amount) ?? 0)
+    private var checkedTotal: Double { checkedItems.reduce(0) { $0 + $1.amount } }
+
+    private var effectiveAmount: Double { isCheckDeposit ? checkedTotal : (Double(amount) ?? 0) }
+
+    private var checksNeedingConfirmation: [UndepositedCheck] {
+        guard isCheckDeposit else { return [] }
+        return checkedItems.filter {
+            let status = CheckDates.status(plannedDepositDate: $0.plannedDepositDate, asOf: today)
+            return status == .future || status == .unscheduled
+        }
+    }
+
+    private var draft: CheckDepositDraft { currentDraft(asOf: today) }
+
+    private var confirmationVisible: Bool { draft.isConfirmed(by: confirmationFor) }
+
+    private var submissionDisabled: Bool {
+        saving || fromCode.isEmpty || toCode.isEmpty ||
+        (isCheckDeposit && (checks == nil || checksError != nil || loadingChecks || checkedItems.isEmpty))
+    }
+
+    private func currentDraft(asOf day: String) -> CheckDepositDraft {
+        CheckDepositDraft(
+            fromCode: fromCode, toCode: toCode, amount: amount, fee: fee,
+            reference: reference, note: note, today: day,
+            selectedChecks: checkedItems.sorted { $0.id < $1.id }.map {
+                CheckDepositDraft.SelectedCheck(id: $0.id, amount: $0.amount, plannedDepositDate: $0.plannedDepositDate)
+            }
+        )
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Picker("From", selection: $fromCode) {
-                        ForEach(accounts) { a in
-                            Text("\(a.code) — \(a.name)").tag(a.code)
+            ScrollViewReader { scroll in
+                Form {
+                    Section {
+                        Picker(i18n.t("accounting.cash.fromAccount"), selection: $fromCode) {
+                            Text(i18n.t("accounting.cash.selectAccount")).tag("")
+                            ForEach(accounts) { account in
+                                Text("\(account.code) — \(account.name)").tag(account.code)
+                            }
+                        }
+                        Picker(i18n.t("accounting.cash.toAccount"), selection: $toCode) {
+                            Text(i18n.t("accounting.cash.selectAccount")).tag("")
+                            ForEach(accounts) { account in
+                                Text("\(account.code) — \(account.name)").tag(account.code)
+                            }
                         }
                     }
-                    Picker("To", selection: $toCode) {
-                        ForEach(accounts) { a in
-                            Text("\(a.code) — \(a.name)").tag(a.code)
-                        }
-                    }
-                }
 
-                if isCheckDeposit, let checks {
-                    Section {
-                        Button(checkedIds.count == checks.items.count ? "Deselect all" : "Select all") {
-                            if checkedIds.count == checks.items.count {
-                                checkedIds = []
-                            } else {
-                                checkedIds = Set(checks.items.map(\.id))
-                            }
+                    if isCheckDeposit {
+                        checkSelectionSection
+                    } else {
+                        Section {
+                            TextField(i18n.t("accounting.cash.amountDollars"), text: $amount)
+                                .keyboardType(.decimalPad)
                         }
-                        ForEach(checks.items) { check in
-                            Button {
-                                if checkedIds.contains(check.id) {
-                                    checkedIds.remove(check.id)
-                                } else {
-                                    checkedIds.insert(check.id)
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: checkedIds.contains(check.id) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(checkedIds.contains(check.id) ? Theme.primary : Theme.muted)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(check.customerName + (check.reference.map { " · #\($0)" } ?? ""))
-                                            .font(.subheadline)
-                                            .foregroundStyle(Theme.text)
-                                            .lineLimit(1)
-                                        Text("\(AppFormat.shortDate(check.createdAt))\(check.invoiceRef.map { " · \($0)" } ?? "")")
-                                            .font(.caption)
-                                            .foregroundStyle(Theme.muted)
-                                    }
-                                    Spacer()
-                                    Text(AppFormat.money(check.amount))
-                                        .font(.subheadline)
-                                }
-                            }
-                        }
-                        HStack {
-                            Text("\(checkedIds.count) check\(checkedIds.count == 1 ? "" : "s") selected")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Text(AppFormat.money(checkedTotal))
-                                .fontWeight(.semibold)
-                        }
-                    } header: {
-                        Text("Checks to deposit")
                     }
-                } else {
+
                     Section {
-                        TextField("Amount $", text: $amount)
+                        TextField(i18n.t("accounting.cash.feeDollars"), text: $fee)
                             .keyboardType(.decimalPad)
+                        TextField(i18n.t("accounting.cash.referencePlaceholderTransfer"), text: $reference)
+                            .accessibilityLabel(i18n.t("accounting.cash.referenceOptional"))
+                        TextField(i18n.t("accounting.cash.noteOptional"), text: $note)
+                    } footer: {
+                        if let feeValue = Double(fee), feeValue > 0, effectiveAmount > 0 {
+                            Text(i18n.t("accounting.cash.feeNote", [
+                                "arrive": AppFormat.money(effectiveAmount - feeValue),
+                                "fee": AppFormat.money(feeValue)
+                            ]))
+                        }
+                    }
+
+                    if confirmationVisible {
+                        confirmationSection.id("deposit-warning")
+                    }
+
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage).foregroundStyle(Theme.danger).font(.subheadline)
+                        }
                     }
                 }
-
-                Section {
-                    TextField("Fee $ (optional)", text: $fee)
-                        .keyboardType(.decimalPad)
-                    TextField("Bank reference / deposit slip # (optional)", text: $reference)
-                    TextField("Note (optional)", text: $note)
-                } footer: {
-                    if let feeValue = Double(fee), feeValue > 0, effectiveAmount > 0 {
-                        Text("\(AppFormat.money(effectiveAmount - feeValue)) arrives after the \(AppFormat.money(feeValue)) fee.")
-                    }
-                }
-
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                .onChange(of: confirmationVisible) { _, visible in
+                    if visible {
+                        withAnimation { scroll.scrollTo("deposit-warning", anchor: .top) }
+                        warningFocused = true
                     }
                 }
             }
-            .navigationTitle(isCheckDeposit ? "Deposit checks" : "Transfer funds")
+            .navigationTitle(i18n.t(isCheckDeposit ? "accounting.cash.depositChecksTitle" : "accounting.cash.transferTitle"))
             .navigationBarTitleDisplayMode(.inline)
             .disabled(saving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(i18n.t("accounting.cash.cancel")) { dismiss() }
                         .disabled(saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Saving..." : "Transfer") { startSubmission() }
-                        .disabled(saving)
+                    Button(i18n.t(saving ? "accounting.cash.transferring" :
+                        (isCheckDeposit ? "accounting.cash.confirmDeposit" : "accounting.cash.confirmTransfer"))) {
+                        startSubmission()
+                    }
+                    .disabled(submissionDisabled || confirmationVisible)
                 }
             }
-            .onAppear {
-                if fromCode.isEmpty { fromCode = accounts.first?.code ?? "" }
-                if toCode.isEmpty { toCode = accounts.dropFirst().first?.code ?? "" }
-            }
-            .task {
-                if checks == nil {
-                    checks = (try? await CashAccountsAPI().undepositedChecks()) ?? UndepositedChecks(accountCode: "", items: [])
+            .onChange(of: fromCode) { _, code in
+                if code == "1010" {
+                    toCode = accounts.contains { $0.code == "1020" } ? "1020" : ""
                 }
             }
+            .onChange(of: draft) { _, updated in
+                if confirmationFor != updated { confirmationFor = nil }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { today = CheckDates.string(Date()) }
+            }
+            .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
+                today = CheckDates.string(now)
+            }
+            .task { await loadChecks() }
             .interactiveDismissDisabled(saving)
             .onDisappear {
-                if saving {
-                    submissionTask?.cancel()
-                }
+                if saving { submissionTask?.cancel() }
             }
         }
     }
 
+    private var checkSelectionSection: some View {
+        Section {
+            if let checksError {
+                Text(checksError).foregroundStyle(Theme.danger)
+                Button(i18n.t("common.retry")) { Task { await loadChecks() } }
+                    .disabled(loadingChecks)
+            } else if loadingChecks || checks == nil {
+                ProgressView(i18n.t("common.loading"))
+            } else if let checks, checks.items.isEmpty {
+                Text(i18n.t("checks.empty")).foregroundStyle(Theme.muted)
+            } else if let checks {
+                Button(i18n.t(checkedItems.count == checks.items.count ? "accounting.cash.deselectAll" : "accounting.cash.selectAll")) {
+                    checkedIds = checkedItems.count == checks.items.count ? [] : Set(checks.items.map(\.id))
+                }
+                ForEach(checks.items) { check in
+                    Button {
+                        if checkedIds.contains(check.id) {
+                            checkedIds.remove(check.id)
+                        } else {
+                            checkedIds.insert(check.id)
+                        }
+                    } label: {
+                        checkRow(check)
+                    }
+                    .accessibilityAddTraits(checkedIds.contains(check.id) ? .isSelected : [])
+                }
+                HStack {
+                    Text(i18n.t("accounting.cash.checksSelected", ["n": checkedItems.count]))
+                    Spacer()
+                    Text(AppFormat.money(checkedTotal))
+                }
+                .fontWeight(.semibold)
+            }
+        } header: {
+            Text(i18n.t("accounting.cash.checksToDeposit"))
+        }
+    }
+
+    private func checkRow(_ check: UndepositedCheck) -> some View {
+        HStack(alignment: .top) {
+            Image(systemName: checkedIds.contains(check.id) ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(checkedIds.contains(check.id) ? Theme.primary : Theme.muted)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(check.customerName + (check.reference.map { " · #\($0)" } ?? ""))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text)
+                Text(([CheckDisplay.received(check.createdAt, locale: i18n.language.locale)] + [check.receiptRef, check.invoiceRef].compactMap { $0 }).joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                Text(i18n.t("payment.plannedDepositDate"))
+                    .font(.caption)
+                    .foregroundStyle(Theme.text)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        CheckDepositDateLabel(plannedDepositDate: check.plannedDepositDate, asOf: today)
+                        checkStatusLabel(check)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        CheckDepositDateLabel(plannedDepositDate: check.plannedDepositDate, asOf: today)
+                        checkStatusLabel(check)
+                    }
+                }
+                .font(.caption)
+            }
+            Spacer(minLength: 4)
+            Text(AppFormat.money(check.amount))
+                .font(.subheadline)
+                .foregroundStyle(Theme.text)
+        }
+    }
+
+    @ViewBuilder
+    private func checkStatusLabel(_ check: UndepositedCheck) -> some View {
+        switch CheckDates.status(plannedDepositDate: check.plannedDepositDate, asOf: today) {
+        case .future: Text(i18n.t("checks.notDueYet")).foregroundStyle(Theme.text)
+        case .dueToday: Text(i18n.t("checks.dueToday")).foregroundStyle(Theme.text)
+        case .overdue: Text(i18n.t("checks.overdue")).foregroundStyle(Theme.text)
+        case .unscheduled: EmptyView()
+        }
+    }
+
+    private var confirmationSection: some View {
+        Section {
+            Text(i18n.t("accounting.cash.depositWarningTitle"))
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($warningFocused)
+            Text(i18n.t("accounting.cash.depositWarningBody"))
+                .font(.subheadline)
+            ForEach(checksNeedingConfirmation) { check in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(([check.customerName] + [check.reference.map { "#\($0)" }, check.receiptRef, check.invoiceRef].compactMap { $0 }
+                        + [AppFormat.money(check.amount)]).joined(separator: " · "))
+                        .font(.subheadline.weight(.semibold))
+                    Text(check.plannedDepositDate.flatMap { CheckDates.isValid($0) ? $0 : nil }.map { date in
+                        i18n.t("accounting.cash.depositWarningFuture", ["date": CheckDepositDateLabel.calendarLabel(date)])
+                    } ?? i18n.t("accounting.cash.depositWarningUnscheduled"))
+                        .font(.caption)
+                }
+            }
+            Button(i18n.t("accounting.cash.reviewChecks")) { confirmationFor = nil }
+            Button(i18n.t("accounting.cash.depositAnyway")) { startSubmission(confirmed: true) }
+                .fontWeight(.semibold)
+                .disabled(submissionDisabled)
+        }
+    }
+
     @MainActor
-    private func submit() async {
+    private func loadChecks() async {
+        guard !loadingChecks else { return }
+        loadingChecks = true
+        checksError = nil
+        defer { loadingChecks = false }
+        do {
+            let response = try await CashAccountsAPI().undepositedChecks()
+            guard !Task.isCancelled else { return }
+            checks = response
+            checkedIds.formIntersection(Set(response.items.map(\.id)))
+        } catch {
+            guard !Task.isCancelled else { return }
+            checksError = (error as? LocalizedError)?.errorDescription ?? i18n.t("accounting.cash.checksLoadFailed")
+        }
+    }
+
+    @MainActor
+    private func submit(confirmed: Bool) async {
+        guard accounts.contains(where: { $0.code == fromCode }), accounts.contains(where: { $0.code == toCode }) else {
+            errorMessage = i18n.t("accounting.cash.selectAccount")
+            return
+        }
         guard fromCode != toCode else {
-            errorMessage = "From and To accounts must be different"
+            errorMessage = i18n.t("accounting.cash.differentAccounts")
             return
         }
-        if isCheckDeposit && checkedIds.isEmpty {
-            errorMessage = "Select at least one check to deposit"
+        if isCheckDeposit {
+            guard checks != nil, checksError == nil, !loadingChecks else { return }
+            guard !checkedItems.isEmpty else {
+                errorMessage = i18n.t("accounting.cash.selectChecks")
+                return
+            }
+        } else if !effectiveAmount.isFinite || effectiveAmount <= 0 {
+            errorMessage = i18n.t("accounting.cash.enterPositiveAmount")
             return
         }
-        if !isCheckDeposit && effectiveAmount <= 0 {
-            errorMessage = "Enter a positive amount"
+        let feeValue = fee.isEmpty ? 0 : Double(fee)
+        guard let feeValue, feeValue.isFinite, feeValue >= 0 else {
+            errorMessage = i18n.t("accounting.cash.enterValidFee")
+            return
+        }
+        // Validate against the live shop day as well as the timer-backed view.
+        // A suspended app or a tap at midnight cannot reuse yesterday's review.
+        let liveToday = CheckDates.string(Date())
+        let submittedDraft = currentDraft(asOf: liveToday)
+        today = liveToday
+        if submittedDraft.needsConfirmation && !(confirmed && submittedDraft.isConfirmed(by: confirmationFor)) {
+            errorMessage = nil
+            confirmationFor = submittedDraft
             return
         }
         saving = true
@@ -2881,30 +3081,27 @@ private struct TransferFundsSheet: View {
                 fromCode: fromCode,
                 toCode: toCode,
                 amount: effectiveAmount,
-                fee: Double(fee) ?? 0,
+                fee: feeValue,
                 note: note.nilIfBlank,
                 reference: reference.nilIfBlank,
-                paymentIds: isCheckDeposit ? Array(checkedIds).sorted() : nil
+                paymentIds: isCheckDeposit ? checkedItems.map(\.id).sorted() : nil
             )
             let idempotencyKey = try submissionIdentity.key(for: input)
-            _ = try await CashAccountsAPI().createTransfer(
-                input,
-                idempotencyKey: idempotencyKey
-            )
+            _ = try await CashAccountsAPI().createTransfer(input, idempotencyKey: idempotencyKey)
             saving = false
             onDone()
             dismiss()
         } catch {
             if !Task.isCancelled {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the transfer."
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? i18n.t("accounting.cash.transferFailed")
             }
         }
     }
 
-    private func startSubmission() {
-        guard submissionTask == nil else { return }
+    private func startSubmission(confirmed: Bool = false) {
+        guard submissionTask == nil, !saving else { return }
         submissionTask = Task { @MainActor in
-            await submit()
+            await submit(confirmed: confirmed)
             submissionTask = nil
         }
     }

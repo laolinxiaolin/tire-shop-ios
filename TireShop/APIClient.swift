@@ -386,6 +386,7 @@ final class APIClient {
 
     func download(_ path: String, fileName: String) async throws -> URL {
         var request = URLRequest(url: try Self.endpointURL(for: path))
+        request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         let requestToken = token
         if let requestToken {
             request.setValue("Bearer \(requestToken)", forHTTPHeaderField: "Authorization")
@@ -510,6 +511,7 @@ final class APIClient {
         idempotencyKey: String?
     ) async throws -> T {
         var request = URLRequest(url: try Self.endpointURL(for: path))
+        request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

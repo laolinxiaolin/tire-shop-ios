@@ -92,6 +92,7 @@ enum DestinationRegistry {
         Destination(key: "money", title: "Payables & Receivables", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", alternatePermission: "payables.view", additionalPermissions: ["paymentapps.view"], isBuilt: true, blurb: nil),
         Destination(key: "accounting", title: "Accounting", systemImage: "book.closed", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "cashAccounts", title: "Cash Accounts", systemImage: "building.columns", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
+        Destination(key: "checks", title: "Checks", systemImage: "banknote", group: .finance, permission: "accounting.view", alternatePermission: "payments.collect", isBuilt: true, blurb: nil),
         Destination(key: "fet", title: "FET", systemImage: "doc.text", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "eod", title: "End of Day", systemImage: "moon", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
         Destination(key: "monthlySales", title: "Monthly Sales", systemImage: "square.grid.2x2", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),

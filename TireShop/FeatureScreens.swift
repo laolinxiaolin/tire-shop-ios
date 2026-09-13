@@ -1977,8 +1977,8 @@ private struct SalesStatusBadge: View {
 
     private var background: Color {
         switch status {
-        case "PAID": return Color(lightHex: 0xdcecff, darkHex: 0x12345a)
-        case "INVOICED": return Color(lightHex: 0xffedcc, darkHex: 0x4b310d)
+        case "PAID": return Theme.salesPaidBackground
+        case "INVOICED": return Theme.salesInvoicedBackground
         default: return Theme.background
         }
     }

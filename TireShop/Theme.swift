@@ -11,6 +11,8 @@ enum Theme {
     static let primaryText = Color.white
     static let danger = Color(lightHex: 0xd1242f, darkHex: 0xff6b6b)
     static let success = Color(lightHex: 0x1a7f37, darkHex: 0x63d587)
+    static let salesPaidBackground = Color(lightHex: 0xdcecff, darkHex: 0x12345a)
+    static let salesInvoicedBackground = Color(lightHex: 0xffedcc, darkHex: 0x4b310d)
 
     enum Space {
         static let xs: CGFloat = 4

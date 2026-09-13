@@ -10,6 +10,11 @@
 		72B94A439FA16CE34ADCD5F7 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B5347C69DF89FDD01FFB25E /* APIClient.swift */; };
 		13CAD4CAC1E293E172B5CA96 /* AdminScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */; };
 		8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B63EA5735EBD5B353B9265E /* AuthStore.swift */; };
+		2D73575EAC2FB8D366EB5E74 /* CheckDates.swift in Sources */ = {isa = PBXBuildFile; fileRef = B219A03CA989D3028552962A /* CheckDates.swift */; };
+		024D81A9CA3D4D0A3272202D /* CheckDepositDateLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477FA11410E842536E4C10C5 /* CheckDepositDateLabel.swift */; };
+		0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */; };
+		16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7712053F65DA51C8D430D86 /* ChecksScreens.swift */; };
+		05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */; };
 		1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */; };
 		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
 		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
@@ -45,6 +50,9 @@
 		0712CF8154DD92889BBDE3FD /* AppFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F55CB291DE211B0E88E40D4 /* AppFormatTests.swift */; };
 		CF338C3645474040C3A35EF6 /* BackendParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B91C0C12B60198B275F1A1 /* BackendParityTests.swift */; };
 		293DEA6E3B8D72B64124E3C2 /* ChargePreflightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E311D7D4731CB64FE9457F34 /* ChargePreflightTests.swift */; };
+		4B35EE4A7D771AE48F5F6F71 /* CheckAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BC3F67B2E3C80677C7178D0 /* CheckAPITests.swift */; };
+		B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */; };
+		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
 		07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D98F989BA35BDAA193F641 /* PayLinkTests.swift */; };
 		41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */; };
 		9EF30F5D48ACFBB6C1DAEDF5 /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 861E4BCC7361F5BA4FD4E259 /* StripeTerminal */; };
@@ -58,6 +66,11 @@
 		2B5347C69DF89FDD01FFB25E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "APIClient.swift"; sourceTree = "<group>"; };
 		88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AdminScreens.swift"; sourceTree = "<group>"; };
 		7B63EA5735EBD5B353B9265E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AuthStore.swift"; sourceTree = "<group>"; };
+		B219A03CA989D3028552962A /* CheckDates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDates.swift"; sourceTree = "<group>"; };
+		477FA11410E842536E4C10C5 /* CheckDepositDateLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDateLabel.swift"; sourceTree = "<group>"; };
+		0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDraft.swift"; sourceTree = "<group>"; };
+		D7712053F65DA51C8D430D86 /* ChecksScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksScreens.swift"; sourceTree = "<group>"; };
+		7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStore.swift"; sourceTree = "<group>"; };
 		E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerDetailScreens.swift"; sourceTree = "<group>"; };
 		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerRelationsScreens.swift"; sourceTree = "<group>"; };
 		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Destinations.swift"; sourceTree = "<group>"; };
@@ -93,6 +106,9 @@
 		4F55CB291DE211B0E88E40D4 /* AppFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppFormatTests.swift"; sourceTree = "<group>"; };
 		F2B91C0C12B60198B275F1A1 /* BackendParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackendParityTests.swift"; sourceTree = "<group>"; };
 		E311D7D4731CB64FE9457F34 /* ChargePreflightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChargePreflightTests.swift"; sourceTree = "<group>"; };
+		1BC3F67B2E3C80677C7178D0 /* CheckAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckAPITests.swift"; sourceTree = "<group>"; };
+		BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckScreensSnapshotTests.swift"; sourceTree = "<group>"; };
+		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
 		02D98F989BA35BDAA193F641 /* PayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PayLinkTests.swift"; sourceTree = "<group>"; };
 		12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentMethodPatchInputTests.swift"; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -140,6 +156,11 @@
 				2B5347C69DF89FDD01FFB25E /* APIClient.swift */,
 				88429BBEF02FDD7C362C3F0E /* AdminScreens.swift */,
 				7B63EA5735EBD5B353B9265E /* AuthStore.swift */,
+				B219A03CA989D3028552962A /* CheckDates.swift */,
+				477FA11410E842536E4C10C5 /* CheckDepositDateLabel.swift */,
+				0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */,
+				D7712053F65DA51C8D430D86 /* ChecksScreens.swift */,
+				7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */,
 				E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */,
 				C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */,
 				6EAC7CD9D797892BEB3CA375 /* Destinations.swift */,
@@ -188,6 +209,9 @@
 				4F55CB291DE211B0E88E40D4 /* AppFormatTests.swift */,
 				F2B91C0C12B60198B275F1A1 /* BackendParityTests.swift */,
 				E311D7D4731CB64FE9457F34 /* ChargePreflightTests.swift */,
+				1BC3F67B2E3C80677C7178D0 /* CheckAPITests.swift */,
+				BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */,
+				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
 				02D98F989BA35BDAA193F641 /* PayLinkTests.swift */,
 				12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */,
 			);
@@ -318,6 +342,11 @@
 				72B94A439FA16CE34ADCD5F7 /* APIClient.swift in Sources */,
 				13CAD4CAC1E293E172B5CA96 /* AdminScreens.swift in Sources */,
 				8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */,
+				2D73575EAC2FB8D366EB5E74 /* CheckDates.swift in Sources */,
+				024D81A9CA3D4D0A3272202D /* CheckDepositDateLabel.swift in Sources */,
+				0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */,
+				16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */,
+				05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */,
 				1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */,
 				47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */,
 				3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */,
@@ -360,6 +389,9 @@
 				0712CF8154DD92889BBDE3FD /* AppFormatTests.swift in Sources */,
 				CF338C3645474040C3A35EF6 /* BackendParityTests.swift in Sources */,
 				293DEA6E3B8D72B64124E3C2 /* ChargePreflightTests.swift in Sources */,
+				4B35EE4A7D771AE48F5F6F71 /* CheckAPITests.swift in Sources */,
+				B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */,
+				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
 				07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */,
 				41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */,
 			);
@@ -494,7 +526,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026081601;
+				CURRENT_PROJECT_VERSION = 2026091202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -506,7 +538,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -521,7 +553,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026081601;
+				CURRENT_PROJECT_VERSION = 2026091202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -533,7 +565,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -548,7 +580,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026081601;
+				CURRENT_PROJECT_VERSION = 2026091202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -557,7 +589,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;
@@ -571,7 +603,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026081601;
+				CURRENT_PROJECT_VERSION = 2026091202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -580,7 +612,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;

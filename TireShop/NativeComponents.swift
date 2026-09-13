@@ -313,6 +313,14 @@ struct PaymentSheetNativeView: View {
         rows.filter(Self.isValid)
     }
 
+    private var plannedDepositDateError: String? {
+        let hasInvalidCheck = validRows.contains { row in
+            method(for: row)?.account.code == "1010"
+                && !CheckDates.isValid(row.plannedDepositDate)
+        }
+        return hasInvalidCheck ? i18n.t("payment.depositDateRequired") : nil
+    }
+
     private var effectiveBalance: Double {
         max(0, roundMoney(balance - postedApplied))
     }
@@ -468,6 +476,10 @@ struct PaymentSheetNativeView: View {
             if isOverCredit(totals) {
                 throw APIError(status: 0, message: "Store credit exceeds the available balance.")
             }
+            // Preflight every cheque before the first split-payment request.
+            if let message = plannedDepositDateError {
+                throw APIError(status: 0, message: message)
+            }
 
             let rowsToRecord = validRows
             for row in rowsToRecord {
@@ -489,7 +501,10 @@ struct PaymentSheetNativeView: View {
                             paymentMethodId: row.paymentMethodId,
                             amount: row.amountValue,
                             reference: row.reference.nilIfBlank,
-                            note: row.reconciliationMarker
+                            note: row.reconciliationMarker,
+                            plannedDepositDate: method(for: row)?.account.code == "1010"
+                                ? row.plannedDepositDate
+                                : nil
                         ),
                         idempotencyKey: row.id.uuidString
                     )
@@ -528,6 +543,10 @@ struct PaymentSheetNativeView: View {
 
     private func requestRecording(_ totals: PaymentTotals) {
         guard recordingTask == nil else { return }
+        if let message = plannedDepositDateError {
+            errorMessage = message
+            return
+        }
         if isOverpay(totals) {
             showOverpaymentConfirmation = true
         } else {
@@ -866,6 +885,7 @@ private struct PaymentRow: Identifiable {
     var paymentMethodId: String
     var amount: String
     var reference: String
+    var plannedDepositDate = ""
     var attempted = false
 
     var amountValue: Double {
@@ -891,6 +911,9 @@ private struct PaymentRowEditor: View {
                     Text(method.name).tag(method.id)
                 }
             }
+            .onChange(of: row.paymentMethodId) { _, _ in
+                row.plannedDepositDate = ""
+            }
 
             TextField("Amount", text: $row.amount)
                 .keyboardType(.decimalPad)
@@ -898,6 +921,9 @@ private struct PaymentRowEditor: View {
             TextField("Reference", text: $row.reference)
 
             if let method = methods.first(where: { $0.id == row.paymentMethodId }) {
+                if method.account.code == "1010" {
+                    PlannedCheckDepositDateField(date: $row.plannedDepositDate)
+                }
                 if method.account.code == storeCreditCode {
                     Text("Available store credit: \(AppFormat.money(creditBalance))")
                         .font(.caption)
@@ -910,5 +936,22 @@ private struct PaymentRowEditor: View {
             }
         }
         .padding(.vertical, Theme.Space.xs)
+    }
+}
+
+struct PlannedCheckDepositDateField: View {
+    @Binding var date: String
+    @EnvironmentObject private var i18n: I18nStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text(i18n.t("payment.plannedDepositDate"))
+                .font(.subheadline)
+            TextField("YYYY-MM-DD", text: $date)
+                .keyboardType(.numbersAndPunctuation)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityLabel(i18n.t("payment.plannedDepositDate"))
+        }
     }
 }

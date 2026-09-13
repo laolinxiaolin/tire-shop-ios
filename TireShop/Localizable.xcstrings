@@ -1,6 +1,1116 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "#" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编号"
+          }
+        }
+      }
+    },
+    "+ Add method" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+ 添加方式"
+          }
+        }
+      }
+    },
+    "About cheque payments" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于支票收款"
+          }
+        }
+      }
+    },
+    "Account History" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户明细"
+          }
+        }
+      }
+    },
+    "Add Payment Method" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加付款方式"
+          }
+        }
+      }
+    },
+    "Add method" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加方式"
+          }
+        }
+      }
+    },
+    "All check deposit transactions, including reversals. Each deposit lists every associated check payment and invoice." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示全部支票存款交易（包括已冲销记录），并列出每笔交易关联的所有支票收款与发票。"
+          }
+        }
+      }
+    },
+    "Amount ($)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "金额 ($)"
+          }
+        }
+      }
+    },
+    "As of date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截止日期"
+          }
+        }
+      }
+    },
+    "Back to selection" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回选择"
+          }
+        }
+      }
+    },
+    "Change date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修改日期"
+          }
+        }
+      }
+    },
+    "Check #" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支票号"
+          }
+        }
+      }
+    },
+    "Check deposit reminder" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支票存款提醒"
+          }
+        }
+      }
+    },
+    "Check number" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支票号码"
+          }
+        }
+      }
+    },
+    "Check payments and invoices" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支票收款及关联发票"
+          }
+        }
+      }
+    },
+    "Checks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支票"
+          }
+        }
+      }
+    },
+    "Choose today or an earlier date." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择今天或以前的日期。"
+          }
+        }
+      }
+    },
+    "Confirm early or unscheduled deposit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认存入未到期或未设日期的支票"
+          }
+        }
+      }
+    },
+    "Confirm transfer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认转账"
+          }
+        }
+      }
+    },
+    "Continue" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制"
+          }
+        }
+      }
+    },
+    "Could not record the transfer." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法记录转账。"
+          }
+        }
+      }
+    },
+    "Created by" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建人"
+          }
+        }
+      }
+    },
+    "Date not set" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未设日期"
+          }
+        }
+      }
+    },
+    "Delete this receipt? This cannot be undone." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除此票据？此操作无法撤销。"
+          }
+        }
+      }
+    },
+    "Deposit Checks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存入支票"
+          }
+        }
+      }
+    },
+    "Deposit anyway" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍然存入"
+          }
+        }
+      }
+    },
+    "Deposit date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存款日期"
+          }
+        }
+      }
+    },
+    "Deposit records" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存款记录"
+          }
+        }
+      }
+    },
+    "Deposit reference" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存款编号"
+          }
+        }
+      }
+    },
+    "Deposited" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已存款"
+          }
+        }
+      }
+    },
+    "Deposited checks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存入的支票"
+          }
+        }
+      }
+    },
+    "Disable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停用"
+          }
+        }
+      }
+    },
+    "Due today" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日到期"
+          }
+        }
+      }
+    },
+    "Edit payout account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑发放账户"
+          }
+        }
+      }
+    },
+    "Employee payout account (optional)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "员工发放账户（可选）"
+          }
+        }
+      }
+    },
+    "Enable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用"
+          }
+        }
+      }
+    },
+    "Enter a positive amount" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入正数金额"
+          }
+        }
+      }
+    },
+    "Enter a valid planned deposit date (YYYY-MM-DD) for each cheque payment." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请为每笔支票收款输入有效的计划存款日期（YYYY-MM-DD）。"
+          }
+        }
+      }
+    },
+    "Enter a valid, non-negative fee." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入有效的非负手续费。"
+          }
+        }
+      }
+    },
+    "Enter an account name." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入账户名称。"
+          }
+        }
+      }
+    },
+    "Export Excel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出 Excel"
+          }
+        }
+      }
+    },
+    "Fee" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手续费"
+          }
+        }
+      }
+    },
+    "Fee ($)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手续费 ($)"
+          }
+        }
+      }
+    },
+    "Fee rate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "费率"
+          }
+        }
+      }
+    },
+    "Fee rate % (optional, e.g. 3 for 3%)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "费率 %（可选，例如 3 表示 3%）"
+          }
+        }
+      }
+    },
+    "File is too large to upload." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件过大，无法上传。"
+          }
+        }
+      }
+    },
+    "From account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转出账户"
+          }
+        }
+      }
+    },
+    "From and To accounts must be different" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转出账户和转入账户不能相同"
+          }
+        }
+      }
+    },
+    "Fullscreen" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全屏"
+          }
+        }
+      }
+    },
+    "Funds & Accounts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资金与账户"
+          }
+        }
+      }
+    },
+    "History" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "明细"
+          }
+        }
+      }
+    },
+    "Net amount" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "净额"
+          }
+        }
+      }
+    },
+    "No check deposit records." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无支票存款记录。"
+          }
+        }
+      }
+    },
+    "No expense payments recorded." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无支出记录。"
+          }
+        }
+      }
+    },
+    "No payment methods found." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未找到付款方式。"
+          }
+        }
+      }
+    },
+    "No planned deposit date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未设置计划存款日期"
+          }
+        }
+      }
+    },
+    "No receipts attached yet." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未附加票据。"
+          }
+        }
+      }
+    },
+    "No undeposited checks." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有未存支票。"
+          }
+        }
+      }
+    },
+    "Not due yet" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未到期"
+          }
+        }
+      }
+    },
+    "Open full page" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开整页"
+          }
+        }
+      }
+    },
+    "Open full page ↗" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开完整页面 ↗"
+          }
+        }
+      }
+    },
+    "Operating Expenses" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日常支出"
+          }
+        }
+      }
+    },
+    "Paid from account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "付款账户"
+          }
+        }
+      }
+    },
+    "Payee" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收款方"
+          }
+        }
+      }
+    },
+    "Payment method" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收款方式"
+          }
+        }
+      }
+    },
+    "Payout account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发放账户"
+          }
+        }
+      }
+    },
+    "Planned cheque deposit date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计划存支票日期"
+          }
+        }
+      }
+    },
+    "Planned deposit date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计划存款日期"
+          }
+        }
+      }
+    },
+    "Pop-up blocked — allow pop-ups to open this file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "弹出窗口被拦截——请允许弹出窗口以打开此文件。"
+          }
+        }
+      }
+    },
+    "RC #" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收据号"
+          }
+        }
+      }
+    },
+    "Receipt only" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅收款"
+          }
+        }
+      }
+    },
+    "Received date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收款日期"
+          }
+        }
+      }
+    },
+    "Receiving account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转入账户"
+          }
+        }
+      }
+    },
+    "Record Operating Expense" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记录日常支出"
+          }
+        }
+      }
+    },
+    "Recorded by" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记录人"
+          }
+        }
+      }
+    },
+    "Reference (optional)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "参考号（可选）"
+          }
+        }
+      }
+    },
+    "Refresh" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刷新"
+          }
+        }
+      }
+    },
+    "Reverse this expense payment? This posts an offsetting journal entry." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冲销此支出？将生成一笔反向记账分录。"
+          }
+        }
+      }
+    },
+    "Reverse this transfer? This cannot be undone." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冲销此转账？此操作无法撤销。"
+          }
+        }
+      }
+    },
+    "Review undeposited check payments and add or adjust their planned deposit dates. A check covering multiple invoices appears on multiple payment lines; update the date on each line." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看当前未存支票收款明细，并补填或修改计划存款日期。同一张支票支付多张发票时会分成多行，请分别更新各行的日期。"
+          }
+        }
+      }
+    },
+    "Saved dates keep their row position. Refresh to sort by deposit date." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存日期后保持当前行的位置，点击刷新后按存款日期重新排序。"
+          }
+        }
+      }
+    },
+    "Saved ✓" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存 ✓"
+          }
+        }
+      }
+    },
+    "Search" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索"
+          }
+        }
+      }
+    },
+    "Select a category" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择类别"
+          }
+        }
+      }
+    },
+    "Select account…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择账户…"
+          }
+        }
+      }
+    },
+    "Set date" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置日期"
+          }
+        }
+      }
+    },
+    "Some selected checks are not due yet or have no planned deposit date. Review them before continuing." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分所选支票尚未到期或未设置计划存款日期，请核对后再继续。"
+          }
+        }
+      }
+    },
+    "This is a historical list. Choose today to set or change planned deposit dates." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前显示历史明细。请选择今天以设置或修改计划存款日期。"
+          }
+        }
+      }
+    },
+    "Tick at least one check to deposit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请至少勾选一张要存入的支票"
+          }
+        }
+      }
+    },
+    "To account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转入账户"
+          }
+        }
+      }
+    },
+    "Total amount" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合计金额"
+          }
+        }
+      }
+    },
+    "Total balance" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总余额"
+          }
+        }
+      }
+    },
+    "Transfer Detail" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转账详情"
+          }
+        }
+      }
+    },
+    "Transfer Funds" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资金转账"
+          }
+        }
+      }
+    },
+    "Transfer History" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转账记录"
+          }
+        }
+      }
+    },
+    "Transferring…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转账中…"
+          }
+        }
+      }
+    },
+    "Unable to export the check report." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法导出支票报表。"
+          }
+        }
+      }
+    },
+    "Unable to load check deposit records." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法加载支票存款记录。"
+          }
+        }
+      }
+    },
+    "Unable to load check deposit reminders." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法加载支票存款提醒。"
+          }
+        }
+      }
+    },
+    "Unable to load undeposited checks." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法加载未存支票。"
+          }
+        }
+      }
+    },
+    "Unable to open the check deposit form." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法打开支票存款表单。"
+          }
+        }
+      }
+    },
+    "Unable to save the planned deposit date." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存计划存款日期。"
+          }
+        }
+      }
+    },
+    "Undeposited checks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未存支票"
+          }
+        }
+      }
+    },
+    "View all undeposited check payments, including receipts from earlier months. Choose any cutoff date and export Excel for your accountant. A check covering multiple invoices appears on multiple payment lines; update the planned date on each line." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看全部未存支票收款明细，包括以前月份的收款。可选择任意截止日期并导出 Excel 交给会计。同一张支票支付多张发票时会分成多行，请分别更新各行的计划存款日期。"
+          }
+        }
+      }
+    },
+    "View checks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看支票"
+          }
+        }
+      }
+    },
+    "You do not have permission to view checks." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您没有查看支票的权限。"
+          }
+        }
+      }
+    },
+    "e.g. Venmo" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "例如：Venmo"
+          }
+        }
+      }
+    },
+    "e.g. Weekly cash deposit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "例如：每周现金存款"
+          }
+        }
+      }
+    },
+    "e.g. check #, invoice #" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "例如：支票号、发票号"
+          }
+        }
+      }
+    },
+    "e.g. deposit slip #, wire confirmation #" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "例如存款单号、电汇确认号"
+          }
+        }
+      }
+    },
     "  · service" : {
       "extractionState" : "stale",
       "localizations" : {

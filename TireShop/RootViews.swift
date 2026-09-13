@@ -187,11 +187,13 @@ private extension UIResponder {
 }
 
 struct RootNavigatorView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var tabs: TabsStore
     @EnvironmentObject private var i18n: I18nStore
     @State private var selectedTab = DestinationRegistry.defaultPinned.first ?? "dashboard"
     @State private var showTapToPayAnnouncement = false
+    @StateObject private var checkReminders = CheckReminderStore()
 
     private var visiblePinned: [Destination] {
         tabs.pinned
@@ -229,6 +231,22 @@ struct RootNavigatorView: View {
                 handleKeyboardGeometry(note)
             }
             .tint(Theme.primary)
+            .environmentObject(checkReminders)
+            .task(id: auth.user?.id) {
+                checkReminders.reset()
+                if auth.has("payments.collect") || auth.has("accounting.view") {
+                    await checkReminders.refresh()
+                }
+            }
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+                refreshCheckReminders()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .checkRegisterDidChange)) { _ in
+                refreshCheckReminders()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { refreshCheckReminders() }
+            }
             .fullScreenCover(isPresented: $showTapToPayAnnouncement) {
                 TapToPayLaunchAnnouncementView(
                     canManageSettings: auth.has("settings.manage"),
@@ -250,6 +268,11 @@ struct RootNavigatorView: View {
         Task { @MainActor in
             KeyboardSession.dismissOrphanedSession()
         }
+    }
+
+    private func refreshCheckReminders() {
+        guard scenePhase == .active, auth.has("payments.collect") || auth.has("accounting.view") else { return }
+        Task { await checkReminders.refresh() }
     }
 
     private var tapToPayAnnouncementKey: String? {
@@ -300,6 +323,14 @@ struct NavigationShell<Content: View>: View {
                 .navigationDestination(for: AppRoute.self) { route in
                     routeView(route)
                 }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if auth.has("payments.collect") || auth.has("accounting.view") {
+                CheckReminderBanner {
+                    NotificationCenter.default.post(name: .showCurrentChecks, object: nil)
+                    path = [.module("checks")]
+                }
+            }
         }
         .debugLayoutProbe("NavigationShell[\(title)]")
     }
@@ -513,6 +544,8 @@ struct DestinationView: View {
             AccountingNativeView()
         case "cashAccounts":
             CashAccountsNativeView()
+        case "checks":
+            ChecksNativeView()
         case "fet":
             FetNativeView()
         case "eod":
