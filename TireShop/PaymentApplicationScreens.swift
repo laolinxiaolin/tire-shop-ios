@@ -2,6 +2,9 @@ import CryptoKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let paymentApplicationUploadTypes: [UTType] = [.pdf, .jpeg, .png, .webP, .heic, .heif]
+    + [UTType(filenameExtension: "docx"), UTType(filenameExtension: "xlsx")].compactMap { $0 }
+
 // Payment applications are intentionally rendered like compact ledger cards:
 // the document number anchors each row, status is always visible, and money is
 // set apart from supporting metadata. This keeps the approval queue scannable
@@ -796,6 +799,8 @@ extension Notification.Name {
 
 struct PaymentApplicationDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
+    @Environment(\.dismiss) private var dismiss
 
     let id: String
 
@@ -806,7 +811,9 @@ struct PaymentApplicationDetailNativeView: View {
     @State private var requestID = 0
     @State private var paymentPresented = false
     @State private var emailPresented = false
-    @State private var importingAttachment = false
+    @State private var preparingAttachment = false
+    @State private var pendingAttachment: DocumentUploadDraft?
+    @State private var confirmingDiscardAndLeave = false
     @State private var preview: PreviewFile?
     @State private var removeAttachmentTarget: PaymentApplicationAttachment?
     @State private var confirmingAction: String?
@@ -837,7 +844,19 @@ struct PaymentApplicationDetailNativeView: View {
         .background(Theme.background)
         .navigationTitle(application?.ref ?? "Payment application")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(preparingAttachment || pendingAttachment != nil)
+        .interactiveDismissDisabled(preparingAttachment || pendingAttachment != nil)
         .toolbar {
+            if preparingAttachment || pendingAttachment != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        confirmingDiscardAndLeave = true
+                    } label: {
+                        Label(i18n.t("common.back"), systemImage: "chevron.left")
+                    }
+                    .disabled(actionLoading || preparingAttachment)
+                }
+            }
             if let application {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -849,7 +868,7 @@ struct PaymentApplicationDetailNativeView: View {
                             Image(systemName: "ellipsis.circle")
                         }
                     }
-                    .disabled(actionLoading)
+                    .disabled(actionLoading || preparingAttachment || pendingAttachment != nil)
                 }
             }
         }
@@ -874,12 +893,14 @@ struct PaymentApplicationDetailNativeView: View {
         .sheet(item: $preview) { file in
             QuickLookSheet(url: file.url)
         }
-        .fileImporter(
-            isPresented: $importingAttachment,
-            allowedContentTypes: [.pdf, .image, .data],
-            allowsMultipleSelection: false
-        ) { result in
-            Task { await uploadAttachment(result) }
+        .alert(i18n.t("documentUpload.leaveTitle"), isPresented: $confirmingDiscardAndLeave) {
+            Button(i18n.t("common.cancel"), role: .cancel) {}
+            Button(i18n.t("documentUpload.discardAndLeave"), role: .destructive) {
+                pendingAttachment = nil
+                dismiss()
+            }
+        } message: {
+            Text(i18n.t("documentUpload.leaveMessage"))
         }
         .alert("Remove this document?", isPresented: Binding(
             get: { removeAttachmentTarget != nil },
@@ -1131,11 +1152,46 @@ struct PaymentApplicationDetailNativeView: View {
                 SectionHeader("Documents")
                 Spacer()
                 if canChangeAttachments(application) {
-                    Button { importingAttachment = true } label: {
-                        Label("Upload", systemImage: "paperclip")
-                    }
+                    DocumentUploadSourcePicker(
+                        disabled: actionLoading || pendingAttachment != nil,
+                        preparing: $preparingAttachment,
+                        onPrepared: { document in
+                            pendingAttachment = document
+                            Task { await uploadPendingAttachment() }
+                        },
+                        onError: { errorMessage = $0 },
+                        titleKey: "pa.uploadAttachment",
+                        filenamePrefix: "Payment application document",
+                        allowedContentTypes: paymentApplicationUploadTypes
+                    )
                     .font(.subheadline.weight(.semibold))
                 }
+            }
+
+            if let pendingAttachment {
+                VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                    Label(pendingAttachment.filename, systemImage: "doc.badge.clock")
+                        .font(.subheadline)
+                    if actionLoading {
+                        ProgressView(i18n.t("documentUpload.uploading"))
+                    } else {
+                        HStack {
+                            if canChangeAttachments(application) {
+                                Button(i18n.t("expenseReceipt.retry")) {
+                                    Task { await uploadPendingAttachment() }
+                                }
+                            }
+                            Button(i18n.t("documentUpload.discard"), role: .destructive) {
+                                self.pendingAttachment = nil
+                                errorMessage = nil
+                            }
+                        }
+                    }
+                }
+                .padding(Theme.Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.card)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             }
 
             if application.attachments.isEmpty {
@@ -1170,6 +1226,7 @@ struct PaymentApplicationDetailNativeView: View {
                 .contextMenu {
                     if canChangeAttachments(application) {
                         Button("Remove", role: .destructive) { removeAttachmentTarget = attachment }
+                            .disabled(actionLoading || preparingAttachment)
                     }
                 }
             }
@@ -1315,24 +1372,21 @@ struct PaymentApplicationDetailNativeView: View {
     }
 
     @MainActor
-    private func uploadAttachment(_ result: Result<[URL], Error>) async {
-        guard let application else { return }
+    private func uploadPendingAttachment() async {
+        guard let application, canChangeAttachments(application), !actionLoading,
+              let document = pendingAttachment else { return }
+        defer { withExtendedLifetime(document) {} }
         actionLoading = true
-        var copiedURL: URL?
-        defer {
-            if let copiedURL { try? FileManager.default.removeItem(at: copiedURL) }
-            actionLoading = false
-        }
+        errorMessage = nil
+        defer { actionLoading = false }
         do {
-            guard let source = try result.get().first else { return }
-            let copied = try await UploadFilePreparation.copySecurityScopedFile(source, prefix: "payment-app")
-            copiedURL = copied
             _ = try await PaymentApplicationsAPI().uploadAttachment(
                 id: application.id,
-                fileURL: copied,
-                fileName: source.lastPathComponent,
-                mimeType: UTType(filenameExtension: source.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                fileURL: document.url,
+                fileName: document.filename,
+                mimeType: document.mimeType
             )
+            pendingAttachment = nil
             await load()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload the document."
@@ -1510,12 +1564,6 @@ struct PaymentApplicationRejectSheet: View {
     }
 }
 
-private struct PaymentApplicationPaymentFile {
-    let url: URL
-    let name: String
-    let mimeType: String
-}
-
 private struct PaymentRegistrationFingerprint: Codable {
     let amount: Double
     let paidAt: String
@@ -1539,8 +1587,8 @@ private struct PaymentApplicationPaymentSheet: View {
     @State private var method = ""
     @State private var reference = ""
     @State private var note = ""
-    @State private var proof: PaymentApplicationPaymentFile?
-    @State private var importing = false
+    @State private var proof: DocumentUploadDraft?
+    @State private var preparingProof = false
     @State private var loading = true
     @State private var saving = false
     @State private var errorMessage: String?
@@ -1573,12 +1621,21 @@ private struct PaymentApplicationPaymentSheet: View {
 
                 Section {
                     if let proof {
-                        Label(proof.name, systemImage: "doc.badge.checkmark")
+                        Label(proof.filename, systemImage: "doc.badge.checkmark")
                             .foregroundStyle(Theme.success)
                     }
-                    Button { importing = true } label: {
-                        Label(proof == nil ? "Choose receipt or confirmation" : "Replace document", systemImage: "paperclip")
-                    }
+                    DocumentUploadSourcePicker(
+                        disabled: saving,
+                        preparing: $preparingProof,
+                        onPrepared: { document in
+                            proof = document
+                            errorMessage = nil
+                        },
+                        onError: { errorMessage = $0 },
+                        titleKey: proof == nil ? "documentUpload.chooseProof" : "documentUpload.replace",
+                        filenamePrefix: "Payment proof",
+                        allowedContentTypes: paymentApplicationUploadTypes
+                    )
                 } header: {
                     Text("Payment proof")
                 } footer: {
@@ -1589,30 +1646,21 @@ private struct PaymentApplicationPaymentSheet: View {
                     Text(errorMessage).font(.subheadline).foregroundStyle(Theme.danger)
                 }
             }
+            .disabled(saving)
             .navigationTitle("Register payment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(saving)
+                    Button("Cancel") { dismiss() }.disabled(saving || preparingProof)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Registering..." : "Register") { Task { await submit() } }
-                        .disabled(saving || loading)
+                        .disabled(saving || loading || preparingProof)
                 }
             }
-            .fileImporter(
-                isPresented: $importing,
-                allowedContentTypes: [.pdf, .image, .data],
-                allowsMultipleSelection: false
-            ) { result in
-                Task { await prepareProof(result) }
-            }
         }
-        .interactiveDismissDisabled(saving)
-        .task { await loadAccounts() }
-        .onDisappear {
-            if let proof { try? FileManager.default.removeItem(at: proof.url) }
-        }
+        .interactiveDismissDisabled(saving || preparingProof)
+        .task { if accounts.isEmpty { await loadAccounts() } }
     }
 
     @MainActor
@@ -1620,7 +1668,9 @@ private struct PaymentApplicationPaymentSheet: View {
         loading = true
         do {
             accounts = try await PaymentApplicationsAPI().payoutAccounts()
-            accountId = accounts.first(where: { $0.code == "1020" })?.id ?? accounts.first?.id ?? ""
+            if accountId.isEmpty {
+                accountId = accounts.first(where: { $0.code == "1020" })?.id ?? accounts.first?.id ?? ""
+            }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load payout accounts."
         }
@@ -1628,24 +1678,8 @@ private struct PaymentApplicationPaymentSheet: View {
     }
 
     @MainActor
-    private func prepareProof(_ result: Result<[URL], Error>) async {
-        do {
-            guard let source = try result.get().first else { return }
-            let copied = try await UploadFilePreparation.copySecurityScopedFile(source, prefix: "payment-proof")
-            if let old = proof { try? FileManager.default.removeItem(at: old.url) }
-            proof = PaymentApplicationPaymentFile(
-                url: copied,
-                name: source.lastPathComponent,
-                mimeType: UTType(filenameExtension: source.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-            )
-            errorMessage = nil
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not read the selected proof."
-        }
-    }
-
-    @MainActor
     private func submit() async {
+        guard !saving, !preparingProof else { return }
         guard let amount = AppFormat.parseAmount(amount), amount > 0 else {
             errorMessage = "Enter a positive amount."
             return
@@ -1683,7 +1717,7 @@ private struct PaymentApplicationPaymentSheet: View {
             _ = try await PaymentApplicationsAPI().registerPayment(
                 id: application.id,
                 proofURL: proof.url,
-                fileName: proof.name,
+                fileName: proof.filename,
                 mimeType: proof.mimeType,
                 idempotencyKey: idempotencyKey,
                 amount: amount,

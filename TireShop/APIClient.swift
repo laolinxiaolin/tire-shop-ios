@@ -359,6 +359,7 @@ final class APIClient {
         defer { try? FileManager.default.removeItem(at: multipartURL) }
 
         var request = URLRequest(url: try Self.endpointURL(for: path))
+        request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let requestToken = token
@@ -435,6 +436,7 @@ final class APIClient {
 
     func data(_ path: String, noAuthBounce: Bool = false) async throws -> Data {
         var request = URLRequest(url: try Self.endpointURL(for: path))
+        request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         let requestToken = token
         if let requestToken {
             request.setValue("Bearer \(requestToken)", forHTTPHeaderField: "Authorization")
@@ -538,13 +540,17 @@ final class APIClient {
             )
         }
 
-        return try decode(
+        let result: T = try decode(
             data: data,
             response: response,
             noAuthBounce: noAuthBounce,
             requestToken: requestToken,
             unauthorizedMessage: "Session expired. Please sign in again."
         )
+        if method != "GET" && (path.hasPrefix("/sales") || path.hasPrefix("/returns")) {
+            NotificationCenter.default.post(name: .customerSalePricesChanged, object: nil)
+        }
+        return result
     }
 
     private func decode<T: Decodable>(
@@ -728,6 +734,20 @@ extension EmptyResponse {
 enum KeychainStore {
     private static let service = "tire-shop-ios"
     private static let account = "ts_token"
+
+    // Upgrade cleanup for the retired saved-password login. Delete the item
+    // directly, without reading its contents or requesting authentication.
+    static func deleteLegacySavedLogin() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "ts_face_id_login"
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            UserDefaults.standard.removeObject(forKey: "ts_face_id_login_configured")
+        }
+    }
 
     static func loadToken() -> String? {
         let query: [String: Any] = [

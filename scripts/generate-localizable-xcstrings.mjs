@@ -69,11 +69,29 @@ for (const englishValue of [...translationsByEnglishValue.keys()].sort()) {
   };
 }
 
-const catalog = {
-  sourceLanguage: 'en',
-  strings,
-  version: '1.0'
-};
+// Xcode also extracts SwiftUI literals and translators can edit this catalog
+// directly. Preserve those entries and translations when syncing dictionary copy.
+const catalog = fs.existsSync(outputPath)
+  ? JSON.parse(fs.readFileSync(outputPath, 'utf8'))
+  : { sourceLanguage: 'en', strings: {}, version: '1.0' };
+for (const [key, entry] of Object.entries(strings)) {
+  const existing = catalog.strings[key];
+  catalog.strings[key] = existing
+    ? { ...entry, ...existing, localizations: { ...entry.localizations, ...existing.localizations } }
+    : entry;
+}
+catalog.strings = Object.fromEntries(Object.entries(catalog.strings).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 
-fs.writeFileSync(outputPath, `${JSON.stringify(catalog, null, 2)}\n`);
-console.log(`Generated ${path.relative(repoRoot, outputPath)} with ${Object.keys(strings).length} strings.`);
+// Match Xcode's catalog formatting, including its sorted numeric-looking keys.
+function formatCatalog(value, depth = 0) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return JSON.stringify(value);
+  const indent = '  '.repeat(depth);
+  const lines = Object.keys(value).sort().map((key) =>
+    `${indent}  ${JSON.stringify(key)} : ${formatCatalog(value[key], depth + 1)}`
+  );
+  return `{\n${lines.join(',\n')}\n${indent}}`;
+}
+
+fs.writeFileSync(outputPath, `${formatCatalog(catalog)}\n`);
+console.log(`Generated ${path.relative(repoRoot, outputPath)} with ${Object.keys(catalog.strings).length} strings.`);

@@ -40,6 +40,7 @@ final class AuthStore: ObservableObject {
         // launch until the server provides a session-refresh contract.
         api.token = nil
         KeychainStore.deleteToken()
+        KeychainStore.deleteLegacySavedLogin()
         UserDefaults.standard.removeObject(forKey: userKey)
         user = nil
         ready = true
@@ -65,6 +66,7 @@ final class AuthStore: ObservableObject {
     func signOut() {
         api.token = nil
         KeychainStore.deleteToken()
+        KeychainStore.deleteLegacySavedLogin()
         UserDefaults.standard.removeObject(forKey: userKey)
         user = nil
     }

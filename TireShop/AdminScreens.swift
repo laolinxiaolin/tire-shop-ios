@@ -1225,6 +1225,8 @@ struct ApprovalsNativeView: View {
 }
 
 private struct ApprovalRow: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     let request: ApprovalRequest
 
     var body: some View {
@@ -1246,13 +1248,15 @@ private struct ApprovalRow: View {
 
             Spacer()
 
-            StatusPill(text: ApprovalFormat.status(request.status), color: ApprovalFormat.color(request.status))
+            StatusPill(text: i18n.t("approvals.status.\(request.status)"), color: ApprovalFormat.color(request.status))
         }
         .padding(.vertical, Theme.Space.xs)
     }
 }
 
 private struct ApprovalDetailView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     let request: ApprovalRequest
     let currentUserId: String?
     let onChanged: () -> Void
@@ -1273,7 +1277,7 @@ private struct ApprovalDetailView: View {
             Form {
                 Section("Request") {
                     LabeledContent("Action", value: ApprovalFormat.action(current.action))
-                    LabeledContent("Status", value: ApprovalFormat.status(current.status))
+                    LabeledContent("Status", value: i18n.t("approvals.status.\(current.status)"))
                     if let entity = current.entityType?.nilIfBlank {
                         LabeledContent("Entity", value: [entity, current.entityId].compactMap { $0?.nilIfBlank }.joined(separator: " · "))
                     }
@@ -1446,9 +1450,9 @@ private enum ApprovalFormat {
 
     static func color(_ value: ApprovalStatus) -> Color {
         switch value {
-        case "APPROVED": return Theme.success
-        case "DENIED", "CANCELLED": return Theme.danger
-        case "PENDING": return .orange
+        case "APPROVED", "EXECUTED": return Theme.success
+        case "DENIED", "CANCELLED", "FAILED": return Theme.danger
+        case "PENDING", "PROCESSING": return .orange
         default: return Theme.muted
         }
     }

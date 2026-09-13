@@ -32,6 +32,12 @@ const allSwift = swiftFiles.map((file) => fs.readFileSync(path.join(swiftDir, fi
 check('no forced casts', !allSwift.includes('as!'));
 check('no duplicate private String helper', (allSwift.match(/private extension String/g) || []).length <= 1);
 
+// Login uses password + server MFA. Keep retired device authentication and its
+// permission out of future generated builds; legacy credential deletion is OK.
+check('no app biometric or passkey authentication', !/\b(?:LocalAuthentication|LAContext|ASAuthorizationPlatformPublicKeyCredentialProvider)\b/.test(allSwift));
+const infoPlist = fs.readFileSync(path.join(swiftDir, 'Info.plist'), 'utf8');
+check('no retired authentication permission', !infoPlist.includes('NSFaceIDUsageDescription'));
+
 // Every destination flagged isBuilt: true must have a concrete case in DestinationView
 // (across any Swift file containing the `switch destination.key` block).
 const destinationsSwift = fs.readFileSync(path.join(swiftDir, 'Destinations.swift'), 'utf8');

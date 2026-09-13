@@ -34,10 +34,42 @@ struct TireSkuPatchInput: Codable {
     var maxLoadSingleLb: Int?
     var weightLb: Double?
     var plyRating: String?
+    var priceWholesale: Double?
+    var clearPriceWholesale = false
     var priceRetail: Double?
     var priceCost: Double?
     var reorderPoint: Int?
     var active: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case sku, brand, model, size, category, position, segment, loadIndex, pattern, treadDepth32, maxLoadSingleLb, weightLb, plyRating, priceRetail, priceCost, reorderPoint, active, priceWholesale
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(sku, forKey: .sku)
+        try container.encodeIfPresent(brand, forKey: .brand)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(size, forKey: .size)
+        try container.encodeIfPresent(category, forKey: .category)
+        try container.encodeIfPresent(position, forKey: .position)
+        try container.encodeIfPresent(segment, forKey: .segment)
+        try container.encodeIfPresent(loadIndex, forKey: .loadIndex)
+        try container.encodeIfPresent(pattern, forKey: .pattern)
+        try container.encodeIfPresent(treadDepth32, forKey: .treadDepth32)
+        try container.encodeIfPresent(maxLoadSingleLb, forKey: .maxLoadSingleLb)
+        try container.encodeIfPresent(weightLb, forKey: .weightLb)
+        try container.encodeIfPresent(plyRating, forKey: .plyRating)
+        try container.encodeIfPresent(priceRetail, forKey: .priceRetail)
+        try container.encodeIfPresent(priceCost, forKey: .priceCost)
+        try container.encodeIfPresent(reorderPoint, forKey: .reorderPoint)
+        try container.encodeIfPresent(active, forKey: .active)
+        if clearPriceWholesale {
+            try container.encodeNil(forKey: .priceWholesale)
+        } else {
+            try container.encodeIfPresent(priceWholesale, forKey: .priceWholesale)
+        }
+    }
 }
 
 struct CustomerTaxStatusInput: Codable {
@@ -1291,6 +1323,20 @@ struct SalesAPI {
 struct CustomersAPI {
     var client = APIClient.shared
 
+    func lastSalePrices(customerId: String, skuIds: [String]) async throws -> [CustomerLastSalePrice] {
+        let ids = Array(Set(skuIds)).sorted()
+        var result: [CustomerLastSalePrice] = []
+        for start in stride(from: 0, to: ids.count, by: 100) {
+            try Task.checkCancellation()
+            let batch = ids[start..<min(start + 100, ids.count)].joined(separator: ",")
+            let prices: [CustomerLastSalePrice] = try await client.request(
+                "/customers/\(customerId)/last-sale-prices\(query(["skuIds": batch]))"
+            )
+            result.append(contentsOf: prices)
+        }
+        return result
+    }
+
     func list(q: String? = nil, page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<Customer> {
         try await client.request("/customers\(query(["q": q, "page": page, "pageSize": pageSize]))")
     }
@@ -1609,6 +1655,7 @@ struct PayableApplication: Codable {
 }
 
 struct PayablesPayInput: Codable {
+    var expectedVendorKey: String? = nil
     let applications: [PayableApplication]
     let paidAt: String?
     let reference: String?
@@ -1619,8 +1666,8 @@ struct PayablesPayInput: Codable {
 struct MoneyAPI {
     var client = APIClient.shared
 
-    func receivables(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<ReceivableCustomer> {
-        try await client.request("/receivables\(query(["page": page, "pageSize": pageSize]))")
+    func receivables(page: Int? = nil, pageSize: Int? = nil, q: String? = nil) async throws -> BalancePage<ReceivableCustomer> {
+        try await client.request("/receivables\(query(["page": page, "pageSize": pageSize, "q": q]))")
     }
 
     func receivable(customerId: String) async throws -> ReceivableCustomerDetail {
@@ -1649,8 +1696,8 @@ struct MoneyAPI {
         try await client.request("/receivables/\(customerId)/statement/email", method: "POST", body: body)
     }
 
-    func payables(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<PayableVendor> {
-        try await client.request("/payables\(query(["page": page, "pageSize": pageSize]))")
+    func payables(page: Int? = nil, pageSize: Int? = nil, q: String? = nil) async throws -> BalancePage<PayableVendor> {
+        try await client.request("/payables\(query(["page": page, "pageSize": pageSize, "q": q]))")
     }
 
     func payable(vendorKey: String) async throws -> PayableVendorDetail {
@@ -2147,8 +2194,16 @@ struct PaymentMethodPatchInput: Encodable {
     }
 }
 
+struct CashAccountCreateInput: Codable {
+    let name: String
+}
+
 struct CashAccountsAPI {
     var client = APIClient.shared
+
+    func createAccount(name: String) async throws -> CashAccount {
+        try await client.request("/accounting/cash-accounts", method: "POST", body: CashAccountCreateInput(name: name))
+    }
 
     func list() async throws -> [CashAccount] {
         try await client.request("/accounting/cash-accounts")
@@ -2201,7 +2256,7 @@ struct CashAccountsAPI {
     func createExpense(
         _ body: ExpenseCreateInput,
         idempotencyKey: String? = nil
-    ) async throws -> OkResponse {
+    ) async throws -> ExpenseCreateResponse {
         try await client.request(
             "/accounting/expenses",
             method: "POST",

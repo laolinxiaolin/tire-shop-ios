@@ -163,22 +163,28 @@ final class QuoteStore: ObservableObject {
         }
     }
 
-    func addLine(itemType: String, itemId: String, description: String, qty: Int = 1, unitPrice: Double) {
+    func addLine(itemType: String, itemId: String, description: String, qty: Int = 1, unitPrice: Double, listPrice: Double? = nil) {
+        guard unitPrice.isFinite, unitPrice >= 0 else { return }
+        let quantity = max(1, qty)
         taxOverride = nil
-        if let index = lines.firstIndex(where: { $0.itemType == itemType && $0.itemId == itemId }) {
-            lines[index].qty += qty
+        // Preserve explicit price choices and any existing line discount.
+        if let index = lines.firstIndex(where: {
+            $0.itemType == itemType && $0.itemId == itemId
+                && $0.unitPrice == unitPrice && ($0.discount ?? 0) == 0
+        }) {
+            lines[index].qty += quantity
             return
         }
 
         lines.append(QuoteLine(
-            id: "l\(Date().timeIntervalSince1970)-\(lines.count)",
+            id: UUID().uuidString,
             itemType: itemType,
             itemId: itemId,
             description: description,
-            qty: max(1, qty),
-            unitPrice: max(0, unitPrice),
+            qty: quantity,
+            unitPrice: unitPrice,
             discount: nil,
-            listPrice: max(0, unitPrice)
+            listPrice: listPrice.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil } ?? unitPrice
         ))
     }
 
@@ -191,7 +197,16 @@ final class QuoteStore: ObservableObject {
     func updatePrice(_ lineId: String, unitPrice: Double) {
         guard let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
         taxOverride = nil
-        lines[index].unitPrice = max(0, unitPrice)
+        lines[index].unitPrice = unitPrice.isFinite ? max(0, unitPrice) : 0
+    }
+
+    /// History prices already include the original line's discount.
+    func applyPrice(_ lineId: String, unitPrice: Double) {
+        guard unitPrice.isFinite, unitPrice >= 0,
+              let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
+        taxOverride = nil
+        lines[index].unitPrice = unitPrice
+        lines[index].discount = nil
     }
 
     func removeLine(_ lineId: String) {

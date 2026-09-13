@@ -7,6 +7,38 @@ struct Paged<T: Codable>: Codable {
     let pageSize: Int
 }
 
+struct CustomerLastSalePrice: Codable, Equatable {
+    let skuId: String
+    let unitPrice: String
+    let discount: String
+    let lineTotal: String
+    let effectiveUnitPrice: String
+    let qty: Int
+    let saleId: String
+    let saleRef: String?
+    let soldAt: String
+}
+
+struct BalanceBuckets: Codable, Equatable {
+    var current: Double = 0
+    var b30: Double = 0
+    var b60: Double = 0
+    var b90: Double = 0
+}
+
+struct BalanceSummary: Codable, Equatable {
+    let balance: Double
+    let buckets: BalanceBuckets
+}
+
+struct BalancePage<T: Codable>: Codable {
+    let items: [T]
+    let total: Int
+    let page: Int
+    let pageSize: Int
+    let summary: BalanceSummary
+}
+
 struct ApprovalRequestRef: Codable, Equatable {
     let id: String
 }
@@ -147,6 +179,7 @@ struct TireSku: Codable, Identifiable, Equatable {
     let weightLb: String?
     let plyRating: String?
     let priceRetail: String
+    var priceWholesale: String? = nil
     let priceCost: String
     let reorderPoint: Int
     let active: Bool
@@ -236,6 +269,7 @@ struct SkuInput: Codable {
     var weightLb: Double?
     var plyRating: String?
     var priceRetail: Double
+    var priceWholesale: Double? = nil
     var priceCost: Double?
     var reorderPoint: Int?
     var active: Bool?
@@ -842,6 +876,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
     let sampleDescription: String?
     let extraLineCount: Int
     let grossProfit: String
+    let paymentMethods: [String]
     let salespersonId: String?
     let salesperson: CustomerSalesperson?
 
@@ -863,6 +898,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         case sampleDescription
         case extraLineCount
         case grossProfit
+        case paymentMethods
         case salespersonId
         case salesperson
         case soldBy
@@ -887,6 +923,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         sampleDescription = try container.decodeIfPresent(String.self, forKey: .sampleDescription)
         extraLineCount = try container.decode(Int.self, forKey: .extraLineCount)
         grossProfit = try container.decode(String.self, forKey: .grossProfit)
+        paymentMethods = try container.decodeIfPresent([String].self, forKey: .paymentMethods) ?? []
         salespersonId = try container.decodeIfPresent(String.self, forKey: .salespersonId)
         if let salesperson = try? container.decodeIfPresent(CustomerSalesperson.self, forKey: .salesperson) {
             self.salesperson = salesperson
@@ -916,6 +953,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         try container.encodeIfPresent(sampleDescription, forKey: .sampleDescription)
         try container.encode(extraLineCount, forKey: .extraLineCount)
         try container.encode(grossProfit, forKey: .grossProfit)
+        try container.encode(paymentMethods, forKey: .paymentMethods)
         try container.encodeIfPresent(salespersonId, forKey: .salespersonId)
         try container.encodeIfPresent(salesperson, forKey: .salesperson)
     }
@@ -1955,9 +1993,11 @@ struct VendorSpendSummary: Codable, Equatable {
 struct VendorContainerRef: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
+    var reference: String? = nil
 }
 
 struct VendorRecentCost: Codable, Identifiable, Equatable {
+    var reference: String? = nil
     let id: String
     let category: String
     let status: String
@@ -1990,6 +2030,12 @@ struct VendorRefundRecord: Codable, Identifiable, Equatable {
 }
 
 struct VendorDetail: Codable, Identifiable, Equatable {
+    struct SupplierInfo: Codable, Equatable {
+        let id: String
+        let name: String
+    }
+
+    var supplier: SupplierInfo? = nil
     let id: String
     let name: String
     let category: VendorCategory?
@@ -2065,6 +2111,7 @@ struct SupplierContainerRow: Codable, Identifiable, Equatable {
     let receivedAt: String?
     let createdAt: String
     let tireQty: Int
+    var costs: [PurchasePaymentCost]? = nil
     let count: Counts?
 
     enum CodingKeys: String, CodingKey {
@@ -2080,6 +2127,7 @@ struct SupplierContainerRow: Codable, Identifiable, Equatable {
         case arrivedAt
         case receivedAt
         case createdAt
+        case costs
         case tireQty
         case count = "_count"
     }

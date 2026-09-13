@@ -60,6 +60,15 @@ struct LoginView: View {
             }
         }
         .background(Theme.background)
+        .overlay(alignment: .bottomTrailing) {
+            Text(AppVersion.compactDisplayValue)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(Theme.muted.opacity(0.72))
+                .padding(.trailing, Theme.Space.md)
+                .padding(.bottom, Theme.Space.sm)
+                .allowsHitTesting(false)
+                .accessibilityLabel("App version \(AppVersion.displayValue)")
+        }
         .alert(item: $alert) { state in
             Alert(
                 title: Text(state.title),
@@ -218,7 +227,8 @@ struct LoginView: View {
     private func showFailure(_ error: Error) {
         alert = AlertState(
             title: i18n.t("login.failedTitle"),
-            message: (error as? LocalizedError)?.errorDescription ?? i18n.t("login.failedBody")
+            message: (error as? LocalizedError)?.errorDescription
+                ?? i18n.t("login.failedBody")
         )
     }
 

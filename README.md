@@ -25,6 +25,18 @@ This folder is the SwiftUI starting point for converting the Expo/React Native a
 
 The main tab and More-menu modules now have native SwiftUI data-loading screens for dashboard, inventory, sales, customers, customer relations, work orders, returns, inventory counts, purchasing, vendors, money, accounting, cash accounts, FET, EOD, employees, commissions, activity, approvals, users, roles, API keys, and shop settings. Work orders include status filtering plus task and status actions. The larger transaction areas now have native first-pass flows for quote creation/confirmation, sale editing, SKU detail/create/edit, stock adjustment, Tap to Pay intent loading, return draft creation, customer creation, inventory count creation, employee create/edit, commission payout, vendor create/edit/refunds, CRM outreach, and SKU/customer pickers.
 
+The September 2026 update follows the web repository through `1e479f4`:
+
+- SKU wholesale prices can be set or cleared. Sale builders offer retail, wholesale, and the customer's latest invoiced/paid effective price, with its sale reference and date.
+- Funds & Accounts can create separate cash accounts. Receivable/payable searches, totals, and aging use the server's complete results, with pagination and recoverable loading errors.
+- Authorized staff can review and correct a purchase supplier with a required audit reason. Supplier purchase rows show payment status, counts, dates, and bill references; processing approvals are recognized.
+- Expense receipts, payment-application documents, and payment proof support Camera, Photos, and Files. New expense forms retain their saved expense ID and remaining receipts when an attachment upload fails.
+- API requests use the selected app language for server errors. The localization catalog generator preserves Xcode-extracted strings and existing translations.
+
+These workflows require the corresponding backend endpoints. Wholesale pricing requires the web repository's `20260910120000_sku_wholesale_price` migration. Supplier correction uses `purchasing.supplier.change`; cash-account creation uses `accounting.manage`.
+
+Regression tests live in `TireShopTests/`. Build and run the `TireShop` scheme's tests against an installed iOS simulator. Camera capture must also be checked on a physical iPhone; simulators offer Photos and Files.
+
 The native cheque workflows also follow web/backend [PR #465](https://github.com/laolinxiaolin/tire-shop/pull/465):
 
 - Invoice and receivables cheque collection require a valid planned calendar date before any payment is submitted, including split tenders.

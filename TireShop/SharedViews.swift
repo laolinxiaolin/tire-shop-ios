@@ -3,6 +3,30 @@ import UIKit
 import QuickLook
 import UniformTypeIdentifiers
 
+enum AppVersion {
+    private static let version = Bundle.main.object(
+        forInfoDictionaryKey: "CFBundleShortVersionString"
+    ) as? String
+
+    private static let build = Bundle.main.object(
+        forInfoDictionaryKey: "CFBundleVersion"
+    ) as? String
+
+    static var displayValue: String {
+        switch (version?.nilIfBlank, build?.nilIfBlank) {
+        case let (version?, build?): return "\(version) (\(build))"
+        case let (version?, nil): return version
+        case let (nil, build?): return build
+        case (nil, nil): return "—"
+        }
+    }
+
+    static var compactDisplayValue: String {
+        guard displayValue != "—" else { return displayValue }
+        return "v\(displayValue)"
+    }
+}
+
 /// A file reference suitable for driving a `.sheet(item:)` QuickLook preview.
 final class PreviewFile: Identifiable {
     let id = UUID()

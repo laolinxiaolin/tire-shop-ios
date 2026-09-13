@@ -475,7 +475,7 @@ struct VendorDetailNativeView: View {
                 if let costsError, costs == nil {
                     RetryView(message: costsError) { Task { await loadCosts() } }
                 } else if let costs, !costs.items.isEmpty {
-                    VendorCostList(costs: costs.items)
+                    VendorCostList(costs: costs.items, showReference: vendor.supplier != nil)
                     if costs.total > 0 {
                         PagedFooter(
                             page: costs.page,
@@ -775,11 +775,12 @@ private struct VendorEmptyInlineView: View {
 
 private struct VendorCostList: View {
     let costs: [VendorRecentCost]
+    let showReference: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(costs) { cost in
-                VendorCostRow(cost: cost)
+                VendorCostRow(cost: cost, showReference: showReference)
                 Divider()
             }
         }
@@ -789,7 +790,10 @@ private struct VendorCostList: View {
 }
 
 private struct VendorCostRow: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     let cost: VendorRecentCost
+    let showReference: Bool
 
     var body: some View {
         Group {
@@ -826,6 +830,12 @@ private struct VendorCostRow: View {
             }
             .font(.caption)
             .foregroundStyle(Theme.muted)
+
+            if showReference {
+                LabeledContent(i18n.t("vendors.reference"), value: cost.reference?.nilIfBlank ?? cost.container?.reference?.nilIfBlank ?? "—")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+            }
 
             HStack {
                 Text(cost.description ?? "No description")

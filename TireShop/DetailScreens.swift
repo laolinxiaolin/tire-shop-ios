@@ -1264,6 +1264,7 @@ struct InventoryCountDetailNativeView: View {
 
 struct ContainerDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     let id: String
 
@@ -1291,6 +1292,7 @@ struct ContainerDetailNativeView: View {
     @State private var skuSearchLineId: String?
     @State private var showingCancelConfirm = false
     @State private var showingUnreceiveConfirm = false
+    @State private var showingSupplierCorrection = false
     @State private var unreceiveReason = ""
     @State private var attachmentPreview: PreviewFile?
     @State private var deleteAttachmentTarget: ContainerAttachment?
@@ -1310,6 +1312,10 @@ struct ContainerDetailNativeView: View {
 
     private var canReceive: Bool {
         auth.has("purchasing.receive")
+    }
+
+    private var canChangeSupplier: Bool {
+        auth.has("purchasing.supplier.change") && container?.status != "CANCELLED"
     }
 
     private var editable: Bool {
@@ -1359,6 +1365,18 @@ struct ContainerDetailNativeView: View {
             ContainerCostDueDateSheet(containerId: id, cost: cost) {
                 dueDateTarget = nil
                 Task { await load() }
+            }
+        }
+        .sheet(isPresented: $showingSupplierCorrection) {
+            if let container, canChangeSupplier {
+                PurchaseSupplierCorrectionSheet(container: container) { updated in
+                    guard updated.id == id else { return }
+                    // Supplier correction must preserve unsaved shipping,
+                    // price, quantity, and reference edits in this draft.
+                    self.container = updated
+                    actionMessage = i18n.t("purchasing.supplierChange.success", ["name": updated.supplier.name])
+                    showingSupplierCorrection = false
+                }
             }
         }
         .sheet(item: $attachmentPreview) { preview in
@@ -1493,6 +1511,14 @@ struct ContainerDetailNativeView: View {
             }
 
             Section("Actions") {
+                if canChangeSupplier {
+                    Button {
+                        showingSupplierCorrection = true
+                    } label: {
+                        Label(i18n.t("purchasing.supplierChange.title"), systemImage: "arrow.triangle.swap")
+                    }
+                    .disabled(busy)
+                }
                 if canEditDraft {
                     Button {
                         Task { await saveDraft() }
@@ -1532,7 +1558,7 @@ struct ContainerDetailNativeView: View {
                         Label("Unreceive", systemImage: "arrow.uturn.backward.circle")
                     }
                     .disabled(busy)
-                } else {
+                } else if !canChangeSupplier {
                     Text("No actions available for this status.")
                         .foregroundStyle(Theme.muted)
                 }
@@ -2111,7 +2137,7 @@ struct ContainerDetailNativeView: View {
 }
 
 private enum ContainerDetailLabels {
-    static let supplierPaymentCategories: [ContainerCostCategory] = ["DOWN_PAYMENT", "BALANCE_PAYMENT", "SUPPLIER_OTHER"]
+    static let supplierPaymentCategories = PurchasePaymentStatus.supplierCategories
     static let statusFlow: [ContainerStatus] = ["DRAFT", "ORDERED", "IN_TRANSIT", "ARRIVED", "RECEIVED"]
     static let spreadOptions: [(CostSpreadMethod, String)] = [
         ("VALUE", "By value"),

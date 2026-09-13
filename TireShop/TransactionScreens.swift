@@ -1,4 +1,3 @@
-import LocalAuthentication
 import ProximityReader
 import SwiftUI
 import StripeTerminal
@@ -7,6 +6,7 @@ import UIKit
 struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
+    @EnvironmentObject private var i18n: I18nStore
     @Environment(\.dismiss) private var dismiss
 
     private enum FocusField: Hashable {
@@ -26,7 +26,13 @@ struct NewQuoteNativeView: View {
     @State private var loadingAvailability = false
     @State private var availabilityRequestID = UUID()
     @State private var priceDrafts: [String: String] = [:]
+    @StateObject private var priceHistory = SalePriceHistoryStore()
+    @State private var catalogBySku: [String: TireSku] = [:]
     @FocusState private var focusedField: FocusField?
+
+    private var priceRequest: SalePriceRequest {
+        SalePriceRequest(customerId: quote.customer?.id, skuIds: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId))
+    }
 
     var body: some View {
         Form {
@@ -77,6 +83,9 @@ struct NewQuoteNativeView: View {
             await loadWarehouses()
             await quote.restoreDefaultTaxRate()
             await loadAvailability()
+        }
+        .task(id: priceRequest) {
+            await priceHistory.load(priceRequest)
         }
         .onChange(of: quote.customer) { _, _ in
             Task { await quote.applyCustomerTaxRate() }
@@ -175,6 +184,9 @@ struct NewQuoteNativeView: View {
 
     private var linesSection: some View {
         Section("Items") {
+            if !priceRequest.skuIds.isEmpty {
+                SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
+            }
             if quote.lines.isEmpty {
                 Text("No items yet")
                     .foregroundStyle(Theme.muted)
@@ -224,6 +236,26 @@ struct NewQuoteNativeView: View {
                         Text("\(available) available at \(quote.location)")
                             .font(.caption)
                             .foregroundStyle(line.qty > available ? Theme.danger : Theme.muted)
+                    }
+
+                    if line.itemType == "SKU" {
+                        if let sku = catalogBySku[line.itemId] {
+                            SkuSalePriceChoices(sku: sku, history: priceHistory, request: priceRequest, disabled: saving) { price in
+                                applyPrice(price, to: line)
+                            }
+                        } else if let previous = priceHistory.price(for: line.itemId, request: priceRequest) {
+                            LastSalePriceChoice(price: previous, apply: true, disabled: saving) { price in
+                                applyPrice(price, to: line)
+                            }
+                        }
+                    }
+
+                    if line.unitPrice != line.listPrice {
+                        Button(i18n.t("newQuote.listReset", ["price": AppFormat.money(line.listPrice)])) {
+                            applyPrice(line.listPrice, to: line)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
                     }
 
                     HStack(spacing: Theme.Space.md) {
@@ -328,6 +360,14 @@ struct NewQuoteNativeView: View {
         )
     }
 
+    private func applyPrice(_ price: Double, to line: QuoteLine) {
+        // Commit the selected value into the text draft as well so losing
+        // focus cannot restore the price that preceded this choice.
+        priceDrafts[line.id] = formattedPriceText(price)
+        quote.applyPrice(line.id, unitPrice: price)
+        focusedField = nil
+    }
+
     private func finishPriceEditing(_ lineID: String) {
         guard let line = quote.lines.first(where: { $0.id == lineID }) else {
             priceDrafts.removeValue(forKey: lineID)
@@ -387,7 +427,7 @@ struct NewQuoteNativeView: View {
     private var hasStockShortage: Bool {
         guard availabilityLocation == quote.location else { return false }
         return quote.lines.contains { line in
-            line.itemType == "SKU" && line.qty > (availabilityBySku[line.itemId] ?? 0)
+            line.itemType == "SKU" && line.qty > (availableQuantity(for: line) ?? 0)
         }
     }
 
@@ -461,7 +501,10 @@ struct NewQuoteNativeView: View {
 
     private func availableQuantity(for line: QuoteLine) -> Int? {
         guard line.itemType == "SKU", availabilityLocation == quote.location else { return nil }
-        return availabilityBySku[line.itemId] ?? 0
+        let otherLinesQuantity = quote.lines.filter {
+            $0.itemType == "SKU" && $0.itemId == line.itemId && $0.id != line.id
+        }.reduce(0) { $0 + $1.qty }
+        return max(0, (availabilityBySku[line.itemId] ?? 0) - otherLinesQuantity)
     }
 
     private func maximumQuantity(for line: QuoteLine) -> Int {
@@ -502,6 +545,7 @@ struct NewQuoteNativeView: View {
 
         guard let location = quote.location.nilIfBlank else {
             availabilityBySku = [:]
+            catalogBySku = [:]
             availabilityLocation = ""
             loadingAvailability = false
             return
@@ -510,6 +554,7 @@ struct NewQuoteNativeView: View {
         let skuIds = Set(quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId))
         guard !skuIds.isEmpty else {
             availabilityBySku = [:]
+            catalogBySku = [:]
             availabilityLocation = location
             loadingAvailability = false
             return
@@ -542,6 +587,7 @@ struct NewQuoteNativeView: View {
             }
 
             guard quote.location == location, availabilityRequestID == requestID else { return }
+            catalogBySku = matching
             availabilityBySku = Dictionary(uniqueKeysWithValues: skuIds.map { id in
                 let inventory = matching[id]?.inventory.first { $0.location == location }
                 let quantity = max(0, (inventory?.qtyOnHand ?? 0) - (inventory?.qtyReserved ?? 0))
@@ -551,6 +597,7 @@ struct NewQuoteNativeView: View {
         } catch {
             guard quote.location == location, availabilityRequestID == requestID else { return }
             availabilityBySku = [:]
+            catalogBySku = [:]
             availabilityLocation = ""
         }
     }
@@ -603,6 +650,7 @@ struct ServicePickerNativeView: View {
 
 struct SkuDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     let sku: TireSku
     var initialLocation: String? = nil
@@ -617,6 +665,7 @@ struct SkuDetailNativeView: View {
                 RowLine(title: "\(sku.size) - \(sku.brand)", subtitle: "\(sku.model) - \(sku.sku)", trailing: sku.active ? "Active" : "Inactive")
                 RowLine(title: "On hand", trailing: String(onHand))
                 RowLine(title: "Retail", trailing: AppFormat.money(sku.priceRetail))
+                RowLine(title: i18n.t("sku.wholesale"), trailing: sku.priceWholesale.map(AppFormat.money) ?? "—")
                 RowLine(title: "Cost", trailing: AppFormat.money(sku.priceCost))
             }
 
@@ -716,13 +765,27 @@ struct SkuAddToQuoteView: View {
     @EnvironmentObject private var quote: QuoteStore
     let sku: TireSku
 
-    @State private var loadingWarehouse = false
+    @State private var loadingWarehouse = true
     @State private var warehouseError: String?
+    @State private var validatedWarehouse: String?
+    @StateObject private var priceHistory = SalePriceHistoryStore()
+
+    private var priceRequest: SalePriceRequest {
+        SalePriceRequest(customerId: quote.customer?.id, skuIds: [sku.id])
+    }
+
+    private var canAdd: Bool {
+        auth.has("sales.manage") && quote.location.nilIfBlank != nil
+            && available > 0 && !loadingWarehouse && warehouseError == nil
+            && validatedWarehouse == quote.location
+    }
 
     private var available: Int {
         guard let location = quote.location.nilIfBlank else { return 0 }
         guard let inventory = sku.inventory.first(where: { $0.location == location }) else { return 0 }
-        return max(0, inventory.qtyOnHand - inventory.qtyReserved)
+        let quantityInSale = quote.lines.filter { $0.itemType == "SKU" && $0.itemId == sku.id }
+            .reduce(0) { $0 + $1.qty }
+        return max(0, inventory.qtyOnHand - inventory.qtyReserved - quantityInSale)
     }
 
     private var availabilityText: String {
@@ -742,19 +805,15 @@ struct SkuAddToQuoteView: View {
             Text(warehouseError ?? availabilityText)
                 .font(.subheadline)
                 .foregroundStyle(available > 0 && warehouseError == nil ? Theme.muted : Theme.danger)
-            PrimaryButton(
-                title: "Add to sale",
-                disabled: !auth.has("sales.manage")
-                    || quote.location.nilIfBlank == nil
-                    || available <= 0
-                    || loadingWarehouse
-            ) {
-                guard auth.has("sales.manage") else { return }
+            SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
+            SkuSalePriceChoices(sku: sku, history: priceHistory, request: priceRequest, disabled: !canAdd) { price in
+                guard canAdd else { return }
                 quote.addLine(
                     itemType: "SKU",
                     itemId: sku.id,
                     description: "\(sku.brand) \(sku.model) \(sku.size) (\(sku.position.replacingOccurrences(of: "_", with: "-")))",
-                    unitPrice: Double(sku.priceRetail) ?? 0
+                    unitPrice: price,
+                    listPrice: Double(sku.priceRetail) ?? 0
                 )
                 dismiss()
             }
@@ -765,12 +824,16 @@ struct SkuAddToQuoteView: View {
         .task {
             await ensureSaleWarehouse()
         }
+        .task(id: priceRequest) {
+            await priceHistory.load(priceRequest)
+        }
     }
 
     @MainActor
     private func ensureSaleWarehouse() async {
         loadingWarehouse = true
         warehouseError = nil
+        validatedWarehouse = nil
         defer { loadingWarehouse = false }
 
         do {
@@ -786,6 +849,7 @@ struct SkuAddToQuoteView: View {
                     ?? warehouses[0].code
                 quote.setLocation(selected)
             }
+            validatedWarehouse = quote.location
         } catch {
             warehouseError = (error as? LocalizedError)?.errorDescription ?? "Could not load warehouses."
         }
@@ -795,6 +859,7 @@ struct SkuAddToQuoteView: View {
 struct SkuFormNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     let editing: TireSku?
 
@@ -812,6 +877,7 @@ struct SkuFormNativeView: View {
     @State private var weightLb = ""
     @State private var plyRating = ""
     @State private var priceRetail = ""
+    @State private var priceWholesale = ""
     @State private var priceCost = ""
     @State private var reorderPoint = ""
     @State private var active = true
@@ -845,6 +911,11 @@ struct SkuFormNativeView: View {
             Section("Pricing") {
                 TextField("Retail", text: $priceRetail)
                     .keyboardType(.decimalPad)
+                TextField(i18n.t("sku.wholesale"), text: $priceWholesale)
+                    .keyboardType(.decimalPad)
+                Text(i18n.t("sku.wholesaleHint"))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
                 TextField("Cost", text: $priceCost)
                     .keyboardType(.decimalPad)
                 TextField("Reorder point", text: $reorderPoint)
@@ -873,7 +944,13 @@ struct SkuFormNativeView: View {
     }
 
     private var isValid: Bool {
-        !sku.isEmpty && !brand.isEmpty && !model.isEmpty && !size.isEmpty && !category.isEmpty && !position.isEmpty && Double(priceRetail) != nil
+        !sku.isEmpty && !brand.isEmpty && !model.isEmpty && !size.isEmpty && !category.isEmpty && !position.isEmpty
+            && isValidPrice(priceRetail) && (priceWholesale.nilIfBlank == nil || isValidPrice(priceWholesale))
+    }
+
+    private func isValidPrice(_ value: String) -> Bool {
+        guard let price = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return price.isFinite && price >= 0
     }
 
     private func seed() {
@@ -892,6 +969,7 @@ struct SkuFormNativeView: View {
         weightLb = editing.weightLb ?? ""
         plyRating = editing.plyRating ?? ""
         priceRetail = editing.priceRetail
+        priceWholesale = editing.priceWholesale ?? ""
         priceCost = editing.priceCost
         reorderPoint = String(editing.reorderPoint)
         active = editing.active
@@ -903,6 +981,7 @@ struct SkuFormNativeView: View {
             errorMessage = "You do not have permission to manage inventory."
             return
         }
+        guard isValid else { return }
         saving = true
         errorMessage = nil
 
@@ -922,7 +1001,9 @@ struct SkuFormNativeView: View {
                     maxLoadSingleLb: Int(maxLoadSingleLb),
                     weightLb: Double(weightLb),
                     plyRating: plyRating.nilIfBlank,
-                    priceRetail: Double(priceRetail),
+                    priceWholesale: priceWholesale.nilIfBlank.flatMap(Double.init),
+                    clearPriceWholesale: priceWholesale.nilIfBlank == nil,
+                    priceRetail: priceRetail.nilIfBlank.flatMap(Double.init),
                     priceCost: Double(priceCost),
                     reorderPoint: Int(reorderPoint),
                     active: active
@@ -942,7 +1023,8 @@ struct SkuFormNativeView: View {
                     maxLoadSingleLb: Int(maxLoadSingleLb),
                     weightLb: Double(weightLb),
                     plyRating: plyRating.nilIfBlank,
-                    priceRetail: Double(priceRetail) ?? 0,
+                    priceRetail: priceRetail.nilIfBlank.flatMap(Double.init) ?? 0,
+                    priceWholesale: priceWholesale.nilIfBlank.flatMap(Double.init),
                     priceCost: Double(priceCost),
                     reorderPoint: Int(reorderPoint),
                     active: active
@@ -1592,13 +1674,7 @@ struct TapToPayNativeView: View {
                 Section("Before charging") {
                     ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
 
-                    if canCollect {
-                        TapToPayInfoRow(
-                            title: "Confirm identity",
-                            detail: "The app asks for Face ID, Touch ID, or the device passcode when available before starting a Tap to Pay on iPhone payment.",
-                            systemImage: "faceid"
-                        )
-                    } else {
+                    if !canCollect {
                         TapToPayInfoRow(
                             title: "Payment permission required",
                             detail: "This account cannot take payments. Ask an admin to grant payment collection access.",
@@ -2163,8 +2239,6 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
             }
             clientSecretForReconciliation = clientSecret
 
-            statusMessage = "Confirming cashier identity..."
-            try await authorizeCashierIfAvailable()
             try Task.checkCancellation()
 
             statusMessage = "Creating the charge..."
@@ -2382,29 +2456,6 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         }
     }
 
-    private func authorizeCashierIfAvailable() async throws {
-        let context = LAContext()
-        context.localizedCancelTitle = "Cancel"
-
-        var authError: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &authError) else {
-            return
-        }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            context.evaluatePolicy(
-                .deviceOwnerAuthentication,
-                localizedReason: "Confirm it is you before taking a Tap to Pay on iPhone payment."
-            ) { success, error in
-                if success {
-                    continuation.resume()
-                } else {
-                    continuation.resume(throwing: error ?? APIError(status: 0, message: "Cashier identity was not confirmed."))
-                }
-            }
-        }
-    }
-
     private func connectTapToPayReader(locationId: String) async throws -> Reader {
         if let connectedReader = Terminal.shared.connectedReader {
             if connectedReader.deviceType == .tapToPay, connectedReader.locationId == locationId {
@@ -2522,10 +2573,6 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     private func paymentErrorMessage(_ error: Error) -> String {
         let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         let lowercased = fallback.lowercased()
-
-        if error is LAError || fallback.contains("Cashier identity") {
-            return "Cashier identity was not confirmed. Try again, or use Card / manual payment if the customer needs another checkout option."
-        }
 
         if lowercased.contains("not support")
             || lowercased.contains("unsupported")

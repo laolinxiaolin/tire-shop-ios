@@ -715,6 +715,8 @@ struct ProfileView: View {
                         Label(i18n.t("profile.support"), systemImage: "questionmark.circle")
                     }
                 }
+
+                LabeledContent(i18n.t("profile.version"), value: AppVersion.displayValue)
             }
 
             Section {

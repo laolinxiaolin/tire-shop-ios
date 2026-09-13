@@ -26,8 +26,6 @@
 	<string>public.app-category.business</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Tire Force US uses Face ID to confirm cashier identity before accepting a Tap to Pay on iPhone payment.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Tire Force US uses Bluetooth to connect to supported card readers for in-person payments.</string>
 	<key>NSCameraUsageDescription</key>

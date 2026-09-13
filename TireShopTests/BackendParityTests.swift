@@ -152,6 +152,41 @@ final class BackendParityTests: XCTestCase {
         XCTAssertNil(response.summary)
     }
 
+    func testSalesListDecodesPaymentMethods() throws {
+        let response: SalesListResponse = try decode(
+            SalesListResponse.self,
+            """
+            {"items":[{"id":"sale_1","ref":"S-1","status":"PAID","location":"MAIN",
+             "customer":{"id":"customer_1","name":"Alex Rivera","company":null},
+             "customerId":"customer_1","subtotal":"100.00","taxRate":"0.00",
+             "taxAmount":"0.00","total":"100.00","createdAt":"2026-08-20T12:00:00.000Z",
+             "lines":[],"invoice":{"id":"invoice_1","ref":"INV-1","amountDue":"0.00","paidTotal":"100.00"},
+             "tireQty":0,"sampleDescription":null,"extraLineCount":0,"grossProfit":"50.00",
+             "paymentMethods":["Cash","Card"],"salespersonId":null,"salesperson":null}],
+             "total":1,"page":1,"pageSize":50,
+             "summary":{"count":1,"tireQty":0,"taxAmount":"0.00","grossProfit":"50.00","total":"100.00"}}
+            """
+        )
+        XCTAssertEqual(response.items.first?.paymentMethods, ["Cash", "Card"])
+    }
+
+    func testSalesListDefaultsMissingPaymentMethodsToEmpty() throws {
+        let response: SalesListResponse = try decode(
+            SalesListResponse.self,
+            """
+            {"items":[{"id":"sale_1","ref":"S-1","status":"INVOICED","location":"MAIN",
+             "customer":{"id":"customer_1","name":"Alex Rivera","company":null},
+             "customerId":"customer_1","subtotal":"100.00","taxRate":"0.00",
+             "taxAmount":"0.00","total":"100.00","createdAt":"2026-08-20T12:00:00.000Z",
+             "lines":[],"invoice":{"id":"invoice_1","ref":"INV-1","amountDue":"100.00","paidTotal":"0.00"},
+             "tireQty":0,"sampleDescription":null,"extraLineCount":0,"grossProfit":"50.00",
+             "salespersonId":null,"salesperson":null}],"total":1,"page":1,"pageSize":50,
+             "summary":{"count":1,"tireQty":0,"taxAmount":"0.00","grossProfit":"50.00","total":"100.00"}}
+            """
+        )
+        XCTAssertEqual(response.items.first?.paymentMethods, [])
+    }
+
     // MARK: - Best Sellers warehouse scope (#403)
 
     func testBestSellersDecodesWarehouseScope() throws {

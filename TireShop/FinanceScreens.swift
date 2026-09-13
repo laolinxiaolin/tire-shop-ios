@@ -91,28 +91,6 @@ private func prettyCostCategory(_ c: String) -> String {
     }
 }
 
-private struct AgingBuckets {
-    var current = 0.0
-    var b30 = 0.0
-    var b60 = 0.0
-    var b90 = 0.0
-}
-
-/// Split rows into aging buckets (current / 31-60 / 61-90 / 90+) by ageDays.
-private func bucketize<T>(_ rows: [T], age: (T) -> Int, amount: (T) -> Double) -> AgingBuckets {
-    var b = AgingBuckets()
-    for r in rows {
-        let a = amount(r)
-        switch age(r) {
-        case ..<31: b.current += a
-        case ..<61: b.b30 += a
-        case ..<91: b.b60 += a
-        default: b.b90 += a
-        }
-    }
-    return b
-}
-
 private struct AgeBadge: View {
     let days: Int
 
@@ -133,7 +111,7 @@ private struct AgeBadge: View {
 }
 
 private struct AgingStripView: View {
-    let buckets: AgingBuckets
+    let buckets: BalanceBuckets
 
     var body: some View {
         HStack(spacing: Theme.Space.sm) {
@@ -268,11 +246,11 @@ struct MoneyNativeView: View {
 private struct ReceivablesTabView: View {
     @EnvironmentObject private var auth: AuthStore
 
-    @State private var items: [ReceivableCustomer] = []
-    @State private var total = 0
-    @State private var loaded = false
-    @State private var loadingMore = false
-    @State private var loadedPage = 1
+    @StateObject private var balances = BalanceListStore<ReceivableCustomer> { page, size, q in
+        try await MoneyAPI().receivables(page: page, pageSize: size, q: q)
+    }
+    private var items: [ReceivableCustomer] { balances.items }
+    private var loaded: Bool { balances.loaded }
     @State private var errorMessage: String?
     @State private var q = ""
     @State private var collectTarget: ReceivableCustomer?
@@ -280,32 +258,35 @@ private struct ReceivablesTabView: View {
     @State private var statementPreview: PreviewFile?
     @State private var downloadingStatement = false
 
-    private let pageSize = 50
-
-    private var filtered: [ReceivableCustomer] {
-        guard let term = q.nilIfBlank?.lowercased() else { return items }
-        return items.filter {
-            $0.customer.name.lowercased().contains(term)
-                || ($0.customer.company ?? "").lowercased().contains(term)
-                || String(format: "%.2f", $0.openBalance).contains(term)
-        }
-    }
-
     var body: some View {
         Group {
             if !loaded {
                 LoadingView(label: "Loading...")
-            } else if let errorMessage, items.isEmpty {
+            } else if let errorMessage = balances.errorMessage ?? errorMessage, items.isEmpty {
                 RetryView(message: errorMessage) { Task { await reload() } }
             } else {
-                let rows = filtered
+                let rows = items
                 List {
+                    if let message = balances.errorMessage ?? errorMessage {
+                        Section {
+                            Text(message).foregroundStyle(Theme.danger)
+                            Button("Retry") {
+                                Task {
+                                    if balances.errorMessage != nil { await balances.retry() }
+                                    else { await reload() }
+                                }
+                            }
+                            .disabled(balances.loading)
+                        }
+                    }
+                    if balances.loading { ProgressView() }
+
                     Section {
                         summaryHeader(rows)
                     }
 
                     Section {
-                        if items.isEmpty {
+                        if items.isEmpty && q.nilIfBlank == nil {
                             Text("Nothing outstanding. Every invoice is paid.")
                                 .foregroundStyle(Theme.muted)
                         } else if rows.isEmpty {
@@ -334,10 +315,10 @@ private struct ReceivablesTabView: View {
                 }
                 .listStyle(.insetGrouped)
                 .refreshable { await reload() }
-                .searchable(text: $q, prompt: "Search customers")
             }
         }
-        .task { if !loaded { await reload() } }
+        .searchable(text: $q, prompt: "Search customers")
+        .task(id: q) { await balances.reload(query: q, debounce: true) }
         .sheet(item: $collectTarget) { target in
             CollectReceivableSheet(customer: target.customer) {
                 Task { await reload() }
@@ -357,14 +338,14 @@ private struct ReceivablesTabView: View {
                 .font(.caption2)
                 .fontWeight(.semibold)
                 .foregroundStyle(Theme.muted)
-            Text(AppFormat.money(rows.reduce(0) { $0 + $1.openBalance }))
+            Text(balances.summary.map { AppFormat.money($0.balance) } ?? "—")
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundStyle(Theme.text)
-            Text("Across \(rows.count) customer\(rows.count == 1 ? "" : "s")")
+            Text("Across \(balances.total) customer\(balances.total == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
-            AgingStripView(buckets: bucketize(rows, age: \.ageDays, amount: \.openBalance))
+            if let summary = balances.summary { AgingStripView(buckets: summary.buckets) }
             if downloadingStatement {
                 Label("Preparing statement...", systemImage: "arrow.down.doc")
                     .font(.caption)
@@ -401,28 +382,12 @@ private struct ReceivablesTabView: View {
     @MainActor
     private func reload() async {
         errorMessage = nil
-        do {
-            let page = try await MoneyAPI().receivables(page: 1, pageSize: pageSize)
-            items = page.items
-            total = page.total
-            loadedPage = 1
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load receivables."
-        }
-        loaded = true
+        await balances.reload(query: q)
     }
 
     @MainActor
     private func loadMore() async {
-        guard !loadingMore, items.count < total else { return }
-        loadingMore = true
-        let nextPage = loadedPage + 1
-        if let page = try? await MoneyAPI().receivables(page: nextPage, pageSize: pageSize) {
-            items.appendNewElements(from: page.items)
-            total = page.total
-            loadedPage = nextPage
-        }
-        loadingMore = false
+        await balances.loadMore()
     }
 
     @MainActor
@@ -959,58 +924,62 @@ private struct CollectReceivableSheet: View {
 private struct PayablesTabView: View {
     @EnvironmentObject private var auth: AuthStore
 
-    @State private var items: [PayableVendor] = []
-    @State private var total = 0
-    @State private var loaded = false
-    @State private var loadingMore = false
-    @State private var loadedPage = 1
+    @StateObject private var balances = BalanceListStore<PayableVendor> { page, size, q in
+        try await MoneyAPI().payables(page: page, pageSize: size, q: q)
+    }
+    private var items: [PayableVendor] { balances.items }
+    private var loaded: Bool { balances.loaded }
     @State private var errorMessage: String?
     @State private var q = ""
     @State private var payTarget: PayableVendor?
 
-    private let pageSize = 50
-
     private var canPay: Bool {
         auth.canActOrRequest("payables.pay")
-    }
-
-    private var filtered: [PayableVendor] {
-        guard let term = q.nilIfBlank?.lowercased() else { return items }
-        return items.filter {
-            ($0.vendor ?? "").lowercased().contains(term)
-                || String(format: "%.2f", $0.totalDue).contains(term)
-        }
     }
 
     var body: some View {
         Group {
             if !loaded {
                 LoadingView(label: "Loading...")
-            } else if let errorMessage, items.isEmpty {
+            } else if let errorMessage = balances.errorMessage ?? errorMessage, items.isEmpty {
                 RetryView(message: errorMessage) { Task { await reload() } }
             } else {
-                let rows = filtered
+                let rows = items
                 List {
+                    if let message = balances.errorMessage ?? errorMessage {
+                        Section {
+                            Text(message).foregroundStyle(Theme.danger)
+                            Button("Retry") {
+                                Task {
+                                    if balances.errorMessage != nil { await balances.retry() }
+                                    else { await reload() }
+                                }
+                            }
+                            .disabled(balances.loading)
+                        }
+                    }
+                    if balances.loading { ProgressView() }
+
                     Section {
                         VStack(alignment: .leading, spacing: Theme.Space.sm) {
                             Text(q.nilIfBlank == nil ? "TOTAL OPEN A/P" : "FILTERED OPEN A/P")
                                 .font(.caption2)
                                 .fontWeight(.semibold)
                                 .foregroundStyle(Theme.muted)
-                            Text(AppFormat.money(rows.reduce(0) { $0 + $1.totalDue }))
+                            Text(balances.summary.map { AppFormat.money($0.balance) } ?? "—")
                                 .font(.title2)
                                 .fontWeight(.bold)
                                 .foregroundStyle(Theme.text)
-                            Text("Across \(rows.count) vendor\(rows.count == 1 ? "" : "s")")
+                            Text("Across \(balances.total) vendor\(balances.total == 1 ? "" : "s")")
                                 .font(.caption)
                                 .foregroundStyle(Theme.muted)
-                            AgingStripView(buckets: bucketize(rows, age: \.ageDays, amount: \.totalDue))
+                            if let summary = balances.summary { AgingStripView(buckets: summary.buckets) }
                         }
                         .padding(.vertical, Theme.Space.xs)
                     }
 
                     Section {
-                        if items.isEmpty {
+                        if items.isEmpty && q.nilIfBlank == nil {
                             Text("Nothing owed. All container costs are settled.")
                                 .foregroundStyle(Theme.muted)
                         } else if rows.isEmpty {
@@ -1054,10 +1023,10 @@ private struct PayablesTabView: View {
                 }
                 .listStyle(.insetGrouped)
                 .refreshable { await reload() }
-                .searchable(text: $q, prompt: "Search vendors")
             }
         }
-        .task { if !loaded { await reload() } }
+        .searchable(text: $q, prompt: "Search vendors")
+        .task(id: q) { await balances.reload(query: q, debounce: true) }
         .sheet(item: $payTarget) { target in
             PayVendorSheet(vendorKey: target.vendorKey) {
                 Task { await reload() }
@@ -1068,29 +1037,15 @@ private struct PayablesTabView: View {
     @MainActor
     private func reload() async {
         errorMessage = nil
-        do {
-            let page = try await MoneyAPI().payables(page: 1, pageSize: pageSize)
-            items = page.items
-            total = page.total
-            loadedPage = 1
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load payables."
-        }
-        loaded = true
+        await balances.reload(query: q)
     }
 
     @MainActor
     private func loadMore() async {
-        guard !loadingMore, items.count < total else { return }
-        loadingMore = true
-        let nextPage = loadedPage + 1
-        if let page = try? await MoneyAPI().payables(page: nextPage, pageSize: pageSize) {
-            items.appendNewElements(from: page.items)
-            total = page.total
-            loadedPage = nextPage
-        }
-        loadingMore = false
+        await balances.loadMore()
     }
+
+
 }
 
 extension PayableVendor: Identifiable {
@@ -1368,6 +1323,7 @@ private struct PayVendorSheet: View {
 
         do {
             let input = PayablesPayInput(
+                expectedVendorKey: vendorKey,
                 applications: state.applications,
                 paidAt: FinanceDay.string(paidAt),
                 reference: reference.nilIfBlank,
@@ -2126,6 +2082,7 @@ private struct JournalEntryRow: View {
 
 struct CashAccountsNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     enum Tab: String, CaseIterable {
         case transfers = "Transfers"
@@ -2138,6 +2095,9 @@ struct CashAccountsNativeView: View {
     @State private var loaded = false
     @State private var errorMessage: String?
 
+    @State private var showingAddAccount = false
+    @State private var loadGeneration = 0
+    @State private var refreshing = false
     @State private var showingTransfer = false
     @State private var showingExpense = false
     @State private var showingAddMethod = false
@@ -2185,6 +2145,7 @@ struct CashAccountsNativeView: View {
             if canManage {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button { showingAddAccount = true } label: { Label(i18n.t("accounting.cash.addAccount"), systemImage: "building.columns") }
                         Button { showingTransfer = true } label: { Label("Transfer funds", systemImage: "arrow.left.arrow.right") }
                         Button { showingExpense = true } label: { Label("Record expense", systemImage: "minus.circle") }
                         Button { showingAddMethod = true } label: { Label("Add payment method", systemImage: "creditcard") }
@@ -2192,6 +2153,16 @@ struct CashAccountsNativeView: View {
                         Image(systemName: "plus")
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showingAddAccount) {
+            AddCashAccountSheet { account in
+                loadGeneration += 1
+                refreshing = false
+                accounts.removeAll { $0.id == account.id }
+                accounts.append(account)
+                accounts.sort { $0.code < $1.code }
+                Task { await load() }
             }
         }
         .sheet(isPresented: $showingTransfer) {
@@ -2246,6 +2217,7 @@ struct CashAccountsNativeView: View {
             if let errorMessage {
                 Section {
                     Text(errorMessage).foregroundStyle(.red).font(.subheadline)
+                    Button("Retry") { Task { await load() } }.disabled(refreshing)
                 }
             }
 
@@ -2509,70 +2481,101 @@ struct CashAccountsNativeView: View {
 
     @MainActor
     private func load() async {
+        loadGeneration += 1
+        let generation = loadGeneration
+        refreshing = true
+        transfersLoadingMore = false
+        expensesLoadingMore = false
+        methodsLoadingMore = false
         errorMessage = nil
-        do {
-            resetPagination()
-            async let accountsTask = CashAccountsAPI().list()
-            async let transfersTask = CashAccountsAPI().transfersPaged(page: 1, pageSize: pageSize)
-            async let expensesTask = CashAccountsAPI().expenses(page: 1, pageSize: pageSize)
-            async let methodsTask = CashAccountsAPI().methodsPaged(page: 1, pageSize: pageSize)
-            let (loadedAccounts, transfersPage, expensesPage, methodsPage) = try await (
-                accountsTask, transfersTask, expensesTask, methodsTask
-            )
-            accounts = loadedAccounts
-            transfers = transfersPage.items
-            transfersTotal = transfersPage.total
-            self.transfersPage = 1
-            expenses = expensesPage.items
-            expensesTotal = expensesPage.total
-            self.expensesPage = 1
-            methods = methodsPage.items
-            methodsTotal = methodsPage.total
-            self.methodsPage = 1
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load cash accounts."
+        defer { if generation == loadGeneration { refreshing = false; loaded = true } }
+        async let accountResult = financeResult { try await CashAccountsAPI().list() }
+        async let transferResult = financeResult { try await CashAccountsAPI().transfersPaged(page: 1, pageSize: pageSize) }
+        async let expenseResult = financeResult { try await CashAccountsAPI().expenses(page: 1, pageSize: pageSize) }
+        async let methodResult = financeResult { try await CashAccountsAPI().methodsPaged(page: 1, pageSize: pageSize) }
+        let (accountResponse, transferResponse, expenseResponse, methodResponse) = await (accountResult, transferResult, expenseResult, methodResult)
+        guard generation == loadGeneration else { return }
+        var failures: [String] = []
+        switch accountResponse {
+        case .success(let value): accounts = value
+        case .failure(let error): failures.append(error.localizedDescription)
         }
-        loaded = true
-    }
-
-    @MainActor
-    private func resetPagination() {
-        transfers = []; transfersTotal = 0; transfersPage = 0
-        expenses = []; expensesTotal = 0; expensesPage = 0
-        methods = []; methodsTotal = 0; methodsPage = 0
+        switch transferResponse {
+        case .success(let value):
+            transfers = value.items
+            transfersTotal = value.total
+            transfersPage = 1
+        case .failure(let error): failures.append(error.localizedDescription)
+        }
+        switch expenseResponse {
+        case .success(let value):
+            expenses = value.items
+            expensesTotal = value.total
+            expensesPage = 1
+        case .failure(let error): failures.append(error.localizedDescription)
+        }
+        switch methodResponse {
+        case .success(let value):
+            methods = value.items
+            methodsTotal = value.total
+            methodsPage = 1
+        case .failure(let error): failures.append(error.localizedDescription)
+        }
+        errorMessage = failures.isEmpty ? nil : failures.joined(separator: "\n")
     }
 
     @MainActor
     private func loadMoreTransfers() async {
-        guard !transfersLoadingMore, transfersPage * pageSize < transfersTotal else { return }
+        guard !refreshing, !transfersLoadingMore, transfersPage * pageSize < transfersTotal else { return }
+        let generation = loadGeneration
         transfersLoadingMore = true
-        defer { transfersLoadingMore = false }
-        guard let page = try? await CashAccountsAPI().transfersPaged(page: transfersPage + 1, pageSize: pageSize) else { return }
-        transfers.appendNewElements(from: page.items)
-        transfersPage += 1
-        transfersTotal = page.total
+        defer { if generation == loadGeneration { transfersLoadingMore = false } }
+        do {
+            let page = try await CashAccountsAPI().transfersPaged(page: transfersPage + 1, pageSize: pageSize)
+            guard generation == loadGeneration else { return }
+            transfers.appendNewElements(from: page.items)
+            transfersPage += 1
+            transfersTotal = page.total
+        } catch {
+            guard generation == loadGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     @MainActor
     private func loadMoreExpenses() async {
-        guard !expensesLoadingMore, expensesPage * pageSize < expensesTotal else { return }
+        guard !refreshing, !expensesLoadingMore, expensesPage * pageSize < expensesTotal else { return }
+        let generation = loadGeneration
         expensesLoadingMore = true
-        defer { expensesLoadingMore = false }
-        guard let page = try? await CashAccountsAPI().expenses(page: expensesPage + 1, pageSize: pageSize) else { return }
-        expenses.appendNewElements(from: page.items)
-        expensesPage += 1
-        expensesTotal = page.total
+        defer { if generation == loadGeneration { expensesLoadingMore = false } }
+        do {
+            let page = try await CashAccountsAPI().expenses(page: expensesPage + 1, pageSize: pageSize)
+            guard generation == loadGeneration else { return }
+            expenses.appendNewElements(from: page.items)
+            expensesPage += 1
+            expensesTotal = page.total
+        } catch {
+            guard generation == loadGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     @MainActor
     private func loadMoreMethods() async {
-        guard !methodsLoadingMore, methodsPage * pageSize < methodsTotal else { return }
+        guard !refreshing, !methodsLoadingMore, methodsPage * pageSize < methodsTotal else { return }
+        let generation = loadGeneration
         methodsLoadingMore = true
-        defer { methodsLoadingMore = false }
-        guard let page = try? await CashAccountsAPI().methodsPaged(page: methodsPage + 1, pageSize: pageSize) else { return }
-        methods.appendNewElements(from: page.items)
-        methodsPage += 1
-        methodsTotal = page.total
+        defer { if generation == loadGeneration { methodsLoadingMore = false } }
+        do {
+            let page = try await CashAccountsAPI().methodsPaged(page: methodsPage + 1, pageSize: pageSize)
+            guard generation == loadGeneration else { return }
+            methods.appendNewElements(from: page.items)
+            methodsPage += 1
+            methodsTotal = page.total
+        } catch {
+            guard generation == loadGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     @MainActor
@@ -3112,6 +3115,7 @@ private struct RecordExpenseSheet: View {
     let onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var i18n: I18nStore
     @State private var expenseAccounts: [ExpenseAccount] = []
     @State private var vendors: [Vendor] = []
     @State private var expenseCode = ""
@@ -3122,10 +3126,12 @@ private struct RecordExpenseSheet: View {
     @State private var payee = ""
     @State private var reference = ""
     @State private var note = ""
-    @State private var saving = false
+    @StateObject private var receiptSubmission = ExpenseReceiptSubmission()
     @State private var errorMessage: String?
     @State private var submissionIdentity = FinanceSubmissionIdentity()
     @State private var submissionTask: Task<Void, Never>?
+    @State private var preparingReceipt = false
+    @State private var confirmingFinishLater = false
 
     var body: some View {
         NavigationStack {
@@ -3146,6 +3152,7 @@ private struct RecordExpenseSheet: View {
                         .keyboardType(.decimalPad)
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                 }
+                .disabled(receiptSubmission.createdExpenseId != nil)
 
                 Section("Payee (optional)") {
                     Picker("Vendor", selection: $vendorId) {
@@ -3156,10 +3163,40 @@ private struct RecordExpenseSheet: View {
                     }
                     TextField("Payee name", text: $payee)
                 }
+                .disabled(receiptSubmission.createdExpenseId != nil)
 
                 Section {
                     TextField("Reference (check #, invoice #)", text: $reference)
                     TextField("Note (optional)", text: $note)
+                }
+                .disabled(receiptSubmission.createdExpenseId != nil)
+
+                Section {
+                    ForEach(receiptSubmission.pendingReceipts) { receipt in
+                        HStack {
+                            Label(receipt.filename, systemImage: "doc")
+                                .font(.subheadline)
+                                .lineLimit(2)
+                            Spacer()
+                            Button(role: .destructive) {
+                                receiptSubmission.pendingReceipts.removeAll { $0.id == receipt.id }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(i18n.t("expenseReceipt.remove", ["filename": receipt.filename]))
+                        }
+                    }
+                    DocumentUploadSourcePicker(disabled: receiptSubmission.saving, preparing: $preparingReceipt) { receipt in
+                        receiptSubmission.pendingReceipts.append(receipt)
+                        errorMessage = nil
+                    } onError: { message in
+                        errorMessage = message
+                    }
+                } header: {
+                    Text(i18n.t("expenseReceipt.optional"))
+                } footer: {
+                    Text(i18n.t(receiptSubmission.createdExpenseId == nil ? "expenseReceipt.uploadAfterSave" : "expenseReceipt.saved"))
                 }
 
                 if let errorMessage {
@@ -3170,15 +3207,21 @@ private struct RecordExpenseSheet: View {
             }
             .navigationTitle("Record expense")
             .navigationBarTitleDisplayMode(.inline)
-            .disabled(saving)
+            .disabled(receiptSubmission.saving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(saving)
+                    Button(i18n.t(receiptSubmission.createdExpenseId == nil ? "common.cancel" : "expenseReceipt.finishLater")) {
+                        if receiptSubmission.createdExpenseId != nil, !receiptSubmission.pendingReceipts.isEmpty {
+                            confirmingFinishLater = true
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .disabled(receiptSubmission.saving || preparingReceipt)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Recording..." : "Record") { startSubmission() }
-                        .disabled(saving)
+                    Button(submitTitle) { startSubmission() }
+                        .disabled(receiptSubmission.saving || preparingReceipt)
                 }
             }
             .onAppear {
@@ -3200,9 +3243,15 @@ private struct RecordExpenseSheet: View {
                     vendors = (try? await VendorsAPI().list(active: true, pageSize: 200).items) ?? []
                 }
             }
-            .interactiveDismissDisabled(saving)
+            .interactiveDismissDisabled(receiptSubmission.saving || preparingReceipt || (receiptSubmission.createdExpenseId != nil && !receiptSubmission.pendingReceipts.isEmpty))
+            .alert(i18n.t("expenseReceipt.finishLaterTitle"), isPresented: $confirmingFinishLater) {
+                Button(i18n.t("common.cancel"), role: .cancel) {}
+                Button(i18n.t("expenseReceipt.finishLater")) { dismiss() }
+            } message: {
+                Text(i18n.t("expenseReceipt.finishLaterMessage"))
+            }
             .onDisappear {
-                if saving {
+                if receiptSubmission.saving {
                     submissionTask?.cancel()
                 }
             }
@@ -3211,7 +3260,7 @@ private struct RecordExpenseSheet: View {
 
     @MainActor
     private func submit() async {
-        guard let value = Double(amount), value > 0 else {
+        guard let value = Double(amount), value.isFinite, value > 0 else {
             errorMessage = "Enter a positive amount"
             return
         }
@@ -3223,34 +3272,54 @@ private struct RecordExpenseSheet: View {
             errorMessage = "Select the account it was paid from"
             return
         }
-        saving = true
         errorMessage = nil
-        defer { saving = false }
 
         do {
-            let input = ExpenseCreateInput(
-                amount: value,
-                expenseCode: expenseCode,
-                paidFromCode: paidFromCode,
-                date: FinanceDay.string(date),
-                payee: payee.nilIfBlank,
-                vendorId: vendorId.nilIfBlank,
-                reference: reference.nilIfBlank,
-                note: note.nilIfBlank
-            )
-            let idempotencyKey = try submissionIdentity.key(for: input)
-            _ = try await CashAccountsAPI().createExpense(
-                input,
-                idempotencyKey: idempotencyKey
-            )
-            saving = false
+            try await receiptSubmission.submit {
+                let input = ExpenseCreateInput(
+                    amount: value,
+                    expenseCode: expenseCode,
+                    paidFromCode: paidFromCode,
+                    date: FinanceDay.string(date),
+                    payee: payee.nilIfBlank,
+                    vendorId: vendorId.nilIfBlank,
+                    reference: reference.nilIfBlank,
+                    note: note.nilIfBlank
+                )
+                let idempotencyKey = try submissionIdentity.key(for: input)
+                return try await CashAccountsAPI().createExpense(
+                    input,
+                    idempotencyKey: idempotencyKey
+                )
+            } upload: { expenseId, receipt in
+                _ = try await CashAccountsAPI().uploadExpenseReceipt(
+                    expenseId: expenseId,
+                    fileURL: receipt.url,
+                    fileName: receipt.filename,
+                    mimeType: receipt.mimeType
+                )
+            }
             onDone()
             dismiss()
         } catch {
             if !Task.isCancelled {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the expense."
+                let detail = (error as? LocalizedError)?.errorDescription ?? "Could not record the expense."
+                errorMessage = receiptSubmission.createdExpenseId == nil
+                    ? detail
+                    : i18n.t("expenseReceipt.uploadFailedAfterSave", ["error": detail])
+                if receiptSubmission.createdExpenseId != nil { onDone() }
             }
         }
+    }
+
+    private var submitTitle: String {
+        if receiptSubmission.saving {
+            return i18n.t(receiptSubmission.createdExpenseId == nil ? "expenseReceipt.recording" : "expenseReceipt.uploading")
+        }
+        if receiptSubmission.createdExpenseId != nil {
+            return i18n.t(receiptSubmission.pendingReceipts.isEmpty ? "common.done" : "expenseReceipt.retry")
+        }
+        return i18n.t("expenseReceipt.record")
     }
 
     private func startSubmission() {
@@ -3383,10 +3452,13 @@ private struct ExpenseReceiptsSheet: View {
     let onChanged: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var i18n: I18nStore
     @State private var receipts: [ExpenseReceipt] = []
     @State private var loaded = false
     @State private var busy = false
-    @State private var importing = false
+    @State private var preparingReceipt = false
+    @State private var pendingUpload: DocumentUploadDraft?
+    @State private var confirmingDiscardAndClose = false
     @State private var preview: PreviewFile?
     @State private var deleteTarget: ExpenseReceipt?
     @State private var errorMessage: String?
@@ -3420,16 +3492,33 @@ private struct ExpenseReceiptsSheet: View {
                         .swipeActions {
                             if canManage {
                                 Button("Delete", role: .destructive) { deleteTarget = receipt }
+                                    .disabled(busy || preparingReceipt)
                             }
                         }
                     }
                     if canManage {
-                        Button {
-                            importing = true
-                        } label: {
-                            Label(busy ? "Working..." : "Upload receipt", systemImage: "paperclip")
+                        if let pendingUpload {
+                            Text(pendingUpload.filename)
+                                .font(.subheadline)
+                            if busy {
+                                ProgressView(i18n.t("expenseReceipt.uploading"))
+                            } else {
+                                Button(i18n.t("expenseReceipt.retry")) { Task { await uploadPending() } }
+                                Button(i18n.t("expenseReceipt.discard"), role: .destructive) {
+                                    self.pendingUpload = nil
+                                    errorMessage = nil
+                                }
+                            }
                         }
-                        .disabled(busy)
+                        DocumentUploadSourcePicker(
+                            disabled: busy || pendingUpload != nil,
+                            preparing: $preparingReceipt
+                        ) { receipt in
+                            pendingUpload = receipt
+                            Task { await uploadPending() }
+                        } onError: { message in
+                            errorMessage = message
+                        }
                     }
                 }
 
@@ -3442,17 +3531,31 @@ private struct ExpenseReceiptsSheet: View {
             .navigationTitle("Expense receipts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss(); onChanged() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        if pendingUpload != nil {
+                            confirmingDiscardAndClose = true
+                        } else {
+                            dismiss()
+                            onChanged()
+                        }
+                    }
+                    .disabled(busy || preparingReceipt)
+                }
             }
-            .fileImporter(
-                isPresented: $importing,
-                allowedContentTypes: [.pdf, .jpeg, .png, .webP],
-                allowsMultipleSelection: false
-            ) { result in
-                Task { await upload(result) }
-            }
+            .interactiveDismissDisabled(busy || preparingReceipt || pendingUpload != nil)
             .sheet(item: $preview) { file in
                 QuickLookSheet(url: file.url)
+            }
+            .alert(i18n.t("documentUpload.leaveTitle"), isPresented: $confirmingDiscardAndClose) {
+                Button(i18n.t("common.cancel"), role: .cancel) {}
+                Button(i18n.t("documentUpload.discardAndLeave"), role: .destructive) {
+                    pendingUpload = nil
+                    dismiss()
+                    onChanged()
+                }
+            } message: {
+                Text(i18n.t("documentUpload.leaveMessage"))
             }
             .alert("Delete this receipt?", isPresented: Binding(
                 get: { deleteTarget != nil },
@@ -3488,34 +3591,22 @@ private struct ExpenseReceiptsSheet: View {
     }
 
     @MainActor
-    private func upload(_ result: Result<[URL], Error>) async {
+    private func uploadPending() async {
+        guard canManage, !busy, let pendingUpload else { return }
         busy = true
         errorMessage = nil
-        var tempURL: URL?
-        defer {
-            if let tempURL {
-                try? FileManager.default.removeItem(at: tempURL)
-            }
-            busy = false
-        }
+        defer { busy = false }
 
         do {
-            guard let source = try result.get().first else {
-                return
-            }
-            let copied = try await UploadFilePreparation.copySecurityScopedFile(
-                source,
-                prefix: "expense-receipt"
-            )
-            tempURL = copied
-
             _ = try await CashAccountsAPI().uploadExpenseReceipt(
                 expenseId: expense.id,
-                fileURL: copied,
-                fileName: source.lastPathComponent,
-                mimeType: mimeType(for: source)
+                fileURL: pendingUpload.url,
+                fileName: pendingUpload.filename,
+                mimeType: pendingUpload.mimeType
             )
+            self.pendingUpload = nil
             await reload()
+            onChanged()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not upload the receipt."
         }
@@ -3523,27 +3614,19 @@ private struct ExpenseReceiptsSheet: View {
 
     @MainActor
     private func remove() async {
-        guard let target = deleteTarget else { return }
+        guard canManage, !busy, !preparingReceipt, let target = deleteTarget else { return }
         deleteTarget = nil
         busy = true
         do {
             _ = try await CashAccountsAPI().deleteExpenseReceipt(id: target.id)
             await reload()
+            onChanged()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete the receipt."
         }
         busy = false
     }
 
-    private func mimeType(for url: URL) -> String {
-        switch url.pathExtension.lowercased() {
-        case "pdf": return "application/pdf"
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "webp": return "image/webp"
-        default: return "application/octet-stream"
-        }
-    }
 }
 
 // MARK: - FET (federal excise tax)
@@ -4141,4 +4224,9 @@ private func isFinanceRequestCancellation(_ error: Error) -> Bool {
     }
 
     return (error as? URLError)?.code == .cancelled
+}
+
+private func financeResult<T>(_ operation: () async throws -> T) async -> Result<T, Error> {
+    do { return .success(try await operation()) }
+    catch { return .failure(error) }
 }

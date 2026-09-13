@@ -450,6 +450,8 @@ private struct SupplierContainersTab: View {
 }
 
 private struct SupplierContainerRowView: View {
+    @EnvironmentObject private var i18n: I18nStore
+
     let row: SupplierContainerRow
 
     var body: some View {
@@ -460,7 +462,7 @@ private struct SupplierContainerRowView: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.text)
                 Spacer()
-                Text(SupplierDetailLabels.containerStatus(row.status))
+                Text(i18n.t("status.\(row.status)"))
                     .font(.caption2)
                     .fontWeight(.bold)
                     .padding(.horizontal, Theme.Space.sm)
@@ -470,34 +472,40 @@ private struct SupplierContainerRowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             }
 
-            HStack {
-                Text([
-                    row.reference,
-                    row.bolNumber,
-                    row.location
-                ].compactMap { $0?.nilIfBlank }.joined(separator: " - "))
+            LabeledContent(i18n.t("purchasing.ref"), value: row.reference?.nilIfBlank ?? "—")
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
+
+            HStack(alignment: .firstTextBaseline) {
+                Text(i18n.t("purchasing.paymentStatus"))
                 Spacer()
-                Text("\(row.tireQty) tires")
+                if let costs = row.costs {
+                    let status = PurchasePaymentStatus.from(costs: costs)
+                    Text(status.label(using: i18n))
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, Theme.Space.sm)
+                        .padding(.vertical, Theme.Space.xs)
+                        .foregroundStyle(status.color)
+                        .background(status.color.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                } else {
+                    Text("—")
+                }
             }
             .font(.caption)
             .foregroundStyle(Theme.muted)
 
             HStack {
-                Text([
-                    row.orderedAt.map { "Ordered \(AppFormat.shortDate($0))" },
-                    row.etaAt.map { "ETA \(AppFormat.shortDate($0))" },
-                    row.receivedAt.map { "Received \(AppFormat.shortDate($0))" }
-                ].compactMap { $0 }.joined(separator: " - "))
+                Text("\(i18n.t("purchasing.lines")): \(row.count.map { String($0.lines) } ?? "—")")
                 Spacer()
-                if row.isDDP {
-                    Text("DDP")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundStyle(Theme.primary)
-                }
+                Text("\(i18n.t("purchasing.totalTires")): \(row.tireQty)")
             }
             .font(.caption)
             .foregroundStyle(Theme.muted)
+
+            LabeledContent(i18n.t("purchasing.created"), value: AppFormat.shortDate(row.createdAt))
+                .font(.caption)
+                .foregroundStyle(Theme.muted)
         }
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)

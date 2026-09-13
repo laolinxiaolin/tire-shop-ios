@@ -575,6 +575,11 @@ struct InventoryListNativeView: View {
 
     private let pageSize = 1000
 
+    @StateObject private var priceHistory = SalePriceHistoryStore()
+    private var priceRequest: SalePriceRequest {
+        SalePriceRequest(customerId: selectForQuote ? quote.customer?.id : nil, skuIds: selectForQuote ? items.map(\.id) : [])
+    }
+
     @State private var q = ""
     @State private var category = ""
     @State private var position = ""
@@ -737,6 +742,7 @@ struct InventoryListNativeView: View {
             if brands.isEmpty { await loadBrands() }
             if !hasLoaded { await reload() }
         }
+        .task(id: priceRequest) { await priceHistory.load(priceRequest) }
         .onChange(of: quote.location) { _, _ in
             if selectForQuote {
                 Task { await reload() }
@@ -889,6 +895,9 @@ struct InventoryListNativeView: View {
 
     private var inventoryList: some View {
         List {
+            if selectForQuote {
+                SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
+            }
             ForEach(items) { sku in
                 skuRow(sku)
                     .listRowInsets(EdgeInsets(
@@ -911,24 +920,31 @@ struct InventoryListNativeView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .refreshable { await reload() }
+        .refreshable {
+            await reload()
+            if selectForQuote { await priceHistory.load(priceRequest) }
+        }
     }
 
     @ViewBuilder
     private func skuRow(_ sku: TireSku) -> some View {
         if selectForQuote {
-            Button {
-                addToQuote(sku)
-            } label: {
+            VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 InventorySkuRow(
                     sku: sku,
                     location: selectedLocation.nilIfBlank,
                     showsUnitCost: false,
                     showsAvailableQuantity: true
                 )
+                SkuSalePriceChoices(
+                    sku: sku,
+                    history: priceHistory,
+                    request: priceRequest,
+                    disabled: !canAddToQuote(sku)
+                ) { chosenPrice in
+                    addToQuote(sku, unitPrice: chosenPrice)
+                }
             }
-            .tint(Theme.text)
-            .disabled(Self.available(sku, location: selectedLocation.nilIfBlank) <= 0)
         } else if selectingRows {
             Button {
                 if selectedSkuIDs.contains(sku.id) {
@@ -1407,13 +1423,26 @@ struct InventoryListNativeView: View {
         }
     }
 
-    private func addToQuote(_ sku: TireSku) {
-        guard Self.available(sku, location: selectedLocation.nilIfBlank) > 0 else { return }
+    private func availableToAdd(_ sku: TireSku) -> Int {
+        let inCart = quote.lines.filter { $0.itemType == "SKU" && $0.itemId == sku.id }.reduce(0) { $0 + $1.qty }
+        return max(0, Self.available(sku, location: selectedLocation.nilIfBlank) - inCart)
+    }
+
+    private func canAddToQuote(_ sku: TireSku) -> Bool {
+        auth.has("sales.manage") && selectedLocation.nilIfBlank != nil
+            && !loadingWarehouses && warehouseError == nil
+            && warehouses.contains { $0.code == selectedLocation }
+            && availableToAdd(sku) > 0
+    }
+
+    private func addToQuote(_ sku: TireSku, unitPrice: Double) {
+        guard canAddToQuote(sku), unitPrice.isFinite, unitPrice >= 0 else { return }
         quote.addLine(
             itemType: "SKU",
             itemId: sku.id,
             description: "\(sku.brand) \(sku.model) \(sku.size) (\(sku.position.replacingOccurrences(of: "_", with: "-")))",
-            unitPrice: Double(sku.priceRetail) ?? 0
+            unitPrice: unitPrice,
+            listPrice: Double(sku.priceRetail) ?? 0
         )
         dismiss()
     }
@@ -1749,7 +1778,14 @@ private struct InventorySkuRow: View {
                     Text(AppFormat.money(sku.priceRetail))
                         .font(.subheadline.weight(.semibold).monospacedDigit())
                         .foregroundStyle(Theme.text)
-                    Text("RETAIL")
+                    Text(i18n.t("sku.retail").uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(Theme.muted)
+                    Text(sku.priceWholesale.map { AppFormat.money($0) } ?? "—")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(Theme.text)
+                    Text(i18n.t("sku.wholesale").uppercased())
                         .font(.system(size: 9, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(Theme.muted)
@@ -1959,14 +1995,6 @@ private struct SalesStatusBadge: View {
         SalesLabels.status(status)
     }
 
-    private var systemImage: String {
-        switch status {
-        case "PAID": return "checkmark.circle.fill"
-        case "INVOICED": return "doc.text.fill"
-        default: return "circle.fill"
-        }
-    }
-
     private var foreground: Color {
         switch status {
         case "PAID": return Color(lightHex: 0x0757b7, darkHex: 0x8fc5ff)
@@ -1992,7 +2020,7 @@ private struct SalesStatusBadge: View {
     }
 
     var body: some View {
-        Label(label, systemImage: systemImage)
+        Text(label)
             .font(.caption.weight(.bold))
             .foregroundStyle(foreground)
             .padding(.horizontal, 9)
@@ -2002,6 +2030,39 @@ private struct SalesStatusBadge: View {
             .overlay(Capsule().stroke(border, lineWidth: status == "INVOICED" ? 2 : 1))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Status: \(label)")
+    }
+}
+
+private struct SalesPaymentMethodBadge: View {
+    let methods: [String]
+
+    private var label: String? {
+        var seen = Set<String>()
+        let names = methods.compactMap { method -> String? in
+            guard let name = method.nilIfBlank,
+                  seen.insert(name.lowercased()).inserted
+            else { return nil }
+            return name
+        }
+        return names.isEmpty ? nil : names.joined(separator: " + ")
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let label {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Theme.primary.opacity(0.1))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Theme.primary.opacity(0.35)))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Payment method: \(label)")
+        }
     }
 }
 
@@ -2809,8 +2870,22 @@ struct SalesListNativeView: View {
 
     private func saleRow(_ sale: SaleListItem) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                Text(invoiceLabel(sale))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+
+                Spacer(minLength: Theme.Space.sm)
+
+                Text(AppFormat.dateTime(sale.createdAt))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            }
+
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.md) {
-                Text("\(sale.ref ?? "Sale") - \(sale.customer.company ?? sale.customer.name)")
+                Text(sale.customer.name)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
@@ -2818,20 +2893,54 @@ struct SalesListNativeView: View {
                 Spacer(minLength: Theme.Space.sm)
 
                 Text(AppFormat.money(sale.total))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold).monospacedDigit())
                     .foregroundStyle(Theme.text)
+                    .lineLimit(1)
             }
 
             HStack(spacing: Theme.Space.sm) {
                 SalesStatusBadge(status: sale.status)
 
-                Text(saleSubtitle(sale))
-                    .font(.subheadline)
+                SalesPaymentMethodBadge(methods: displayedPaymentMethods(sale))
+
+                Spacer(minLength: Theme.Space.xs)
+
+                Label(tireSummaryLabel(sale), systemImage: "tire")
+                    .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
+                    .layoutPriority(1)
             }
         }
         .padding(.vertical, Theme.Space.xs)
+    }
+
+    private func invoiceLabel(_ sale: SaleListItem) -> String {
+        if let invoiceRef = sale.invoice?.ref?.nilIfBlank {
+            return "Invoice \(invoiceRef)"
+        }
+        if let saleRef = sale.ref?.nilIfBlank {
+            return "Sale \(saleRef)"
+        }
+        return "Sale"
+    }
+
+    private func tireSummaryLabel(_ sale: SaleListItem) -> String {
+        let skuCount = Set(sale.lines.compactMap { line -> String? in
+            guard line.itemType.uppercased() == "SKU" else { return nil }
+            return line.itemId.nilIfBlank
+                ?? line.sku?.id?.nilIfBlank
+                ?? line.skuCode?.nilIfBlank
+                ?? line.id
+        }).count
+        let tireLabel = "\(sale.tireQty) tire\(sale.tireQty == 1 ? "" : "s")"
+        let skuLabel = "\(skuCount) SKU\(skuCount == 1 ? "" : "s")"
+        return "\(tireLabel) · \(skuLabel)"
+    }
+
+    private func displayedPaymentMethods(_ sale: SaleListItem) -> [String] {
+        guard (Double(sale.invoice?.paidTotal ?? "") ?? 0) > 0 else { return [] }
+        return sale.paymentMethods
     }
 
     private var salesHeader: some View {
@@ -3071,20 +3180,6 @@ struct SalesListNativeView: View {
             return "No sales match the current filters."
         }
         return "No sales found."
-    }
-
-    private func saleSubtitle(_ sale: SaleListItem) -> String {
-        var parts = [
-            sale.location,
-            AppFormat.dateTime(sale.createdAt)
-        ]
-
-        if sale.tireQty > 0 {
-            let more = sale.extraLineCount > 0 ? " +\(sale.extraLineCount) more" : ""
-            parts.append("\(sale.tireQty) tires - \(sale.sampleDescription ?? "SKU lines")\(more)")
-        }
-
-        return parts.joined(separator: " - ")
     }
 
     private func updateStatus(_ value: String) {
@@ -4369,13 +4464,7 @@ private struct PurchasingContainersListView: View {
     }
 
     private func paymentLabel(_ container: ContainerListItem) -> String {
-        let supplierCosts = container.costs.filter { ["DOWN_PAYMENT", "BALANCE_PAYMENT", "SUPPLIER_OTHER"].contains($0.category) }
-        guard !supplierCosts.isEmpty else { return "Unpaid" }
-        let total = supplierCosts.reduce(0) { $0 + (Double($1.amount) ?? 0) }
-        let paid = supplierCosts.reduce(0) { $0 + (Double($1.amountPaid) ?? 0) }
-        if paid >= total - 0.01 { return "Paid" }
-        if paid > 0 { return "Partially paid" }
-        return "Unpaid"
+        PurchasePaymentStatus.from(costs: container.costs).label(using: i18n)
     }
 
     private func scheduleSearch() {
@@ -4901,7 +4990,7 @@ struct ActivityNativeView: View {
             List(page.items) { log in
                 RowLine(
                     title: activityTitle(log),
-                    subtitle: "\(log.user?.fullName ?? "System") - \(AppFormat.dateTime(log.createdAt))",
+                    subtitle: activitySubtitle(log),
                     trailing: log.entityId
                 )
             }
@@ -4910,10 +4999,32 @@ struct ActivityNativeView: View {
     }
 
     private func activityTitle(_ log: AuditLog) -> String {
+        if log.action == "container.supplier.change" {
+            return i18n.t("activity.containerSupplierChanged")
+        }
         if log.action == "inventory.adjust.batch" {
             return i18n.t("activity.stockAdjustedBatch")
         }
         return "\(log.action) \(log.entity)"
+    }
+
+    private func activitySubtitle(_ log: AuditLog) -> String {
+        var parts = [log.user?.fullName ?? "System", AppFormat.dateTime(log.createdAt)]
+        if log.action == "container.supplier.change", let data = log.data {
+            if case let .object(oldSupplier)? = data["oldSupplier"],
+               case let .string(oldName)? = oldSupplier["name"],
+               case let .object(newSupplier)? = data["newSupplier"],
+               case let .string(newName)? = newSupplier["name"] {
+                parts.append("\(oldName) → \(newName)")
+            }
+            if case let .number(total)? = data["affectedTotal"] {
+                parts.append(AppFormat.money(total))
+            }
+            if case let .string(reason)? = data["reason"], !reason.isEmpty {
+                parts.append(reason)
+            }
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
