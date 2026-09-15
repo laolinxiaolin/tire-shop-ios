@@ -254,7 +254,7 @@ struct RootNavigatorView: View {
             .tint(Theme.primary)
             .environmentObject(checkReminders)
             .task(id: auth.user?.id) {
-                checkReminders.reset()
+                checkReminders.reset(for: auth.user?.id)
                 if auth.has("payments.collect") || auth.has("accounting.view") {
                     await checkReminders.refresh()
                 }
@@ -332,6 +332,14 @@ struct NavigationShell<Content: View>: View {
         NavigationStack(path: $path) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if auth.has("payments.collect") || auth.has("accounting.view") {
+                        CheckReminderBanner {
+                            NotificationCenter.default.post(name: .showCurrentChecks, object: nil)
+                            path = [.module("checks")]
+                        }
+                    }
+                }
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -344,14 +352,6 @@ struct NavigationShell<Content: View>: View {
                 .navigationDestination(for: AppRoute.self) { route in
                     routeView(route)
                 }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if auth.has("payments.collect") || auth.has("accounting.view") {
-                CheckReminderBanner {
-                    NotificationCenter.default.post(name: .showCurrentChecks, object: nil)
-                    path = [.module("checks")]
-                }
-            }
         }
         .debugLayoutProbe("NavigationShell[\(title)]")
     }

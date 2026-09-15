@@ -20,36 +20,54 @@ struct CheckReminderBanner: View {
     let openChecks: () -> Void
 
     var body: some View {
-        if store.failed {
-            HStack {
-                Text(i18n.t("checks.reminderFailed")).font(.caption)
-                Spacer()
-                Button(i18n.t("common.retry")) { Task { await store.refresh() } }
-                    .font(.caption)
-            }
-            .padding(Theme.Space.sm)
-            .background(Theme.card)
-        } else if let summary = store.summary,
-                  summary.dueTodayCount + summary.overdueCount + summary.unscheduledCount > 0 {
-            Button(action: openChecks) {
-                HStack(alignment: .top, spacing: Theme.Space.sm) {
-                    Image(systemName: "banknote")
+        if store.isBannerVisible {
+            HStack(alignment: .top, spacing: 0) {
+                if store.failed {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(i18n.t("checks.reminderTitle")).font(.subheadline.weight(.semibold))
-                        Text(reminderText(summary)).font(.caption)
-                        Text(i18n.t("checks.dueAmount", ["amount": AppFormat.money(summary.totalAmount)]))
-                            .font(.caption.weight(.medium))
+                        Text(i18n.t("checks.reminderFailed")).font(.caption)
+                        Button(i18n.t("common.retry")) { Task { await store.refresh() } }
+                            .font(.caption)
                     }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.caption)
+                    .padding(Theme.Space.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let summary = store.summary {
+                    Button {
+                        store.dismissForToday()
+                        openChecks()
+                    } label: {
+                        HStack(alignment: .top, spacing: Theme.Space.sm) {
+                            Image(systemName: "banknote")
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(i18n.t("checks.reminderTitle")).font(.subheadline.weight(.semibold))
+                                Text(reminderText(summary)).font(.caption)
+                                Text(i18n.t("checks.dueAmount", ["amount": AppFormat.money(summary.totalAmount)]))
+                                    .font(.caption.weight(.medium))
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption)
+                        }
+                        .foregroundStyle(Theme.text)
+                        .padding(Theme.Space.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(i18n.t("checks.viewChecks"))
                 }
-                .foregroundStyle(Theme.text)
-                .padding(Theme.Space.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.card)
+
+                Button { store.dismissForToday() } label: {
+                    Label(i18n.t("checks.dismissReminder"), systemImage: "xmark")
+                        .labelStyle(.iconOnly)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.muted)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("checkReminderDismiss")
             }
-            .buttonStyle(.plain)
-            .accessibilityHint(i18n.t("checks.viewChecks"))
+            .background(Theme.card)
+            .accessibilityIdentifier("checkReminderBanner")
         }
     }
 
@@ -118,8 +136,12 @@ struct ChecksNativeView: View {
         .toolbar {
             if canView && auth.has("accounting.manage") {
                 ToolbarItem(placement: .primaryAction) {
-                    Button(i18n.t("checks.depositAction")) { Task { await openDeposit() } }
-                        .disabled(openingDeposit || store.saving)
+                    Button {
+                        Task { await openDeposit() }
+                    } label: {
+                        Label(i18n.t("checks.depositAction"), systemImage: "building.columns")
+                    }
+                    .disabled(openingDeposit || store.saving)
                 }
             }
         }

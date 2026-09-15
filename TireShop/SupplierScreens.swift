@@ -7,6 +7,7 @@ import UIKit
 /// (containers / bills / payments / warranty claims).
 struct SupplierDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     let id: String
 
@@ -53,9 +54,8 @@ struct SupplierDetailNativeView: View {
                     Button {
                         editing = SupplierEditTarget(supplier: supplier.asSupplier, id: supplier.id)
                     } label: {
-                        Image(systemName: "pencil")
+                        Label(i18n.t("suppliers.edit"), systemImage: "pencil")
                     }
-                    .accessibilityLabel("Edit supplier")
                 }
             }
         }

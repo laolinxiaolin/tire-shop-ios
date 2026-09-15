@@ -470,20 +470,9 @@ struct AvatarButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(initials)
-                .font(.caption)
-                .fontWeight(.bold)
-                .frame(width: 30, height: 30)
-                .background(Theme.primary)
-                .foregroundStyle(Theme.primaryText)
-                .clipShape(Circle())
+            Label("Profile", systemImage: "person.crop.circle")
         }
-        .accessibilityLabel("Profile")
-    }
-
-    private var initials: String {
-        guard let first = name?.first else { return "?" }
-        return String(first).uppercased()
+        .accessibilityValue(name ?? "")
     }
 }
 
@@ -603,11 +592,51 @@ struct AsyncContentView<Value, Content: View>: View {
     }
 }
 
+/// Keeps complete pairs of columns when space permits, avoiding an odd column
+/// at the grid's center. Narrow windows and larger text can use a single column.
+struct EvenColumnGrid<Content: View>: View {
+    @ScaledMetric private var minimumColumnWidth: CGFloat
+    @State private var availableWidth: CGFloat = 0
+
+    private let horizontalSpacing: CGFloat
+    private let verticalSpacing: CGFloat
+    private let content: Content
+
+    init(
+        minimumColumnWidth: CGFloat,
+        horizontalSpacing: CGFloat = Theme.Space.md,
+        verticalSpacing: CGFloat = Theme.Space.md,
+        @ViewBuilder content: () -> Content
+    ) {
+        _minimumColumnWidth = ScaledMetric(wrappedValue: minimumColumnWidth, relativeTo: .body)
+        self.horizontalSpacing = horizontalSpacing
+        self.verticalSpacing = verticalSpacing
+        self.content = content()
+    }
+
+    private var columns: [GridItem] {
+        let fittingCount = max(1, Int((availableWidth + horizontalSpacing) / (minimumColumnWidth + horizontalSpacing)))
+        let count = fittingCount > 1 ? fittingCount - fittingCount % 2 : 1
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: horizontalSpacing, alignment: .leading), count: count)
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: verticalSpacing) {
+            content
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            availableWidth = width
+        }
+    }
+}
+
 struct StatGrid: View {
     let stats: [(String, String)]
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: Theme.Space.md)], spacing: Theme.Space.md) {
+        EvenColumnGrid(minimumColumnWidth: 145) {
             ForEach(stats, id: \.0) { title, value in
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     Text(LocalizedStringKey(title))

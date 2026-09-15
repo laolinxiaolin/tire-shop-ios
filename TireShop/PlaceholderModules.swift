@@ -340,7 +340,7 @@ private struct MonthlySalesRowView: View {
             Text("\(row.brand) \(row.size) \(row.pattern)".trimmingCharacters(in: .whitespaces))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 6) {
+            EvenColumnGrid(minimumColumnWidth: 110, horizontalSpacing: 8, verticalSpacing: 6) {
                 ForEach(columns) { column in
                     HStack(alignment: .top, spacing: 4) {
                         Text(column.label)
@@ -702,7 +702,9 @@ struct BrandInfoNativeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { editing = BrandEditTarget(brand: nil, id: "new") } label: { Image(systemName: "plus") }
+                Button { editing = BrandEditTarget(brand: nil, id: "new") } label: {
+                    Label("New brand", systemImage: "plus")
+                }
             }
         }
         .sheet(item: $editing) { target in

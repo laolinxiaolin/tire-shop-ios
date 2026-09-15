@@ -29,6 +29,8 @@ struct NewQuoteNativeView: View {
     @StateObject private var priceHistory = SalePriceHistoryStore()
     @State private var catalogBySku: [String: TireSku] = [:]
     @FocusState private var focusedField: FocusField?
+    @ScaledMetric(relativeTo: .body) private var minimumItemDescriptionWidth: CGFloat = 160
+    @ScaledMetric(relativeTo: .body) private var minimumItemPriceWidth: CGFloat = 120
 
     private var priceRequest: SalePriceRequest {
         SalePriceRequest(customerId: quote.customer?.id, skuIds: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId))
@@ -194,34 +196,45 @@ struct NewQuoteNativeView: View {
 
             ForEach(quote.lines) { line in
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                    HStack(alignment: .top, spacing: Theme.Space.md) {
+                    SaleItemHeaderLayout(
+                        spacing: Theme.Space.md,
+                        minimumDescriptionWidth: minimumItemDescriptionWidth,
+                        minimumPriceWidth: minimumItemPriceWidth
+                    ) {
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             Text(line.description)
                                 .font(.body)
                                 .fontWeight(.semibold)
                                 .foregroundStyle(Theme.text)
-                                .lineLimit(2)
 
                             Text(line.itemType == "SERVICE" ? "Service" : "Tire")
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.muted)
                         }
 
-                        Spacer(minLength: Theme.Space.sm)
-
                         HStack(spacing: 2) {
                             Text("$")
                                 .foregroundStyle(Theme.muted)
 
-                            TextField("0", text: priceBinding(for: line))
-                                .keyboardType(.decimalPad)
-                                .focused($focusedField, equals: .price(line.id))
-                                .multilineTextAlignment(.trailing)
+                            // Measure the current value while keeping a single editor
+                            // mounted as the header changes between a row and a stack.
+                            Text(priceBinding(for: line).wrappedValue.nilIfBlank ?? "0")
                                 .font(.body.monospacedDigit().weight(.semibold))
-                                .accessibilityLabel("Unit price for \(line.description)")
+                                .lineLimit(1)
+                                .hidden()
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .overlay {
+                                    TextField("0", text: priceBinding(for: line))
+                                        .keyboardType(.decimalPad)
+                                        .focused($focusedField, equals: .price(line.id))
+                                        .multilineTextAlignment(.trailing)
+                                        .font(.body.monospacedDigit().weight(.semibold))
+                                        .accessibilityLabel("Unit price for \(line.description)")
+                                }
                         }
                         .padding(.horizontal, Theme.Space.sm)
-                        .frame(width: 120, height: 44)
+                        .padding(.vertical, Theme.Space.sm)
+                        .frame(minHeight: 44)
                         .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.Radius.md))
                         .overlay {
                             RoundedRectangle(cornerRadius: Theme.Radius.md)
@@ -600,6 +613,57 @@ struct NewQuoteNativeView: View {
             catalogBySku = [:]
             availabilityLocation = ""
         }
+    }
+}
+
+/// Repositions the same two subviews so resizing never replaces a focused price editor.
+struct SaleItemHeaderLayout: Layout {
+    let spacing: CGFloat
+    let minimumDescriptionWidth: CGFloat
+    let minimumPriceWidth: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        return measurements(proposal: proposal, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let measured = measurements(proposal: ProposedViewSize(width: bounds.width, height: nil), subviews: subviews)
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(measured.description)
+        )
+        let priceX = measured.stacked ? bounds.minX : bounds.maxX - measured.price.width
+        let priceY = measured.stacked ? bounds.minY + measured.description.height + spacing : bounds.minY
+        subviews[1].place(
+            at: CGPoint(x: priceX, y: priceY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(measured.price)
+        )
+    }
+
+    private func measurements(
+        proposal: ProposedViewSize,
+        subviews: Subviews
+    ) -> (size: CGSize, description: CGSize, price: CGSize, stacked: Bool) {
+        let idealDescription = subviews[0].sizeThatFits(.unspecified)
+        let idealPriceWidth = max(minimumPriceWidth, subviews[1].sizeThatFits(.unspecified).width)
+        let idealWidth = idealDescription.width + spacing + idealPriceWidth
+        let width = max(0, proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? idealWidth)
+        let stacked = width < min(idealDescription.width, minimumDescriptionWidth) + spacing + idealPriceWidth
+        let priceWidth = stacked ? width : min(width, idealPriceWidth)
+        let descriptionWidth = stacked ? width : max(0, width - spacing - priceWidth)
+        let description = subviews[0].sizeThatFits(ProposedViewSize(width: descriptionWidth, height: nil))
+        let price = subviews[1].sizeThatFits(ProposedViewSize(width: priceWidth, height: nil))
+        let height = stacked ? description.height + spacing + price.height : max(description.height, price.height)
+        return (
+            CGSize(width: width, height: height),
+            CGSize(width: descriptionWidth, height: description.height),
+            CGSize(width: priceWidth, height: price.height),
+            stacked
+        )
     }
 }
 

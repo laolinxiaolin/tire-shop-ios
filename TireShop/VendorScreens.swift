@@ -31,6 +31,7 @@ private struct VendorEditorTarget: Identifiable {
 
 struct VendorsListNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     private let pageSize = 25
 
@@ -95,9 +96,8 @@ struct VendorsListNativeView: View {
                     Button {
                         editing = VendorEditorTarget(vendor: nil, id: UUID().uuidString)
                     } label: {
-                        Image(systemName: "plus")
+                        Label(i18n.t("vendors.new"), systemImage: "plus")
                     }
-                    .accessibilityLabel("New vendor")
                 }
             }
         }
@@ -298,6 +298,7 @@ private struct VendorStatusBadge: View {
 
 struct VendorDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     let id: String
 
@@ -361,9 +362,8 @@ struct VendorDetailNativeView: View {
                     Button {
                         editing = VendorEditorTarget(vendor: vendor, id: vendor.id)
                     } label: {
-                        Image(systemName: "pencil")
+                        Label(i18n.t("vendors.edit"), systemImage: "pencil")
                     }
-                    .accessibilityLabel("Edit vendor")
                 }
             }
         }

@@ -140,19 +140,49 @@ final class ChecksListStore: ObservableObject {
 final class CheckReminderStore: ObservableObject {
     @Published private(set) var summary: CheckReminderSummary?
     @Published private(set) var failed = false
+    @Published private var dismissedDay: String?
     private var loading = false
     private var pending = false
     private var generation = 0
+    private var userID: String?
+    private let defaults: UserDefaults
+    private let currentDay: () -> String
     private let loader: () async throws -> CheckReminderSummary
 
-    init(loader: @escaping () async throws -> CheckReminderSummary = {
-        try await AccountingAPI().checkReminders()
-    }) {
+    init(
+        defaults: UserDefaults = .standard,
+        currentDay: @escaping () -> String = { ShopClock.dayString(from: Date()) },
+        loader: @escaping () async throws -> CheckReminderSummary = {
+            try await AccountingAPI().checkReminders()
+        }
+    ) {
+        self.defaults = defaults
+        self.currentDay = currentDay
         self.loader = loader
     }
 
-    func reset() {
+    var isBannerVisible: Bool {
+        guard dismissedDay != currentDay() else { return false }
+        if failed { return true }
+        guard let summary else { return false }
+        return summary.dueTodayCount + summary.overdueCount + summary.unscheduledCount > 0
+    }
+
+    private var dismissalKey: String? {
+        userID.map { "checkReminderDismissedDay.v1.\($0)" }
+    }
+
+    func dismissForToday() {
+        dismissedDay = currentDay()
+        if let dismissalKey {
+            defaults.set(dismissedDay, forKey: dismissalKey)
+        }
+    }
+
+    func reset(for userID: String? = nil) {
         generation += 1
+        self.userID = userID
+        dismissedDay = dismissalKey.flatMap { defaults.string(forKey: $0) }
         summary = nil
         failed = false
         loading = false
@@ -160,6 +190,10 @@ final class CheckReminderStore: ObservableObject {
     }
 
     func refresh() async {
+        if let dismissalKey {
+            let savedDay = defaults.string(forKey: dismissalKey)
+            if dismissedDay != savedDay { dismissedDay = savedDay }
+        }
         guard !loading else { pending = true; return }
         loading = true
         let request = generation

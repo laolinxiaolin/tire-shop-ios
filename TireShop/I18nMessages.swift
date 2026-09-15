@@ -181,6 +181,7 @@ extension I18nStore {
             "checks.refresh": "Refresh",
             "checks.reminderFailed": "Unable to load check deposit reminders.",
             "checks.reminderTitle": "Check deposit reminder",
+            "checks.dismissReminder": "Dismiss reminder for today",
             "checks.saveFailed": "Unable to save the planned deposit date.",
             "checks.setDate": "Set date",
             "checks.setDateFor": "Set date for {reference}",
@@ -1339,6 +1340,13 @@ extension I18nStore {
             "documentUpload.discardAndLeave": "Discard and leave",
             "documentUpload.discard": "Discard pending document",
             "documentUpload.uploading": "Uploading document...",
+            "common.newBrand": "New brand",
+            "purchasing.newContainer": "New container",
+            "employees.new": "New employee",
+            "employees.edit": "Edit employee",
+            "suppliers.edit": "Edit supplier",
+            "vendors.new": "New vendor",
+            "vendors.edit": "Edit vendor",
         ],
         .zh: [
             "checks.about": "关于支票收款",
@@ -1519,6 +1527,7 @@ extension I18nStore {
             "checks.refresh": "刷新",
             "checks.reminderFailed": "无法加载支票存款提醒。",
             "checks.reminderTitle": "支票存款提醒",
+            "checks.dismissReminder": "今天不再提醒",
             "checks.saveFailed": "无法保存计划存款日期。",
             "checks.setDate": "设置日期",
             "checks.setDateFor": "设置日期：{reference}",
@@ -2677,6 +2686,13 @@ extension I18nStore {
             "documentUpload.discardAndLeave": "丢弃并离开",
             "documentUpload.discard": "丢弃待上传文件",
             "documentUpload.uploading": "正在上传文件...",
+            "common.newBrand": "新增品牌",
+            "purchasing.newContainer": "新建货柜",
+            "employees.new": "新增员工",
+            "employees.edit": "编辑员工",
+            "suppliers.edit": "编辑供应商",
+            "vendors.new": "新增供应商",
+            "vendors.edit": "编辑供应商",
         ]
     ]
 }

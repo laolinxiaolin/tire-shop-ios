@@ -754,42 +754,17 @@ struct InventoryListNativeView: View {
         .debugLayoutProbe("SalesScreen")
         .toolbar {
             if !selectForQuote {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if selectingRows {
+                if selectingRows {
+                    ToolbarItem(placement: .confirmationAction) {
                         Button {
                             selectingRows = false
                         } label: {
-                            Image(systemName: "checkmark")
+                            Label(i18n.t("common.done"), systemImage: "checkmark")
                         }
-                        .accessibilityLabel(i18n.t("common.done"))
-                    } else {
-                        Menu {
-                            if auth.canActOrRequest("inventory.adjust") {
-                                NavigationLink {
-                                    StockAdjustBatchNativeView(
-                                        initialSkuIDs: [],
-                                        initialLocation: selectedLocation.nilIfBlank
-                                    )
-                                } label: {
-                                    Label(i18n.t("inventory.stockAdjust"), systemImage: "plus.forwardslash.minus")
-                                }
-                            }
-
-                            Button {
-                                showingExportOptions = true
-                            } label: {
-                                Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
-                            }
-
-                            Button {
-                                selectingRows = true
-                            } label: {
-                                Label(i18n.t("common.select"), systemImage: "checkmark.circle")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                        }
-                        .accessibilityLabel("Inventory actions")
+                    }
+                } else {
+                    AppOverflowMenu(title: i18n.t("common.actions")) {
+                        inventoryActions
                     }
                 }
             }
@@ -801,6 +776,31 @@ struct InventoryListNativeView: View {
         }
         .sheet(isPresented: $showingExportOptions) {
             InventoryExportSheet(configuration: exportConfiguration, warehouses: warehouses)
+        }
+    }
+
+    private var inventoryActions: some View {
+        Group {
+            if auth.canActOrRequest("inventory.adjust") {
+                NavigationLink {
+                    StockAdjustBatchNativeView(
+                        initialSkuIDs: [],
+                        initialLocation: selectedLocation.nilIfBlank
+                    )
+                } label: {
+                    Label(i18n.t("inventory.stockAdjust"), systemImage: "plus.forwardslash.minus")
+                }
+            }
+            Button {
+                showingExportOptions = true
+            } label: {
+                Label(i18n.t("common.export"), systemImage: "square.and.arrow.up")
+            }
+            Button {
+                selectingRows = true
+            } label: {
+                Label(i18n.t("common.select"), systemImage: "checkmark.circle")
+            }
         }
     }
 
@@ -3384,7 +3384,7 @@ struct CustomersListNativeView: View {
             if canManageCustomers {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.newCustomer) {
-                        Image(systemName: "plus")
+                        Label("New customer", systemImage: "plus")
                     }
                     .accessibilityLabel("New customer")
                 }
@@ -4271,7 +4271,7 @@ private struct PurchasingContainersListView: View {
                     Button {
                         showingNewContainer = true
                     } label: {
-                        Image(systemName: "plus")
+                        Label(i18n.t("purchasing.newContainer"), systemImage: "plus")
                     }
                     .accessibilityLabel("New container")
                 }
@@ -4590,7 +4590,7 @@ private struct PurchasingSuppliersListView: View {
                     Button {
                         editing = SupplierEditorTarget(supplier: nil, id: UUID().uuidString)
                     } label: {
-                        Image(systemName: "plus")
+                        Label("New supplier", systemImage: "plus")
                     }
                     .accessibilityLabel("New supplier")
                 }

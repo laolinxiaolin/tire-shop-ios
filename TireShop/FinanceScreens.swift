@@ -2150,7 +2150,7 @@ struct CashAccountsNativeView: View {
                         Button { showingExpense = true } label: { Label("Record expense", systemImage: "minus.circle") }
                         Button { showingAddMethod = true } label: { Label("Add payment method", systemImage: "creditcard") }
                     } label: {
-                        Image(systemName: "plus")
+                        Label(i18n.t("common.actions"), systemImage: "plus")
                     }
                 }
             }
@@ -3633,6 +3633,7 @@ private struct ExpenseReceiptsSheet: View {
 
 struct FetNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var status: FetStatus?
     @State private var loaded = false
@@ -3657,8 +3658,10 @@ struct FetNativeView: View {
         .toolbar {
             if canManage {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Record payment") {
+                    Button {
                         paySheet = FetPayTarget(quarter: nil)
+                    } label: {
+                        Label(i18n.t("payment.recordPayment"), systemImage: "banknote")
                     }
                 }
             }

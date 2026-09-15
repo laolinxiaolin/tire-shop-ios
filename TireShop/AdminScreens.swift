@@ -11,6 +11,7 @@ private struct UserEditTarget: Identifiable {
 
 struct UsersNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var users: [UserAccount] = []
     @State private var roles: [Role] = []
@@ -59,8 +60,9 @@ struct UsersNativeView: View {
         .toolbar {
             if canManage {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { editing = UserEditTarget(user: nil) } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("New user")
+                    Button { editing = UserEditTarget(user: nil) } label: {
+                        Label(i18n.t("users.createTitle"), systemImage: "plus")
+                    }
                 }
             }
         }
@@ -439,6 +441,7 @@ private struct RoleEditTarget: Identifiable {
 
 struct RolesNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var roles: [Role] = []
     @State private var catalog: [PermissionGroup] = []
@@ -478,8 +481,9 @@ struct RolesNativeView: View {
         .toolbar {
             if canManage {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { editing = RoleEditTarget(role: nil) } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("New role")
+                    Button { editing = RoleEditTarget(role: nil) } label: {
+                        Label(i18n.t("roles.createTitle"), systemImage: "plus")
+                    }
                 }
             }
         }
@@ -712,6 +716,7 @@ private struct RoleEditorView: View {
 
 struct ApiKeysNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var keys: [ApiKey] = []
     @State private var scopes: [AiScopeGroup] = []
@@ -751,8 +756,9 @@ struct ApiKeysNativeView: View {
         .toolbar {
             if canManage {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { creating = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("New API key")
+                    Button { creating = true } label: {
+                        Label(i18n.t("apiKeys.createTitle"), systemImage: "plus")
+                    }
                 }
             }
         }

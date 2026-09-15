@@ -176,6 +176,8 @@ const commonTargetSettings = `
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos27.*]" = "$(inherited) TIRESHOP_HAS_TOOLBAR_OVERFLOW_MENU";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator27.*]" = "$(inherited) TIRESHOP_HAS_TOOLBAR_OVERFLOW_MENU";
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = 1;`;
 

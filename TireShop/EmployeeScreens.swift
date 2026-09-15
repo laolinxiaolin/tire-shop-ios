@@ -67,6 +67,7 @@ private struct EmployeeEditorTarget: Identifiable {
 
 struct EmployeesListNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     private let pageSize = 25
 
@@ -122,9 +123,8 @@ struct EmployeesListNativeView: View {
                     Button {
                         editing = EmployeeEditorTarget(employee: nil, id: UUID().uuidString)
                     } label: {
-                        Image(systemName: "plus")
+                        Label(i18n.t("employees.new"), systemImage: "plus")
                     }
-                    .accessibilityLabel("New employee")
                 }
             }
         }
@@ -311,6 +311,7 @@ private struct EmployeeStatusBadge: View {
 
 struct EmployeeDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
 
     let id: String
 
@@ -356,9 +357,8 @@ struct EmployeeDetailNativeView: View {
                     Button {
                         editing = EmployeeEditorTarget(employee: employee, id: employee.id)
                     } label: {
-                        Image(systemName: "pencil")
+                        Label(i18n.t("employees.edit"), systemImage: "pencil")
                     }
-                    .accessibilityLabel("Edit employee")
                 }
             }
         }

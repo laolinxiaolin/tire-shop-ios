@@ -858,17 +858,12 @@ struct PaymentApplicationDetailNativeView: View {
                 }
             }
             if let application {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        actionMenu(application)
-                    } label: {
-                        if actionLoading {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                    }
-                    .disabled(actionLoading || preparingAttachment || pendingAttachment != nil)
+                AppOverflowMenu(
+                    title: i18n.t("common.actions"),
+                    isLoading: actionLoading,
+                    isDisabled: preparingAttachment || pendingAttachment != nil
+                ) {
+                    actionMenu(application)
                 }
             }
         }

@@ -41,6 +41,15 @@ final class ChecksStoreTests: XCTestCase {
         )
     }
 
+    private func reminderDefaults() throws -> UserDefaults {
+        let suiteName = "ChecksStoreTests.reminders.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
     func testCurrentChecksSortDueThenMissingThenFutureWithStableTies() async {
         let rows = [
             currentCheck("future-late", date: "2026-10-01"),
@@ -335,6 +344,165 @@ final class ChecksStoreTests: XCTestCase {
         XCTAssertEqual(store.summary, fresh)
     }
 
+    func testReminderBannerStaysHiddenWhenThereAreNoAlerts() async throws {
+        let empty = CheckReminderSummary(
+            asOf: today, timezone: "America/New_York", dueTodayCount: 0,
+            overdueCount: 0, unscheduledCount: 0, totalAmount: 0, items: []
+        )
+        let store = CheckReminderStore(
+            defaults: try reminderDefaults(), currentDay: { self.today }, loader: { empty }
+        )
+        store.reset(for: "user-a")
+        XCTAssertFalse(store.isBannerVisible)
+
+        await store.refresh()
+
+        XCTAssertEqual(store.summary, empty)
+        XCTAssertFalse(store.failed)
+        XCTAssertFalse(store.isBannerVisible)
+    }
+
+    func testDismissedReminderStaysHiddenAcrossSameDayRefreshesAndFailure() async throws {
+        var response = reminder("initial")
+        var shouldFail = false
+        var requests = 0
+        let store = CheckReminderStore(
+            defaults: try reminderDefaults(), currentDay: { self.today }, loader: {
+                requests += 1
+                if shouldFail { throw URLError(.timedOut) }
+                return response
+            }
+        )
+        store.reset(for: "user-a")
+        await store.refresh()
+        XCTAssertTrue(store.isBannerVisible)
+
+        store.dismissForToday()
+        XCTAssertFalse(store.isBannerVisible)
+        XCTAssertEqual(store.summary, response)
+
+        await store.refresh()
+        XCTAssertFalse(store.isBannerVisible, "An unchanged polling response must not reopen the banner")
+
+        response = reminder("new-check", due: 4)
+        await store.refresh()
+        XCTAssertEqual(store.summary, response, "Dismissal must still allow background data to refresh")
+        XCTAssertFalse(store.isBannerVisible, "New checks must respect today's dismissal")
+
+        shouldFail = true
+        await store.refresh()
+        XCTAssertEqual(requests, 4)
+        XCTAssertTrue(store.failed)
+        XCTAssertEqual(store.summary, response)
+        XCTAssertFalse(store.isBannerVisible, "A failed poll must not reopen a dismissed banner")
+    }
+
+    func testReminderDismissalPersistsAcrossResetAndRecreationForSameUser() async throws {
+        let defaults = try reminderDefaults()
+        let response = reminder("check")
+        let store = CheckReminderStore(
+            defaults: defaults, currentDay: { self.today }, loader: { response }
+        )
+        store.reset(for: "user-a")
+        await store.refresh()
+        store.dismissForToday()
+
+        store.reset(for: "user-a")
+        await store.refresh()
+        XCTAssertEqual(store.summary, response)
+        XCTAssertFalse(store.isBannerVisible, "Resetting the same session must preserve dismissal")
+
+        let recreated = CheckReminderStore(
+            defaults: defaults, currentDay: { self.today }, loader: { response }
+        )
+        recreated.reset(for: "user-a")
+        await recreated.refresh()
+        XCTAssertEqual(recreated.summary, response)
+        XCTAssertFalse(recreated.isBannerVisible, "A recreated store must restore the persisted dismissal")
+    }
+
+    func testReminderDismissalIsSharedWithAnExistingStoreOnRefresh() async throws {
+        let defaults = try reminderDefaults()
+        let response = reminder("check")
+        let first = CheckReminderStore(
+            defaults: defaults, currentDay: { self.today }, loader: { response }
+        )
+        let second = CheckReminderStore(
+            defaults: defaults, currentDay: { self.today }, loader: { response }
+        )
+        first.reset(for: "user-a")
+        second.reset(for: "user-a")
+        await first.refresh()
+        await second.refresh()
+        XCTAssertTrue(first.isBannerVisible)
+        XCTAssertTrue(second.isBannerVisible)
+
+        first.dismissForToday()
+        XCTAssertFalse(first.isBannerVisible)
+        await second.refresh()
+
+        XCTAssertEqual(second.summary, response)
+        XCTAssertFalse(second.isBannerVisible, "Another scene must restore the shared dismissal when refreshing")
+    }
+
+    func testReminderDismissalDoesNotHideAnotherUsersBanner() async throws {
+        let response = reminder("check")
+        let store = CheckReminderStore(
+            defaults: try reminderDefaults(), currentDay: { self.today }, loader: { response }
+        )
+        store.reset(for: "user-a")
+        await store.refresh()
+        store.dismissForToday()
+        XCTAssertFalse(store.isBannerVisible)
+
+        store.reset(for: "user-b")
+        await store.refresh()
+        XCTAssertTrue(store.isBannerVisible, "One user's dismissal must not suppress another user's reminders")
+
+        store.reset(for: "user-a")
+        await store.refresh()
+        XCTAssertFalse(store.isBannerVisible, "Switching users must not discard the original user's dismissal")
+    }
+
+    func testDismissedReminderReturnsAfterTheShopDayChanges() async throws {
+        var shopDay = today
+        let response = reminder("check")
+        let store = CheckReminderStore(
+            defaults: try reminderDefaults(), currentDay: { shopDay }, loader: { response }
+        )
+        store.reset(for: "user-a")
+        await store.refresh()
+        store.dismissForToday()
+        XCTAssertFalse(store.isBannerVisible)
+
+        shopDay = "2026-09-13"
+        await store.refresh()
+
+        XCTAssertTrue(store.isBannerVisible, "The shop-local day must expire dismissal even when counts are unchanged")
+        XCTAssertFalse(store.failed)
+    }
+
+    func testFailedReminderWithoutASummaryCanBeDismissedForToday() async throws {
+        let store = CheckReminderStore(
+            defaults: try reminderDefaults(), currentDay: { self.today }, loader: {
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+        store.reset(for: "user-a")
+        await store.refresh()
+        XCTAssertNil(store.summary)
+        XCTAssertTrue(store.failed)
+        XCTAssertTrue(store.isBannerVisible)
+
+        store.dismissForToday()
+        XCTAssertFalse(store.isBannerVisible)
+
+        await store.refresh()
+        XCTAssertNil(store.summary)
+        XCTAssertTrue(store.failed)
+        XCTAssertFalse(store.isBannerVisible)
+    }
+
     func testCheckWorkflowsHaveBothTranslationsAndMatchingPlaceholders() throws {
         let keys = [
             "accounting.cash.amountDollars", "accounting.cash.cancel", "accounting.cash.checksLoadFailed",
@@ -351,7 +519,7 @@ final class ChecksStoreTests: XCTestCase {
             "checks.asOf", "checks.changeDate", "checks.checkNumber", "checks.count", "checks.currentHint",
             "checks.cutoffSummary", "checks.depositAction", "checks.depositBank", "checks.depositDate",
             "checks.depositHistoryEmpty", "checks.depositHistoryHint", "checks.depositInvoices", "checks.depositReference",
-            "checks.deposited", "checks.depositsTab", "checks.dueAmount", "checks.dueToday", "checks.dueTodayCount",
+            "checks.deposited", "checks.depositsTab", "checks.dismissReminder", "checks.dueAmount", "checks.dueToday", "checks.dueTodayCount",
             "checks.empty", "checks.exportExcel", "checks.fee", "checks.historicalHint", "checks.invoice",
             "checks.listHint", "checks.method", "checks.netAmount", "checks.noAccess", "checks.notDueYet",
             "checks.note", "checks.orderHint", "checks.overdue", "checks.overdueCount", "checks.page",

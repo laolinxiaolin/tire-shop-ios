@@ -66,6 +66,22 @@ node scripts/generate-xcodeproj.mjs
 
 If you prefer XcodeGen, `project.yml` is also included.
 
+### Adaptive layouts and iPhone Duo
+
+Toolbar actions provide titles and symbols. `AppOverflowMenu` uses the system
+overflow on iOS 27 and retains a menu on older versions. The generated project
+and `project.yml` enable `TIRESHOP_HAS_TOOLBAR_OVERFLOW_MENU` only for iPhoneOS
+and Simulator 27.x SDKs; extend these SDK selectors when adopting a later major
+SDK. Do not enable this flag with an SDK that lacks `ToolbarOverflowMenu`.
+The deployment target remains iOS 17.
+
+`AdaptiveLayoutTests` verifies grid reflow and sale price editor continuity at
+different widths and text sizes. Full Duo validation additionally requires the
+Xcode 27.1 Duo simulator: open/close and partially fold during sale editing,
+check both orientations and Split View with the keyboard visible, and verify
+navigation, draft values, payment state, and access to overflow actions. Even
+column counts alone do not validate spacing around the folding region.
+
 To refresh translations after editing `src/lib/i18n.tsx`, run:
 
 ```sh
