@@ -942,16 +942,49 @@ private struct PaymentRowEditor: View {
 struct PlannedCheckDepositDateField: View {
     @Binding var date: String
     @EnvironmentObject private var i18n: I18nStore
+    @Environment(\.timeZone) private var timeZone
+    @State private var showingDatePicker = false
+    @State private var selectedDate = Date()
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             Text(i18n.t("payment.plannedDepositDate"))
                 .font(.subheadline)
-            TextField("YYYY-MM-DD", text: $date)
-                .keyboardType(.numbersAndPunctuation)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel(i18n.t("payment.plannedDepositDate"))
+            Button {
+                selectedDate = CheckDates.date(date, in: timeZone) ?? Date()
+                showingDatePicker = true
+            } label: {
+                Label(date.isEmpty ? i18n.t("checks.setDate") : date, systemImage: "calendar")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(i18n.t("payment.plannedDepositDate"))
+            .accessibilityValue(date.isEmpty ? i18n.t("checks.unscheduled") : date)
+        }
+        .sheet(isPresented: $showingDatePicker) {
+            NavigationStack {
+                ScrollView {
+                    DatePicker(i18n.t("payment.plannedDepositDate"), selection: $selectedDate, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .padding()
+                }
+                .navigationTitle(i18n.t("checks.plannedDate"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(i18n.t("common.cancel")) {
+                            showingDatePicker = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(i18n.t("common.done")) {
+                            date = CheckDates.string(selectedDate, in: timeZone)
+                            showingDatePicker = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 }
