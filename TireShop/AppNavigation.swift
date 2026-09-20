@@ -61,12 +61,30 @@ final class AppNavigationModel: ObservableObject {
         selectedSaleID = id
     }
 
+    func clearSale(ifSelected id: String) {
+        if selectedSaleID == id {
+            selectedSaleID = nil
+        }
+    }
+
     func rememberInventoryItem(_ id: String) {
         selectedInventoryID = id
     }
 
+    func clearInventoryItem(ifSelected id: String) {
+        if selectedInventoryID == id {
+            selectedInventoryID = nil
+        }
+    }
+
     func rememberCustomer(_ id: String) {
         selectedCustomerID = id
+    }
+
+    func clearCustomer(ifSelected id: String) {
+        if selectedCustomerID == id {
+            selectedCustomerID = nil
+        }
     }
 
     func sanitize(visibleDestinationKeys: Set<String>) {

@@ -460,6 +460,7 @@ struct NewQuoteNativeView: View {
             let input = try quote.saleInput()
             if let editingId = quote.editingSaleId {
                 _ = try await SalesAPI().update(id: editingId, body: input)
+                BrowsingRecords.changed(.sale, id: editingId)
                 quote.clear()
                 dismiss()
             } else {
@@ -502,6 +503,7 @@ struct NewQuoteNativeView: View {
                 }
 
                 _ = try await SalesAPI().confirm(id: saleID)
+                BrowsingRecords.changed(.sale, id: saleID)
                 quote.clear()
                 applyDefaultWarehouse()
             }
@@ -1051,7 +1053,7 @@ struct SkuFormNativeView: View {
 
         do {
             if let editing {
-                _ = try await InventoryAPI().updateSku(id: editing.id, body: TireSkuPatchInput(
+                let updated = try await InventoryAPI().updateSku(id: editing.id, body: TireSkuPatchInput(
                     sku: sku,
                     brand: brand,
                     model: model,
@@ -1072,8 +1074,9 @@ struct SkuFormNativeView: View {
                     reorderPoint: Int(reorderPoint),
                     active: active
                 ))
+                BrowsingRecords.changed(.inventory, id: updated.id)
             } else {
-                _ = try await InventoryAPI().createSku(SkuInput(
+                let created = try await InventoryAPI().createSku(SkuInput(
                     sku: sku,
                     brand: brand,
                     model: model,
@@ -1093,6 +1096,7 @@ struct SkuFormNativeView: View {
                     reorderPoint: Int(reorderPoint),
                     active: active
                 ))
+                BrowsingRecords.changed(.inventory, id: created.id)
             }
             dismiss()
         } catch {
@@ -1275,6 +1279,7 @@ struct AdjustStockNativeView: View {
             )
             switch result {
             case .immediate:
+                BrowsingRecords.changed(.inventory, id: sku.id)
                 dismiss()
             case .approval(let request):
                 approvalRequestId = request.id

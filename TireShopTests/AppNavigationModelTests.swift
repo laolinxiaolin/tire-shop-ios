@@ -60,4 +60,25 @@ final class AppNavigationModelTests: XCTestCase {
         XCTAssertNil(navigation.selectedCustomerID)
         XCTAssertTrue(navigation.path(for: "customers").wrappedValue.isEmpty)
     }
+
+    func testDeletingRecordsOnlyClearsTheMatchingSelection() {
+        let navigation = AppNavigationModel()
+        navigation.rememberSale("sale-1")
+        navigation.rememberInventoryItem("sku-1")
+        navigation.rememberCustomer("customer-1")
+
+        navigation.clearSale(ifSelected: "sale-2")
+        navigation.clearInventoryItem(ifSelected: "sku-1")
+        navigation.clearCustomer(ifSelected: "customer-2")
+
+        XCTAssertEqual(navigation.selectedSaleID, "sale-1")
+        XCTAssertNil(navigation.selectedInventoryID)
+        XCTAssertEqual(navigation.selectedCustomerID, "customer-1")
+    }
+
+    func testBrowsingWorkspaceOnlySplitsWhenBothPanesRemainUseful() {
+        XCTAssertTrue(BrowsingWorkspaceLayout.usesSplitView(width: 760, horizontalSizeClass: .regular))
+        XCTAssertFalse(BrowsingWorkspaceLayout.usesSplitView(width: 759, horizontalSizeClass: .regular))
+        XCTAssertFalse(BrowsingWorkspaceLayout.usesSplitView(width: 1_200, horizontalSizeClass: .compact))
+    }
 }

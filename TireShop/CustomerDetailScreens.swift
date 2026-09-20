@@ -1077,6 +1077,7 @@ struct CustomerDetailNativeView: View {
             newTag = ""
             applyCustomer(updated)
             statusMessage = "Tags saved."
+            BrowsingRecords.changed(.customer, id: id)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save tags."
         }
@@ -1099,6 +1100,7 @@ struct CustomerDetailNativeView: View {
             )
             applyCustomer(updated)
             statusMessage = "Tax status saved."
+            BrowsingRecords.changed(.customer, id: id)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save tax status."
         }
@@ -1301,6 +1303,7 @@ struct CustomerDetailNativeView: View {
             applyCustomer(updated)
             await loadAccount()
             statusMessage = "Account settings saved."
+            BrowsingRecords.changed(.customer, id: id)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save account settings."
         }
@@ -1315,6 +1318,7 @@ struct CustomerDetailNativeView: View {
             let updated = try await CustomersAPI().updatePriceTier(id: id, body: CustomerPriceTierPatch(priceTierId: selectedTier.nilIfBlank))
             applyCustomer(updated)
             statusMessage = "Price tier saved."
+            BrowsingRecords.changed(.customer, id: id)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save price tier."
         }
@@ -1330,6 +1334,7 @@ struct CustomerDetailNativeView: View {
             applyCustomer(updated)
             await loadSalespeople(current: updated.salesperson)
             statusMessage = "Salesperson saved."
+            BrowsingRecords.changed(.customer, id: id)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save salesperson."
         }
@@ -1419,6 +1424,7 @@ struct CustomerDetailNativeView: View {
         clearMessages()
         do {
             _ = try await CustomersAPI().remove(id: id)
+            BrowsingRecords.changed(.customer, id: id, deleted: true)
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete customer."
@@ -1607,6 +1613,7 @@ private struct CustomerProfileEditorView: View {
                 )
             )
             onSaved(updated)
+            BrowsingRecords.changed(.customer, id: customer.id)
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save profile."

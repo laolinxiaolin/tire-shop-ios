@@ -576,8 +576,10 @@ struct InventoryListNativeView: View {
     var selectForQuote = false
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var navigation: AppNavigationModel
     @EnvironmentObject private var quote: QuoteStore
 
     private let pageSize = 1000
@@ -615,6 +617,8 @@ struct InventoryListNativeView: View {
     @State private var selectingRows = false
     @State private var selectedSkuIDs: Set<String> = []
     @State private var showingExportOptions = false
+    @State private var scrollSkuID: String?
+    @State private var inventoryDetailRevision = 0
 
     private var selectedLocation: String {
         selectForQuote ? quote.location : location
@@ -722,26 +726,26 @@ struct InventoryListNativeView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            filters
-
-            if hasLoaded {
-                inventoryTotal
-            }
+        GeometryReader { proxy in
+            let usesSplit = !selectForQuote && BrowsingWorkspaceLayout.usesSplitView(
+                width: proxy.size.width,
+                horizontalSizeClass: horizontalSizeClass
+            )
 
             Group {
-                if loading && !hasLoaded {
-                    LoadingView(label: "Loading...")
-                } else if let errorMessage, !hasLoaded {
-                    RetryView(message: errorMessage) { Task { await reload() } }
-                } else if hasLoaded && items.isEmpty && !hasMorePages {
-                    EmptyStateView(text: emptyMessage)
-                } else if hasLoaded {
-                    inventoryList
+                if usesSplit {
+                    NavigationSplitView {
+                        inventoryListPane(usesSplitView: true)
+                            .navigationTitle(i18n.t("nav.inventory"))
+                    } detail: {
+                        selectedInventoryDetail
+                    }
+                    .navigationSplitViewStyle(.balanced)
                 } else {
-                    LoadingView(label: "Loading...")
+                    inventoryListPane(usesSplitView: false)
                 }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .background(Theme.background)
         .task {
@@ -783,6 +787,54 @@ struct InventoryListNativeView: View {
         }
         .sheet(isPresented: $showingExportOptions) {
             InventoryExportSheet(configuration: exportConfiguration, warehouses: warehouses)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .browsingRecordDidChange)) { note in
+            guard let change = note.object as? BrowsingRecordChange, change.kind == .inventory else { return }
+            if change.deleted {
+                navigation.clearInventoryItem(ifSelected: change.id)
+            } else if navigation.selectedInventoryID == change.id {
+                inventoryDetailRevision &+= 1
+            }
+            Task { await reload() }
+        }
+    }
+
+    private func inventoryListPane(usesSplitView: Bool) -> some View {
+        VStack(spacing: 0) {
+            filters
+
+            if hasLoaded {
+                inventoryTotal
+            }
+
+            Group {
+                if loading && !hasLoaded {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, !hasLoaded {
+                    RetryView(message: errorMessage) { Task { await reload() } }
+                } else if hasLoaded && items.isEmpty && !hasMorePages {
+                    EmptyStateView(text: emptyMessage)
+                } else if hasLoaded {
+                    inventoryList(usesSplitView: usesSplitView)
+                } else {
+                    LoadingView(label: "Loading...")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var selectedInventoryDetail: some View {
+        if let id = navigation.selectedInventoryID {
+            SkuLookupNativeView(idOrSku: id)
+                .id("\(id)-\(inventoryDetailRevision)")
+        } else {
+            BrowsingSelectionPrompt(
+                title: "Select a tire",
+                message: "Choose a SKU to review stock by warehouse, pricing, and product actions.",
+                systemImage: "circle.grid.3x3"
+            )
         }
     }
 
@@ -900,13 +952,13 @@ struct InventoryListNativeView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var inventoryList: some View {
+    private func inventoryList(usesSplitView: Bool) -> some View {
         List {
             if selectForQuote {
                 SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
             }
             ForEach(items) { sku in
-                skuRow(sku)
+                skuRow(sku, usesSplitView: usesSplitView)
                     .listRowInsets(EdgeInsets(
                         top: Theme.Space.xs,
                         leading: Theme.Space.lg,
@@ -914,7 +966,11 @@ struct InventoryListNativeView: View {
                         trailing: Theme.Space.lg
                     ))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
+                    .listRowBackground(
+                        usesSplitView && navigation.selectedInventoryID == sku.id
+                            ? Theme.primary.opacity(0.12)
+                            : Theme.background
+                    )
                     .onAppear {
                         if sku.id == items.last?.id {
                             Task { await loadMoreIfNeeded() }
@@ -925,6 +981,7 @@ struct InventoryListNativeView: View {
             loadMoreRow
         }
         .listStyle(.plain)
+        .scrollPosition(id: $scrollSkuID)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .refreshable {
@@ -934,7 +991,7 @@ struct InventoryListNativeView: View {
     }
 
     @ViewBuilder
-    private func skuRow(_ sku: TireSku) -> some View {
+    private func skuRow(_ sku: TireSku, usesSplitView: Bool) -> some View {
         if selectForQuote {
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 InventorySkuRow(
@@ -970,6 +1027,15 @@ struct InventoryListNativeView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+        } else if usesSplitView {
+            Button {
+                navigation.rememberInventoryItem(sku.id)
+            } label: {
+                InventorySkuRow(sku: sku, location: selectedLocation.nilIfBlank)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(navigation.selectedInventoryID == sku.id ? .isSelected : [])
         } else {
             NavigationLink {
                 SkuDetailNativeView(sku: sku, initialLocation: selectedLocation.nilIfBlank)
@@ -2649,7 +2715,9 @@ private struct BestSellersSummaryFooter: View {
 
 struct SalesListNativeView: View {
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var navigation: AppNavigationModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let pageSize = 50
 
@@ -2688,6 +2756,8 @@ struct SalesListNativeView: View {
     @State private var hasLoaded = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
+    @State private var scrollSaleID: String?
+    @State private var saleDetailRevision = 0
 
     init(showBestSellers: Bool = false, initialBestSellerMonths: Int = 3, initialBestSellerWarehouse: String? = nil) {
         _selectedView = State(initialValue: showBestSellers ? .bestSellers : .sales)
@@ -2726,32 +2796,31 @@ struct SalesListNativeView: View {
             .padding(.vertical, Theme.Space.sm)
             .background(Theme.background)
 
-            Group {
-                if selectedView == .bestSellers {
-                    BestSellersNativeView(initialMonths: initialBestSellerMonths, initialWarehouse: initialBestSellerWarehouse)
-                } else {
-                    VStack(spacing: 0) {
-                        salesHeader
+            if selectedView == .bestSellers {
+                BestSellersNativeView(initialMonths: initialBestSellerMonths, initialWarehouse: initialBestSellerWarehouse)
+            } else {
+                GeometryReader { proxy in
+                    let usesSplit = BrowsingWorkspaceLayout.usesSplitView(
+                        width: proxy.size.width,
+                        horizontalSizeClass: horizontalSizeClass
+                    )
 
-                        Group {
-                            if items.isEmpty {
-                                if loading || !hasLoaded {
-                                    LoadingView(label: "Loading...")
-                                } else if let errorMessage {
-                                    RetryView(message: errorMessage) { Task { await load() } }
-                                } else {
-                                    EmptyStateView(text: emptyMessage)
-                                }
-                            } else {
-                                salesContent(items, summary)
+                    Group {
+                        if usesSplit {
+                            NavigationSplitView {
+                                salesListPane(usesSplitView: true)
+                                    .navigationTitle(i18n.t("nav.sales"))
+                            } detail: {
+                                selectedSaleDetail
                             }
+                            .navigationSplitViewStyle(.balanced)
+                        } else {
+                            salesListPane(usesSplitView: false)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background)
@@ -2799,9 +2868,58 @@ struct SalesListNativeView: View {
         .onDisappear {
             searchTask?.cancel()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .browsingRecordDidChange)) { note in
+            guard let change = note.object as? BrowsingRecordChange, change.kind == .sale else { return }
+            if change.deleted {
+                navigation.clearSale(ifSelected: change.id)
+            } else if navigation.selectedSaleID == change.id {
+                saleDetailRevision &+= 1
+            }
+            Task { await load() }
+        }
     }
 
-    private func salesContent(_ items: [SaleListItem], _ summary: SalesSummary?) -> some View {
+    private func salesListPane(usesSplitView: Bool) -> some View {
+        VStack(spacing: 0) {
+            salesHeader
+
+            Group {
+                if items.isEmpty {
+                    if loading || !hasLoaded {
+                        LoadingView(label: "Loading...")
+                    } else if let errorMessage {
+                        RetryView(message: errorMessage) { Task { await load() } }
+                    } else {
+                        EmptyStateView(text: emptyMessage)
+                    }
+                } else {
+                    salesContent(items, summary, usesSplitView: usesSplitView)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var selectedSaleDetail: some View {
+        if let id = navigation.selectedSaleID {
+            SaleDetailNativeView(id: id)
+                .id("\(id)-\(saleDetailRevision)")
+        } else {
+            BrowsingSelectionPrompt(
+                title: "Select a sale",
+                message: "Choose a sale to review its lines, invoice, payments, and actions.",
+                systemImage: "creditcard"
+            )
+        }
+    }
+
+    private func salesContent(
+        _ items: [SaleListItem],
+        _ summary: SalesSummary?,
+        usesSplitView: Bool
+    ) -> some View {
         VStack(spacing: 0) {
             // A failed pull-to-refresh keeps the loaded rows; surface it
             // non-blockingly instead of letting stale data look current.
@@ -2824,8 +2942,24 @@ struct SalesListNativeView: View {
 
             List {
                 ForEach(items) { sale in
-                    NavigationLink(value: AppRoute.saleDetail(sale.id)) {
-                        saleRow(sale)
+                    if usesSplitView {
+                        Button {
+                            navigation.rememberSale(sale.id)
+                        } label: {
+                            saleRow(sale)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(
+                            navigation.selectedSaleID == sale.id
+                                ? Theme.primary.opacity(0.12)
+                                : Theme.background
+                        )
+                        .accessibilityAddTraits(navigation.selectedSaleID == sale.id ? .isSelected : [])
+                    } else {
+                        NavigationLink(value: AppRoute.saleDetail(sale.id)) {
+                            saleRow(sale)
+                        }
                     }
                 }
 
@@ -2862,6 +2996,7 @@ struct SalesListNativeView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollPosition(id: $scrollSaleID)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .refreshable { await load() }
             .debugLayoutProbe("SalesList")
@@ -3348,43 +3483,41 @@ struct SalesListNativeView: View {
 
 struct CustomersListNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var navigation: AppNavigationModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var q = ""
     @State private var customers: [Customer] = []
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var loadRequestID = UUID()
+    @State private var scrollCustomerID: String?
 
     private var canManageCustomers: Bool {
         auth.has("customers.manage")
     }
 
     var body: some View {
-        Group {
-            if loading && customers.isEmpty {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, customers.isEmpty {
-                RetryView(message: errorMessage) { Task { await load() } }
-            } else if customers.isEmpty {
-                customerEmptyState
-            } else {
-                List(customers) { customer in
-                    NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
-                        RowLine(
-                            title: customer.company ?? customer.name,
-                            subtitle: [customer.company == nil ? nil : customer.name, AppFormat.phone(customer.phone), customer.email]
-                                .compactMap { text in
-                                    guard let text, !text.isEmpty else { return nil }
-                                    return text
-                                }
-                                .joined(separator: " - "),
-                            trailing: customer.taxExempt ? "Tax exempt" : nil
-                        )
+        GeometryReader { proxy in
+            let usesSplit = BrowsingWorkspaceLayout.usesSplitView(
+                width: proxy.size.width,
+                horizontalSizeClass: horizontalSizeClass
+            )
+
+            Group {
+                if usesSplit {
+                    NavigationSplitView {
+                        customerListPane(usesSplitView: true)
+                            .navigationTitle("Customers")
+                    } detail: {
+                        selectedCustomerDetail
                     }
+                    .navigationSplitViewStyle(.balanced)
+                } else {
+                    customerListPane(usesSplitView: false)
                 }
-                .listStyle(.plain)
-                .refreshable { await load() }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search name, company, phone…")
         .toolbar {
@@ -3403,6 +3536,79 @@ struct CustomersListNativeView: View {
                 if Task.isCancelled { return }
             }
             await load()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .browsingRecordDidChange)) { note in
+            guard let change = note.object as? BrowsingRecordChange, change.kind == .customer else { return }
+            if change.deleted {
+                navigation.clearCustomer(ifSelected: change.id)
+            }
+            Task { await load() }
+        }
+    }
+
+    @ViewBuilder
+    private func customerListPane(usesSplitView: Bool) -> some View {
+        Group {
+            if loading && customers.isEmpty {
+                LoadingView(label: "Loading...")
+            } else if let errorMessage, customers.isEmpty {
+                RetryView(message: errorMessage) { Task { await load() } }
+            } else if customers.isEmpty {
+                customerEmptyState
+            } else {
+                List(customers) { customer in
+                    if usesSplitView {
+                        Button {
+                            navigation.rememberCustomer(customer.id)
+                        } label: {
+                            customerRow(customer)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(
+                            navigation.selectedCustomerID == customer.id
+                                ? Theme.primary.opacity(0.12)
+                                : Theme.background
+                        )
+                        .accessibilityAddTraits(navigation.selectedCustomerID == customer.id ? .isSelected : [])
+                    } else {
+                        NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
+                            customerRow(customer)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .scrollPosition(id: $scrollCustomerID)
+                .refreshable { await load() }
+            }
+        }
+    }
+
+    private func customerRow(_ customer: Customer) -> some View {
+        RowLine(
+            title: customer.company ?? customer.name,
+            subtitle: [customer.company == nil ? nil : customer.name, AppFormat.phone(customer.phone), customer.email]
+                .compactMap { text in
+                    guard let text, !text.isEmpty else { return nil }
+                    return text
+                }
+                .joined(separator: " - "),
+            trailing: customer.taxExempt ? "Tax exempt" : nil
+        )
+    }
+
+    @ViewBuilder
+    private var selectedCustomerDetail: some View {
+        if let id = navigation.selectedCustomerID {
+            let fallbackName = customers.first(where: { $0.id == id })?.name ?? "Customer"
+            CustomerDetailNativeView(id: id, fallbackName: fallbackName)
+                .id(id)
+        } else {
+            BrowsingSelectionPrompt(
+                title: "Select a customer",
+                message: "Choose a customer to review profile, account, sales, and relationship history.",
+                systemImage: "person.crop.circle"
+            )
         }
     }
 

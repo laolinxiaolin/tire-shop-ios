@@ -205,6 +205,7 @@ struct SaleDetailNativeView: View {
                 onPaid: {
                     paymentContext = nil
                     reloadToken = UUID()
+                    BrowsingRecords.changed(.sale, id: id)
                 }
             )
         }
@@ -256,6 +257,7 @@ struct SaleDetailNativeView: View {
         actionError = nil
         do {
             _ = try await SalesAPI().deleteDraft(id: id)
+            BrowsingRecords.changed(.sale, id: id, deleted: true)
             dismiss()
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The draft could not be deleted."
@@ -270,6 +272,7 @@ struct SaleDetailNativeView: View {
         do {
             _ = try await SalesAPI().reverseToDraft(id: id)
             reloadToken = UUID()
+            BrowsingRecords.changed(.sale, id: id)
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The sale could not be returned to draft."
         }
@@ -283,6 +286,7 @@ struct SaleDetailNativeView: View {
         do {
             _ = try await SalesAPI().confirm(id: id)
             reloadToken = UUID()
+            BrowsingRecords.changed(.sale, id: id)
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The draft could not be confirmed and invoiced."
         }
@@ -376,6 +380,7 @@ struct SaleDetailNativeView: View {
             )
             selectedSalespersonId = patched.salespersonId ?? ""
             reloadToken = UUID()
+            BrowsingRecords.changed(.sale, id: id)
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "Could not save the salesperson."
         }
@@ -2864,7 +2869,7 @@ struct NewCustomerNativeView: View {
 
         do {
             let normalizedPhone = try AppFormat.normalizeUSPhone(phone)
-            _ = try await CustomersAPI().create(NewCustomerInput(
+            let created = try await CustomersAPI().create(NewCustomerInput(
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                 company: company.nilIfBlank,
                 phone: normalizedPhone,
@@ -2879,6 +2884,7 @@ struct NewCustomerNativeView: View {
                 taxExempt: taxExempt,
                 taxExemptNumber: taxExemptNumber.nilIfBlank
             ))
+            BrowsingRecords.changed(.customer, id: created.id)
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."

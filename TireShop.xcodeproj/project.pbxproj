@@ -14,6 +14,7 @@
 		C503CBBD00823D694F5E6C91 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034D62B261A3C813F5C51DC3 /* AppNavigation.swift */; };
 		8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B63EA5735EBD5B353B9265E /* AuthStore.swift */; };
 		11E20D543C02CFE097BA51CB /* BalanceListStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1989B224C4B22D6E027876A /* BalanceListStore.swift */; };
+		4557D5A687F74F308F205FC8 /* BrowsingWorkspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BFF34E70EF5C41B6B11899 /* BrowsingWorkspaces.swift */; };
 		2D73575EAC2FB8D366EB5E74 /* CheckDates.swift in Sources */ = {isa = PBXBuildFile; fileRef = B219A03CA989D3028552962A /* CheckDates.swift */; };
 		024D81A9CA3D4D0A3272202D /* CheckDepositDateLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477FA11410E842536E4C10C5 /* CheckDepositDateLabel.swift */; };
 		0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */; };
@@ -87,6 +88,7 @@
 		034D62B261A3C813F5C51DC3 /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppNavigation.swift"; sourceTree = "<group>"; };
 		7B63EA5735EBD5B353B9265E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AuthStore.swift"; sourceTree = "<group>"; };
 		D1989B224C4B22D6E027876A /* BalanceListStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BalanceListStore.swift"; sourceTree = "<group>"; };
+		23BFF34E70EF5C41B6B11899 /* BrowsingWorkspaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowsingWorkspaces.swift"; sourceTree = "<group>"; };
 		B219A03CA989D3028552962A /* CheckDates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDates.swift"; sourceTree = "<group>"; };
 		477FA11410E842536E4C10C5 /* CheckDepositDateLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDateLabel.swift"; sourceTree = "<group>"; };
 		0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDraft.swift"; sourceTree = "<group>"; };
@@ -194,6 +196,7 @@
 				034D62B261A3C813F5C51DC3 /* AppNavigation.swift */,
 				7B63EA5735EBD5B353B9265E /* AuthStore.swift */,
 				D1989B224C4B22D6E027876A /* BalanceListStore.swift */,
+				23BFF34E70EF5C41B6B11899 /* BrowsingWorkspaces.swift */,
 				B219A03CA989D3028552962A /* CheckDates.swift */,
 				477FA11410E842536E4C10C5 /* CheckDepositDateLabel.swift */,
 				0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */,
@@ -397,6 +400,7 @@
 				C503CBBD00823D694F5E6C91 /* AppNavigation.swift in Sources */,
 				8F5A4028BC22474AAFFB9DA9 /* AuthStore.swift in Sources */,
 				11E20D543C02CFE097BA51CB /* BalanceListStore.swift in Sources */,
+				4557D5A687F74F308F205FC8 /* BrowsingWorkspaces.swift in Sources */,
 				2D73575EAC2FB8D366EB5E74 /* CheckDates.swift in Sources */,
 				024D81A9CA3D4D0A3272202D /* CheckDepositDateLabel.swift in Sources */,
 				0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */,
@@ -594,7 +598,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091901;
+				CURRENT_PROJECT_VERSION = 2026091902;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -623,7 +627,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091901;
+				CURRENT_PROJECT_VERSION = 2026091902;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -652,7 +656,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091901;
+				CURRENT_PROJECT_VERSION = 2026091902;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -675,7 +679,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091901;
+				CURRENT_PROJECT_VERSION = 2026091902;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
