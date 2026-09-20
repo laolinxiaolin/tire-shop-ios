@@ -30,12 +30,19 @@ struct TireShopApp: App {
 }
 
 private struct TireShopSceneRoot: View {
+    @EnvironmentObject private var auth: AuthStore
     @StateObject private var quote = QuoteStore()
+    @StateObject private var navigation = AppNavigationModel()
 
     var body: some View {
         RootGateView()
             .environmentObject(quote)
+            .environmentObject(navigation)
             .debugLayoutProbe("SceneRoot")
             .debugKeyboardDiagnostics()
+            .onChange(of: auth.user?.id) { oldUserID, newUserID in
+                guard oldUserID != newUserID else { return }
+                navigation.resetForSessionChange()
+            }
     }
 }

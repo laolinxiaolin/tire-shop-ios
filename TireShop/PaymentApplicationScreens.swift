@@ -800,6 +800,7 @@ extension Notification.Name {
 struct PaymentApplicationDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var navigation: AppNavigationModel
     @Environment(\.dismiss) private var dismiss
 
     let id: String
@@ -944,7 +945,9 @@ struct PaymentApplicationDetailNativeView: View {
         }
         // Signing off happens in the shop's one approval queue, not here.
         if canApprove && status == "PENDING_APPROVAL" {
-            NavigationLink(value: AppRoute.module("approvals")) {
+            Button {
+                navigation.selectDestination("approvals")
+            } label: {
                 Label("Decide in Approvals", systemImage: "checkmark.seal")
             }
         }

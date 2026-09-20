@@ -209,10 +209,11 @@ private extension UIResponder {
 
 struct RootNavigatorView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var tabs: TabsStore
     @EnvironmentObject private var i18n: I18nStore
-    @State private var selectedTab = DestinationRegistry.defaultPinned.first ?? "dashboard"
+    @EnvironmentObject private var navigation: AppNavigationModel
     @State private var showTapToPayAnnouncement = false
     @StateObject private var checkReminders = CheckReminderStore()
 
@@ -222,28 +223,51 @@ struct RootNavigatorView: View {
             .filter { DestinationRegistry.isVisible($0, auth: auth) }
     }
 
+    private var visibleDestinations: [Destination] {
+        DestinationRegistry.visibleDestinations(auth: auth)
+    }
+
+    private var groupedDestinations: [(DestinationGroup, [Destination])] {
+        let byGroup = Dictionary(grouping: visibleDestinations, by: \.group)
+        return DestinationGroup.allCases.compactMap { group in
+            guard let items = byGroup[group], !items.isEmpty else { return nil }
+            return (group, items)
+        }
+    }
+
+    private var compactSelection: Binding<String> {
+        Binding(
+            get: { navigation.compactTab(pinnedKeys: visiblePinned.map(\.key)) },
+            set: { navigation.selectCompactTab($0) }
+        )
+    }
+
+    private var sidebarSelection: Binding<String?> {
+        Binding(
+            get: {
+                DestinationRegistry.destination(for: navigation.selectedDestinationKey) == nil
+                    ? nil
+                    : navigation.selectedDestinationKey
+            },
+            set: { key in
+                if let key { navigation.selectDestination(key) }
+            }
+        )
+    }
+
     var body: some View {
         if !tabs.ready {
             LoadingView(label: i18n.t("common.loading"))
         } else {
-            TabView(selection: $selectedTab) {
-                ForEach(visiblePinned) { destination in
-                    NavigationShell(title: destination.localizedTitle(using: i18n)) {
-                        DestinationView(destination: destination)
+            GeometryReader { proxy in
+                Group {
+                    if usesSidebar(availableWidth: proxy.size.width) {
+                        regularNavigation
+                    } else {
+                        compactNavigation
                     }
-                    .tabItem {
-                        Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
-                    }
-                    .tag(destination.key)
                 }
-
-                NavigationShell(title: i18n.t("nav.more")) {
-                    MoreMenuView()
-                }
-                .tabItem {
-                    Label(i18n.t("nav.more"), systemImage: "line.3.horizontal")
-                }
-                .tag("more")
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
                 handleKeyboardGeometry(note)
@@ -274,12 +298,100 @@ struct RootNavigatorView: View {
                     onDone: markTapToPayAnnouncementSeen
                 )
             }
-            .onAppear(perform: maybeShowTapToPayAnnouncement)
+            .onAppear {
+                navigation.sanitize(visibleDestinationKeys: Set(visibleDestinations.map(\.key)))
+                maybeShowTapToPayAnnouncement()
+            }
             .onChange(of: auth.user?.id) { _, _ in
                 maybeShowTapToPayAnnouncement()
             }
+            .onChange(of: visibleDestinations.map(\.key)) { _, keys in
+                navigation.sanitize(visibleDestinationKeys: Set(keys))
+            }
             .debugLayoutProbe("RootNavigator")
         }
+    }
+
+    private var compactNavigation: some View {
+        TabView(selection: compactSelection) {
+            ForEach(visiblePinned) { destination in
+                NavigationShell(
+                    title: destination.localizedTitle(using: i18n),
+                    pathOwner: destination.key
+                ) {
+                    DestinationView(destination: destination)
+                }
+                .tabItem {
+                    Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
+                }
+                .tag(destination.key)
+            }
+
+            NavigationShell(title: i18n.t("nav.more"), pathOwner: AppNavigationModel.moreKey) {
+                MoreMenuView()
+            }
+            .tabItem {
+                Label(i18n.t("nav.more"), systemImage: "line.3.horizontal")
+            }
+            .tag(AppNavigationModel.moreKey)
+        }
+    }
+
+    private var regularNavigation: some View {
+        NavigationSplitView(columnVisibility: $navigation.sidebarVisibility) {
+            List(selection: sidebarSelection) {
+                ForEach(groupedDestinations, id: \.0) { group, destinations in
+                    Section(group.localizedTitle(using: i18n)) {
+                        ForEach(destinations) { destination in
+                            Label(
+                                destination.localizedTitle(using: i18n),
+                                systemImage: destination.systemImage
+                            )
+                            .tag(destination.key)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("TireShop")
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button {
+                    navigation.append(.customizeTabs, to: navigation.selectedDestinationKey)
+                } label: {
+                    Label(i18n.t("more.customizeTabs"), systemImage: "slider.horizontal.3")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Theme.Space.lg)
+                        .padding(.vertical, Theme.Space.md)
+                }
+                .buttonStyle(.plain)
+                .background(.bar)
+            }
+        } detail: {
+            if let destination = selectedDestination {
+                NavigationShell(
+                    title: destination.localizedTitle(using: i18n),
+                    pathOwner: destination.key
+                ) {
+                    DestinationView(destination: destination)
+                }
+            } else {
+                ContentUnavailableView(
+                    i18n.t("screen.fallbackTitle"),
+                    systemImage: "sidebar.left"
+                )
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var selectedDestination: Destination? {
+        DestinationRegistry.destination(for: navigation.selectedDestinationKey).flatMap { destination in
+            DestinationRegistry.isVisible(destination, auth: auth) ? destination : nil
+        }
+    }
+
+    private func usesSidebar(availableWidth: CGFloat) -> Bool {
+        horizontalSizeClass == .regular && availableWidth >= 700
     }
 
     private func handleKeyboardGeometry(_ notification: Notification) {
@@ -317,26 +429,27 @@ struct RootNavigatorView: View {
 
 struct NavigationShell<Content: View>: View {
     @EnvironmentObject private var auth: AuthStore
-    @EnvironmentObject private var i18n: I18nStore
-    @State private var path: [AppRoute] = []
+    @EnvironmentObject private var navigation: AppNavigationModel
 
     let title: String
+    let pathOwner: String
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, pathOwner: String, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.pathOwner = pathOwner
         self.content = content()
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: navigation.path(for: pathOwner)) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if auth.has("payments.collect") || auth.has("accounting.view") {
                         CheckReminderBanner {
                             NotificationCenter.default.post(name: .showCurrentChecks, object: nil)
-                            path = [.module("checks")]
+                            navigation.showChecks()
                         }
                     }
                 }
@@ -345,172 +458,15 @@ struct NavigationShell<Content: View>: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         AvatarButton(name: auth.user?.fullName) {
-                            path.append(.profile)
+                            navigation.append(.profile, to: pathOwner)
                         }
                     }
                 }
                 .navigationDestination(for: AppRoute.self) { route in
-                    routeView(route)
+                    AppRouteDestinationView(route: route)
                 }
         }
         .debugLayoutProbe("NavigationShell[\(title)]")
-    }
-
-    @ViewBuilder
-    private func routeView(_ route: AppRoute) -> some View {
-        switch route {
-        case .profile:
-            ProfileView()
-        case .customizeTabs:
-            CustomizeTabsView()
-        case .module(let key):
-            if
-                let destination = DestinationRegistry.destination(for: key),
-                DestinationRegistry.isVisible(destination, auth: auth)
-            {
-                DestinationView(destination: destination)
-                    .navigationTitle(destination.localizedTitle(using: i18n))
-            } else if DestinationRegistry.destination(for: key) != nil {
-                EmptyStateView(text: "You do not have permission to open this section.")
-            } else {
-                PlaceholderScreen(title: i18n.t("screen.fallbackTitle"))
-            }
-        case .tapToPayEducation:
-            authorized(auth.has("payments.collect") || auth.has("settings.manage")) {
-                TapToPayEducationView()
-            }
-        case .newInventoryCount:
-            authorized(auth.has("inventory.count.manage")) {
-                NewInventoryCountNativeView()
-            }
-        case .newTransfer:
-            authorized(auth.has("transfers.manage")) {
-                NewStockTransferNativeView()
-            }
-        case .skuPicker:
-            authorized(auth.has("inventory.view")) {
-                SkuPickerNativeView()
-            }
-        case .customerPicker:
-            authorized(auth.has("customers.view")) {
-                CustomerPickerNativeView()
-            }
-        case .newCustomer:
-            authorized(auth.has("customers.manage")) {
-                NewCustomerNativeView()
-            }
-        case .skuDetail(let id):
-            authorized(auth.has("inventory.view")) {
-                SkuLookupNativeView(idOrSku: id)
-            }
-        case .skuForm(let id):
-            if auth.has("inventory.manage") {
-                if let id {
-                    SkuLookupEditNativeView(idOrSku: id)
-                } else {
-                    SkuFormNativeView(editing: nil)
-                }
-            } else {
-                EmptyStateView(text: "You do not have permission to manage inventory.")
-            }
-        case .adjustStock(let id):
-            if auth.canActOrRequest("inventory.adjust") {
-                AdjustStockLookupNativeView(idOrSku: id)
-            } else {
-                EmptyStateView(text: "You do not have permission to adjust inventory.")
-            }
-        case .saleDetail(let id):
-            authorized(auth.has("sales.view")) {
-                SaleDetailNativeView(id: id)
-            }
-        case .bestSellers(let months, let warehouse):
-            authorized(auth.has("sales.view")) {
-                SalesListNativeView(showBestSellers: true, initialBestSellerMonths: months, initialBestSellerWarehouse: warehouse)
-                    .navigationTitle(i18n.t("nav.sales"))
-            }
-        case .orderDetail(let id):
-            authorized(auth.has("orders.manage")) {
-                OrderDetailNativeView(id: id)
-            }
-        case .editSale(let id):
-            if auth.has("sales.manage") {
-                EditSaleNativeView(id: id)
-            } else {
-                EmptyStateView(text: "You do not have permission to manage sales.")
-            }
-        case .startReturn(let saleId, let saleRef):
-            if auth.has("sales.manage") {
-                StartReturnNativeView(saleId: saleId, saleRef: saleRef)
-            } else {
-                EmptyStateView(text: "You do not have permission to create returns.")
-            }
-        case .returnDetail(let id):
-            authorized(auth.has("returns.view")) {
-                ReturnDetailNativeView(id: id)
-            }
-        case .workOrderDetail(let id):
-            authorized(auth.has("workorders.view")) {
-                WorkOrderDetailNativeView(id: id)
-            }
-        case .inventoryCountDetail(let id):
-            authorized(auth.has("inventory.count.view")) {
-                InventoryCountDetailNativeView(id: id)
-            }
-        case .transferDetail(let id):
-            authorized(auth.has("transfers.view")) {
-                StockTransferDetailNativeView(id: id)
-            }
-        case .containerDetail(let id):
-            authorized(auth.has("purchasing.view")) {
-                ContainerDetailNativeView(id: id)
-            }
-        case .supplierDetail(let id):
-            authorized(auth.has("purchasing.view")) {
-                SupplierDetailNativeView(id: id)
-            }
-        case .vendorDetail(let id):
-            authorized(auth.has("vendors.view")) {
-                VendorDetailNativeView(id: id)
-            }
-        case .paymentApplicationDetail(let id):
-            authorized(auth.has("paymentapps.view")) {
-                PaymentApplicationDetailNativeView(id: id)
-            }
-        case .paymentApplicationEditor(let id, let vendorId):
-            authorized(auth.has("paymentapps.manage")) {
-                PaymentApplicationEditorNativeView(id: id, presetVendorId: vendorId)
-            }
-        case .tapToPay(let invoiceId, let amount, let saleId, let saleRef, let customerName):
-            authorized(auth.has("payments.collect")) {
-                TapToPayNativeView(
-                    invoiceId: invoiceId,
-                    amount: amount,
-                    saleId: saleId,
-                    saleRef: saleRef,
-                    customerName: customerName
-                )
-            }
-        case .customerDetail(let id, let name):
-            authorized(auth.has("customers.view")) {
-                CustomerDetailNativeView(id: id, fallbackName: name)
-            }
-        case .employeeDetail(let id):
-            authorized(auth.has("employees.view")) {
-                EmployeeDetailNativeView(id: id)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func authorized<RouteContent: View>(
-        _ allowed: Bool,
-        @ViewBuilder content: () -> RouteContent
-    ) -> some View {
-        if allowed {
-            content()
-        } else {
-            EmptyStateView(text: "You do not have permission to open this screen.")
-        }
     }
 }
 
@@ -605,6 +561,7 @@ struct DestinationView: View {
 struct MoreMenuView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var navigation: AppNavigationModel
 
     private var groupedDestinations: [(DestinationGroup, [Destination])] {
         let byGroup = Dictionary(grouping: DestinationRegistry.visibleDestinations(auth: auth), by: \.group)
@@ -617,17 +574,23 @@ struct MoreMenuView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink(value: AppRoute.customizeTabs) {
+                Button {
+                    navigation.append(.customizeTabs, to: AppNavigationModel.moreKey)
+                } label: {
                     Label(i18n.t("more.customizeTabs"), systemImage: "slider.horizontal.3")
                 }
+                .foregroundStyle(Theme.text)
             }
 
             ForEach(groupedDestinations, id: \.0) { group, destinations in
                 Section(group.localizedTitle(using: i18n)) {
                     ForEach(destinations) { destination in
-                        NavigationLink(value: AppRoute.module(destination.key)) {
+                        Button {
+                            navigation.selectDestination(destination.key)
+                        } label: {
                             Label(destination.localizedTitle(using: i18n), systemImage: destination.systemImage)
                         }
+                        .foregroundStyle(Theme.text)
                     }
                 }
             }

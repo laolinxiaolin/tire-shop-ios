@@ -179,7 +179,7 @@ const commonTargetSettings = `
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos27.*]" = "$(inherited) TIRESHOP_HAS_TOOLBAR_OVERFLOW_MENU";
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator27.*]" = "$(inherited) TIRESHOP_HAS_TOOLBAR_OVERFLOW_MENU";
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = 1;`;
+				TARGETED_DEVICE_FAMILY = "1,2";`;
 
 const pbxproj = `// !$*UTF8*$!
 {
@@ -468,7 +468,7 @@ ${commonTargetSettings}
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TireShop.app/TireShop";
 			};
 			name = Debug;
@@ -491,7 +491,7 @@ ${commonTargetSettings}
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TireShop.app/TireShop";
 			};
 			name = Release;

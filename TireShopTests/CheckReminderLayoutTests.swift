@@ -96,11 +96,12 @@ final class CheckReminderLayoutTests: XCTestCase {
         if let savedLanguage { UserDefaults.standard.set(savedLanguage, forKey: "ts_lang") }
         else { UserDefaults.standard.removeObject(forKey: "ts_lang") }
         let probe = ReminderFixtureProbe()
-        let content = NavigationShell(title: "Dashboard") {
+        let content = NavigationShell(title: "Dashboard", pathOwner: "dashboard") {
             ReminderRootContent(probe: probe)
         }
         .environmentObject(auth)
         .environmentObject(i18n)
+        .environmentObject(AppNavigationModel())
         .environmentObject(store)
         .environment(\.locale, Locale(identifier: "en_US"))
         .environment(\.dynamicTypeSize, textSize)

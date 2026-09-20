@@ -13,6 +13,7 @@ private func isCancelledRequest(_ error: Error) -> Bool {
 struct DashboardNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var navigation: AppNavigationModel
     @State private var summary: DashboardSummary?
     @State private var months = 1
     @State private var loadedMonths: Int?
@@ -90,7 +91,9 @@ struct DashboardNativeView: View {
     }
 
     private func metricLink(_ destination: String, label: String, value: String, detail: String, tone: DashboardMetricTone = .normal) -> some View {
-        NavigationLink(value: AppRoute.module(destination)) {
+        Button {
+            navigation.selectDestination(destination)
+        } label: {
             DashboardMetricCard(label: label, value: value, detail: detail, tone: tone)
         }
         .buttonStyle(.plain)
@@ -102,7 +105,9 @@ struct DashboardNativeView: View {
                 SectionHeader(i18n.t("dashboard.purchaseContracts"))
                 Spacer()
                 if auth.has("purchasing.view") {
-                    NavigationLink(value: AppRoute.module("purchasing")) {
+                    Button {
+                        navigation.selectDestination("purchasing")
+                    } label: {
                         Text(i18n.t("dashboard.viewPurchasing"))
                             .font(.footnote.weight(.semibold))
                     }
@@ -136,7 +141,9 @@ struct DashboardNativeView: View {
             } else {
                 dashboardCard {
                     ForEach(items) { item in
-                        NavigationLink(value: AppRoute.module("inventory")) {
+                        Button {
+                            navigation.selectDestination("inventory")
+                        } label: {
                             RowLine(title: "\(item.brand) \(item.model)", subtitle: "\(item.size) · \(item.sku)", trailing: "\(item.onHand) / \(item.reorderPoint)")
                         }
                         .buttonStyle(.plain)
