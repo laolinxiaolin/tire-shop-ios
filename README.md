@@ -82,10 +82,20 @@ check both orientations and Split View with the keyboard visible, and verify
 navigation, draft values, payment state, and access to overflow actions. Even
 column counts alone do not validate spacing around the folding region.
 
-To refresh translations after editing `src/lib/i18n.tsx`, run:
+Edit the checked-in English and Simplified Chinese dictionaries in
+`localization/messages.json`, then regenerate the Swift messages:
 
 ```sh
 node scripts/generate-i18n-swift.mjs
+```
+
+The generator works from this standalone checkout and does not require the web
+repository. Do not edit `TireShop/I18nMessages.swift` directly. Validate generated
+output and the generator with:
+
+```sh
+node scripts/generate-i18n-swift.mjs --check
+node --test scripts/generate-i18n-swift.test.mjs
 ```
 
 To run the local conversion checks available without Xcode, run:
