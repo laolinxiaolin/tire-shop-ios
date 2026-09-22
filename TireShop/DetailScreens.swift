@@ -2262,7 +2262,7 @@ private struct StatusTimelineView: View {
     }
 }
 
-private struct ContainerDraftLineEditor: Identifiable, Equatable {
+struct ContainerDraftLineEditor: Identifiable, Equatable {
     let id: String
     var skuId: String
     var skuLabel: String
@@ -2293,14 +2293,14 @@ private struct ContainerDraftLineEditor: Identifiable, Equatable {
     }
 }
 
-private struct ContainerPreviewLine: Identifiable {
+struct ContainerPreviewLine: Identifiable {
     let id: String
     let allocPerUnit: Double
     let landedUnitCost: Double
     let landedTotal: Double
 }
 
-private struct ContainerLocalPreview {
+struct ContainerLocalPreview {
     let totalQty: Int
     let supplierTotal: Double
     let extrasTotal: Double
@@ -2316,10 +2316,11 @@ private struct ContainerLocalPreview {
         costs: [ContainerCost],
         lines draftLines: [ContainerDraftLineEditor]
     ) -> ContainerLocalPreview {
-        let extras = costs
+        let activeCosts = costs.filter { $0.status != "VOID" }
+        let extras = activeCosts
             .filter { !ContainerDetailLabels.supplierPaymentCategories.contains($0.category) }
             .reduce(0) { $0 + (Double($1.amount) ?? 0) }
-        let supplierPaid = costs
+        let supplierPaid = activeCosts
             .filter { ContainerDetailLabels.supplierPaymentCategories.contains($0.category) }
             .reduce(0) { $0 + (Double($1.amount) ?? 0) }
         let totalQty = draftLines.reduce(0) { $0 + (Int($1.qty) ?? 0) }

@@ -2,6 +2,33 @@ import XCTest
 @testable import TireShop
 
 final class SupplierCorrectionTests: XCTestCase {
+    func testPurchasePreviewExcludesRetiredSupplierBillsAndLandedCosts() throws {
+        func cost(_ id: String, _ category: String, _ status: String, _ amount: String) throws -> ContainerCost {
+            let json = """
+            {"id":"\(id)","containerId":"container","category":"\(category)","status":"\(status)",
+             "amount":"\(amount)","amountPaid":"0","createdAt":"2026-09-22T12:00:00Z"}
+            """
+            return try JSONDecoder().decode(ContainerCost.self, from: Data(json.utf8))
+        }
+        let costs = try [
+            cost("deposit", "DOWN_PAYMENT", "PAID", "200"),
+            cost("retired-balance", "BALANCE_PAYMENT", "VOID", "800"),
+            cost("freight", "FREIGHT", "PAID", "50"),
+            cost("retired-freight", "FREIGHT", "VOID", "150"),
+            cost("due-freight", "FREIGHT", "DUE", "25"),
+        ]
+        var line = ContainerDraftLineEditor.empty(id: "line")
+        line.qty = "10"
+        line.unitCost = "100"
+        let preview = ContainerLocalPreview.compute(isDDP: false, costSpread: "VALUE", costs: costs, lines: [line])
+        XCTAssertEqual(preview.supplierTotal, 1000)
+        XCTAssertEqual(preview.supplierPaid, 200)
+        XCTAssertEqual(preview.supplierBalance, 800)
+        XCTAssertEqual(preview.extrasTotal, 75)
+        XCTAssertEqual(preview.grandLanded, 1075)
+        XCTAssertEqual(preview.lines.first?.landedUnitCost, 107.5)
+    }
+
     func testSupplierPaymentStatusIgnoresVoidedBillsAndFreight() {
         let costs = [
             PurchasePaymentCost(category: "BALANCE_PAYMENT", status: "PAID", amount: "100.00", amountPaid: "100.00"),
