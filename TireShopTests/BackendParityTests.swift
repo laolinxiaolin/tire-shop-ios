@@ -106,6 +106,44 @@ final class BackendParityTests: XCTestCase {
 
     // MARK: - Manual payment overpayment
 
+    func testManualPaymentRetriesPreserveAttemptedAmountMethodAndCheckDate() throws {
+        var row = PaymentRow(paymentMethodId: "check", amount: "100", reference: "123")
+        row.plannedDepositDate = "2026-09-23"
+        row.beginAttempt(isCheck: true)
+        let original = try XCTUnwrap(row.attemptedPayload)
+        let originalId = row.id
+        row.amount = "200"
+        row.paymentMethodId = "cash"
+        row.reference = "changed"
+        row.plannedDepositDate = "2026-10-01"
+        row.beginAttempt(isCheck: false)
+        let retry = try XCTUnwrap(row.attemptedPayload)
+        XCTAssertEqual(retry.amount, 100)
+        XCTAssertEqual(retry.paymentMethodId, "check")
+        XCTAssertEqual(retry.reference, "123")
+        XCTAssertEqual(retry.plannedDepositDate, "2026-09-23")
+        XCTAssertEqual(retry.note, original.note)
+        XCTAssertEqual(row.id, originalId)
+    }
+
+    func testUncertainManualFailureKeepsAttemptButDefiniteRejectionAllowsCorrection() throws {
+        var row = PaymentRow(paymentMethodId: "cash", amount: "100", reference: "")
+        row.beginAttempt(isCheck: false)
+        let originalId = row.id
+        for status in [0, 408, 409, 429, 500, 503] {
+            row.allowCorrection(after: APIError(status: status, message: "Failed"))
+            XCTAssertTrue(row.attempted)
+            XCTAssertEqual(row.id, originalId)
+        }
+        row.allowCorrection(after: APIError(status: 400, message: "Invalid amount"))
+        XCTAssertFalse(row.attempted)
+        XCTAssertNotEqual(row.id, originalId)
+        row.amount = "50"
+        row.beginAttempt(isCheck: false)
+        XCTAssertEqual(try XCTUnwrap(row.attemptedPayload).amount, 50)
+        XCTAssertEqual(row.attemptedPayload?.note, row.reconciliationMarker)
+    }
+
     func testCustomerManualPaymentCanCreateStoreCredit() {
         XCTAssertTrue(ManualPaymentOverpaymentPolicy.allowsOverpayment(
             customerId: "customer_1",
