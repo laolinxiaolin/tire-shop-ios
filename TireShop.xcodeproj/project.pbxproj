@@ -69,6 +69,7 @@
 		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
 		51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */; };
 		9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */; };
+		A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */; };
 		07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D98F989BA35BDAA193F641 /* PayLinkTests.swift */; };
 		41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */; };
 		0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */; };
@@ -144,6 +145,7 @@
 		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
 		18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpenseReceiptSubmissionTests.swift"; sourceTree = "<group>"; };
 		9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryLookupTests.swift"; sourceTree = "<group>"; };
+		5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrdersListStoreTests.swift"; sourceTree = "<group>"; };
 		02D98F989BA35BDAA193F641 /* PayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PayLinkTests.swift"; sourceTree = "<group>"; };
 		12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentMethodPatchInputTests.swift"; sourceTree = "<group>"; };
 		0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePricingTests.swift"; sourceTree = "<group>"; };
@@ -266,6 +268,7 @@
 				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
 				18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */,
 				9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */,
+				5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */,
 				02D98F989BA35BDAA193F641 /* PayLinkTests.swift */,
 				12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */,
 				0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */,
@@ -465,6 +468,7 @@
 				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
 				51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */,
 				9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */,
+				A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */,
 				07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */,
 				41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */,
 				0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */,

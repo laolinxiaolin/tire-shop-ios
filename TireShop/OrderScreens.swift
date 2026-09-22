@@ -3,12 +3,89 @@ import SwiftUI
 // Web Orders — storefront-placed orders an operator confirms into a Sale.
 // Ported from apps/web/app/orders/{page.tsx,[id]/page.tsx}.
 
-struct OrdersListNativeView: View {
-    @State private var status: String = "PENDING"
-    @State private var page: Paged<Order>?
-    @State private var loaded = false
-    @State private var errorMessage: String?
+@MainActor
+final class OrdersListStore: ObservableObject {
+    typealias Loader = (String, Int, Int) async throws -> Paged<Order>
+    @Published private(set) var items: [Order] = []
+    @Published private(set) var total = 0
+    @Published private(set) var loaded = false
+    @Published private(set) var loading = false
+    @Published private(set) var errorMessage: String?
+    private let loader: Loader
+    private let pageSize: Int
+    private var status = ""
+    private var page = 0
+    private var generation = 0
+    private var failedReload = false
 
+    var hasMore: Bool { page > 0 && page * pageSize < total }
+
+    init(pageSize: Int = 50, loader: @escaping Loader = { status, page, size in
+        try await OrdersAPI().list(status: status, page: page, pageSize: size)
+    }) {
+        self.pageSize = pageSize
+        self.loader = loader
+    }
+
+    func reload(status: String) async {
+        generation += 1
+        if self.status != status {
+            items = []
+            total = 0
+            page = 0
+            loaded = false
+        }
+        self.status = status
+        await request(page: 1, replacing: true)
+    }
+
+    func loadMore() async {
+        guard !loading, hasMore, !failedReload else { return }
+        await request(page: page + 1, replacing: false)
+    }
+
+    func retry() async {
+        guard !loading else { return }
+        if failedReload || page == 0 {
+            await reload(status: status)
+        } else {
+            await loadMore()
+        }
+    }
+
+    private func request(page requestedPage: Int, replacing: Bool) async {
+        let generation = generation
+        let status = status
+        loading = true
+        errorMessage = nil
+        defer { if generation == self.generation { loading = false; loaded = true } }
+        do {
+            let result = try await loader(status, requestedPage, pageSize)
+            try Task.checkCancellation()
+            guard generation == self.generation else { return }
+            var merged = replacing ? [] : items
+            for order in result.items {
+                if let index = merged.firstIndex(where: { $0.id == order.id }) {
+                    merged[index] = order
+                } else {
+                    merged.append(order)
+                }
+            }
+            items = merged
+            total = result.total
+            page = requestedPage
+            failedReload = false
+        } catch {
+            guard generation == self.generation, !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+            failedReload = replacing
+        }
+    }
+}
+
+struct OrdersListNativeView: View {
+    @State private var status = "PENDING"
+    @StateObject private var store = OrdersListStore()
     private let statuses = ["PENDING", "CONFIRMED", "CANCELLED"]
 
     var body: some View {
@@ -19,15 +96,11 @@ struct OrdersListNativeView: View {
             .pickerStyle(.segmented)
             .padding(Theme.Space.md)
 
-            Group {
-                if !loaded {
-                    LoadingView(label: "Loading...")
-                } else if let errorMessage, page == nil {
-                    RetryView(message: errorMessage) { Task { await load() } }
-                } else if let page, page.items.isEmpty {
-                    EmptyStateView(text: "No \(status.lowercased()) orders.")
-                } else if let page {
-                    List(page.items) { order in
+            if !store.loaded {
+                LoadingView(label: "Loading...")
+            } else {
+                List {
+                    ForEach(store.items) { order in
                         NavigationLink(value: AppRoute.orderDetail(order.id)) {
                             RowLine(
                                 title: "\(order.ref ?? "Order") - \(order.customer.company ?? order.customer.name)",
@@ -36,23 +109,25 @@ struct OrdersListNativeView: View {
                             )
                         }
                     }
-                    .listStyle(.plain)
+                    if let error = store.errorMessage {
+                        Text(error).foregroundStyle(Theme.danger)
+                        Button("Retry") { Task { await store.retry() } }
+                            .disabled(store.loading)
+                    } else if store.items.isEmpty && !store.loading {
+                        Text("No \(status.lowercased()) orders.").foregroundStyle(Theme.muted)
+                    }
+                    if store.loading {
+                        ProgressView("Loading...")
+                    } else if store.hasMore && store.errorMessage == nil {
+                        Button("Load more") { Task { await store.loadMore() } }
+                    }
                 }
+                .listStyle(.plain)
+                .refreshable { await store.reload(status: status) }
             }
         }
         .background(Theme.background)
-        .task(id: status) { await load() }
-    }
-
-    @MainActor
-    private func load() async {
-        do {
-            page = try await OrdersAPI().list(status: status, pageSize: 50)
-            errorMessage = nil
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load orders."
-        }
-        loaded = true
+        .task(id: status) { await store.reload(status: status) }
     }
 }
 
