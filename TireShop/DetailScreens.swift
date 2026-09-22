@@ -2640,7 +2640,11 @@ private struct ContainerCostEditorView: View {
                     AppTextField(label: "Amount", text: $amount, placeholder: "0.00", keyboardType: .decimalPad)
                     AppTextField(label: "Bill date", text: $occurredAt, placeholder: "YYYY-MM-DD", keyboardType: .numbersAndPunctuation)
                     AppTextField(label: "Due date", text: $dueAt, placeholder: "YYYY-MM-DD", keyboardType: .numbersAndPunctuation)
-                    AppTextField(label: "Vendor", text: $vendor, placeholder: "Vendor or payee")
+                    if cost?.vendorId != nil {
+                        LabeledContent("Vendor", value: vendor.nilIfBlank ?? "—")
+                    } else {
+                        AppTextField(label: "Vendor", text: $vendor, placeholder: "Vendor or payee")
+                    }
                     AppTextField(label: "Reference", text: $reference)
                     TextField("Description", text: $description, axis: .vertical)
                         .lineLimit(2...4)
@@ -2686,7 +2690,7 @@ private struct ContainerCostEditorView: View {
             amount: amountValue,
             description: description.nilIfBlank,
             vendor: vendor.nilIfBlank,
-            vendorId: nil,
+            vendorId: cost?.vendorId,
             occurredAt: occurredAt.nilIfBlank,
             dueAt: dueAt.nilIfBlank,
             reference: reference.nilIfBlank,
