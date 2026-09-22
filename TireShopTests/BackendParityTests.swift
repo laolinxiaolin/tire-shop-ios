@@ -23,6 +23,24 @@ final class BackendParityTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    func testEmployeeUpdateClearsBlankFieldsWithoutChangingCreateOrUserLinkSemantics() throws {
+        var input = EmployeeSaveInput(fullName: "Employee", employeeNo: nil, userId: nil,
+            phone: nil, email: nil, address: nil, position: nil, department: nil,
+            status: "ACTIVE", hireDate: nil, endDate: nil, payType: "HOURLY", payRate: 20,
+            commissionRate: 0, commissionBasis: "REVENUE", notes: nil)
+        let fields = ["employeeNo", "phone", "email", "address", "position", "department", "hireDate", "endDate", "notes"]
+        let created = try encodeJSONObject(input)
+        for field in fields { XCTAssertNil(created[field], field) }
+        input.encodeNulls = true
+        let updated = try encodeJSONObject(input)
+        for field in fields { XCTAssertTrue(updated[field] is NSNull, field) }
+        XCTAssertNil(updated["userId"])
+        input.includeUserId = true
+        XCTAssertTrue(try encodeJSONObject(input)["userId"] is NSNull)
+        input.phone = "555-0100"
+        XCTAssertEqual(try encodeJSONObject(input)["phone"] as? String, "555-0100")
+    }
+
     func testRoleGrantsSurviveMissingOrIncompleteCatalog() throws {
         let role = Role(
             id: "role-1", name: "Staff", description: nil,

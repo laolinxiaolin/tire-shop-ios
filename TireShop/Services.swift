@@ -742,6 +742,7 @@ struct EmployeeSaveInput: Encodable {
     var commissionRate: Double
     var commissionBasis: CommissionBasis
     var notes: String?
+    var encodeNulls = false
 
     private enum CodingKeys: String, CodingKey {
         case fullName
@@ -765,7 +766,7 @@ struct EmployeeSaveInput: Encodable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(fullName, forKey: .fullName)
-        try container.encodeIfPresent(employeeNo, forKey: .employeeNo)
+        try encode(employeeNo, forKey: .employeeNo, into: &container)
         if includeUserId {
             if let userId {
                 try container.encode(userId, forKey: .userId)
@@ -773,20 +774,29 @@ struct EmployeeSaveInput: Encodable {
                 try container.encodeNil(forKey: .userId)
             }
         }
-        try container.encodeIfPresent(phone, forKey: .phone)
-        try container.encodeIfPresent(email, forKey: .email)
-        try container.encodeIfPresent(address, forKey: .address)
-        try container.encodeIfPresent(position, forKey: .position)
-        try container.encodeIfPresent(department, forKey: .department)
+        try encode(phone, forKey: .phone, into: &container)
+        try encode(email, forKey: .email, into: &container)
+        try encode(address, forKey: .address, into: &container)
+        try encode(position, forKey: .position, into: &container)
+        try encode(department, forKey: .department, into: &container)
         try container.encode(status, forKey: .status)
-        try container.encodeIfPresent(hireDate, forKey: .hireDate)
-        try container.encodeIfPresent(endDate, forKey: .endDate)
+        try encode(hireDate, forKey: .hireDate, into: &container)
+        try encode(endDate, forKey: .endDate, into: &container)
         try container.encode(payType, forKey: .payType)
         try container.encode(payRate, forKey: .payRate)
         try container.encode(commissionRate, forKey: .commissionRate)
         try container.encode(commissionBasis, forKey: .commissionBasis)
-        try container.encodeIfPresent(notes, forKey: .notes)
+        try encode(notes, forKey: .notes, into: &container)
     }
+
+    private func encode(_ value: String?, forKey key: CodingKeys, into container: inout KeyedEncodingContainer<CodingKeys>) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else if encodeNulls {
+            try container.encodeNil(forKey: key)
+        }
+    }
+
 }
 
 struct EmployeesAPI {
