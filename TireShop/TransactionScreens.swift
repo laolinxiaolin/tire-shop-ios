@@ -3084,6 +3084,32 @@ extension TapToPayTerminalController: TapToPayReaderDelegate {
     }
 }
 
+struct ReturnRefundSelection {
+    private(set) var method = "STORE_CREDIT"
+    var paymentMethodId = ""
+
+    var requiresPaymentMethod: Bool { ["CASH", "CHECK", "CARD"].contains(method) }
+
+    mutating func selectMethod(_ method: String) {
+        guard self.method != method else { return }
+        self.method = method
+        paymentMethodId = ""
+    }
+
+    static func availableMethods(_ methods: [PaymentMethod]) -> [PaymentMethod] {
+        methods.filter { $0.isActive && $0.account.code != "2400" }
+    }
+
+    func resolvedPaymentMethodId(methods: [PaymentMethod]) throws -> String? {
+        if method == "ORIGINAL" || method == "STORE_CREDIT" { return nil }
+        guard requiresPaymentMethod,
+              Self.availableMethods(methods).contains(where: { $0.id == paymentMethodId }) else {
+            throw APIError(status: 0, message: "Choose an active payment method for this refund.")
+        }
+        return paymentMethodId
+    }
+}
+
 struct StartReturnNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
@@ -3094,7 +3120,10 @@ struct StartReturnNativeView: View {
     @State private var reason = ""
     @State private var notes = ""
     @State private var type = "RETURN"
-    @State private var refundMethod = "STORE_CREDIT"
+    @State private var refundSelection = ReturnRefundSelection()
+    @State private var refundMethods: [PaymentMethod] = []
+    @State private var loadingRefundMethods = false
+    @State private var refundMethodsError: String?
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var selectedQuantities: [String: Int] = [:]
@@ -3113,12 +3142,35 @@ struct StartReturnNativeView: View {
                         Text("Exchange").tag("EXCHANGE")
                         Text("Warranty").tag("WARRANTY")
                     }
-                    Picker("Refund method", selection: $refundMethod) {
+                    Picker("Refund method", selection: Binding(
+                        get: { refundSelection.method },
+                        set: { refundSelection.selectMethod($0) }
+                    )) {
                         Text("Store credit").tag("STORE_CREDIT")
                         Text("Original").tag("ORIGINAL")
                         Text("Cash").tag("CASH")
                         Text("Check").tag("CHECK")
                         Text("Card").tag("CARD")
+                    }
+                    if refundSelection.requiresPaymentMethod {
+                        if loadingRefundMethods {
+                            ProgressView("Loading payment methods...")
+                        } else if let refundMethodsError {
+                            Text(refundMethodsError).foregroundStyle(Theme.danger)
+                            Button("Retry payment methods") { Task { await loadRefundMethods() } }
+                        } else {
+                            Picker("Payment method", selection: $refundSelection.paymentMethodId) {
+                                Text("Choose payment method").tag("")
+                                ForEach(ReturnRefundSelection.availableMethods(refundMethods)) { method in
+                                    Text("\(method.name) — \(method.account.name) (\(method.account.code))")
+                                        .tag(method.id)
+                                }
+                            }
+                            if ReturnRefundSelection.availableMethods(refundMethods).isEmpty {
+                                Text("No active refund payment methods are available.")
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
                     }
                     TextField("Reason", text: $reason)
                     TextField("Notes", text: $notes, axis: .vertical)
@@ -3163,16 +3215,35 @@ struct StartReturnNativeView: View {
                         !auth.has("sales.manage")
                             || returnable.lines.isEmpty
                             || selectedQuantities.values.allSatisfy { $0 <= 0 }
+                            || (refundSelection.requiresPaymentMethod &&
+                                (loadingRefundMethods || (try? refundSelection.resolvedPaymentMethodId(methods: refundMethods)) == nil))
                             || saving
                     )
                 }
             }
+            .disabled(saving)
         }
         .navigationTitle("Return / Exchange")
+        .task { await loadRefundMethods() }
+    }
+
+    @MainActor
+    private func loadRefundMethods() async {
+        guard !loadingRefundMethods else { return }
+        loadingRefundMethods = true
+        refundMethodsError = nil
+        defer { loadingRefundMethods = false }
+        do {
+            refundMethods = try await CashAccountsAPI().methods()
+        } catch {
+            refundMethods = []
+            refundMethodsError = error.localizedDescription
+        }
     }
 
     @MainActor
     private func create(returnable: Returnable) async {
+        guard !saving else { return }
         guard auth.has("sales.manage") else {
             errorMessage = "You do not have permission to create returns."
             return
@@ -3181,6 +3252,7 @@ struct StartReturnNativeView: View {
         errorMessage = nil
 
         do {
+            let paymentMethodId = try refundSelection.resolvedPaymentMethodId(methods: refundMethods)
             let lines = returnable.lines.compactMap { line -> ReturnLineInput? in
                 let quantity = min(line.qtyRemaining, max(0, selectedQuantities[line.saleLineId] ?? 0))
                 guard quantity > 0 else { return nil }
@@ -3197,8 +3269,8 @@ struct StartReturnNativeView: View {
                 type: type,
                 reason: reason.nilIfBlank,
                 restockingFee: nil,
-                refundMethod: refundMethod,
-                paymentMethodId: returnable.originalPaymentMethodId,
+                refundMethod: refundSelection.method,
+                paymentMethodId: paymentMethodId,
                 notes: notes.nilIfBlank,
                 lines: lines,
                 replacementLines: nil,

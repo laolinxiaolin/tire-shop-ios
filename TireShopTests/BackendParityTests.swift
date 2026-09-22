@@ -53,6 +53,57 @@ final class BackendParityTests: XCTestCase {
         XCTAssertEqual(edited["sales.manage"], .off)
     }
 
+    func testRefundTenderRequiresFreshExplicitAccountSelection() throws {
+        let cash = PaymentMethod(id: "custom-cash", name: "Second register", feeRate: nil,
+            isActive: true, processor: nil, account: .init(code: "1007", name: "Register two"))
+        let card = PaymentMethod(id: "card", name: "Card", feeRate: nil,
+            isActive: true, processor: nil, account: .init(code: "1030", name: "Card receivable"))
+        var selection = ReturnRefundSelection()
+        selection.selectMethod("CASH")
+        XCTAssertThrowsError(try selection.resolvedPaymentMethodId(methods: [cash, card]))
+        selection.paymentMethodId = cash.id
+        XCTAssertEqual(try selection.resolvedPaymentMethodId(methods: [cash, card]), cash.id)
+        selection.selectMethod("CARD")
+        XCTAssertEqual(selection.paymentMethodId, "")
+        XCTAssertThrowsError(try selection.resolvedPaymentMethodId(methods: [cash, card]))
+        selection.paymentMethodId = card.id
+        let body = CreateReturnInput(type: "RETURN", reason: nil, restockingFee: nil,
+            refundMethod: selection.method,
+            paymentMethodId: try selection.resolvedPaymentMethodId(methods: [cash, card]),
+            notes: nil, lines: [], replacementLines: nil, warrantyDisposition: nil, supplierId: nil)
+        let json = try encodeJSONObject(body)
+        XCTAssertEqual(json["refundMethod"] as? String, "CARD")
+        XCTAssertEqual(json["paymentMethodId"] as? String, card.id)
+    }
+
+    func testRefundRejectsInactiveCreditAndMissingMethods() {
+        let inactive = PaymentMethod(id: "inactive", name: "Old cash", feeRate: nil,
+            isActive: false, processor: nil, account: .init(code: "1000", name: "Cash"))
+        let credit = PaymentMethod(id: "credit", name: "Store credit", feeRate: nil,
+            isActive: true, processor: nil, account: .init(code: "2400", name: "Credit"))
+        var selection = ReturnRefundSelection()
+        selection.selectMethod("CHECK")
+        for id in [inactive.id, credit.id, "missing"] {
+            selection.paymentMethodId = id
+            XCTAssertThrowsError(try selection.resolvedPaymentMethodId(methods: [inactive, credit]))
+        }
+    }
+
+    func testOriginalAndStoreCreditRefundsDoNotDependOnMethodLookup() throws {
+        var selection = ReturnRefundSelection()
+        selection.selectMethod("CASH")
+        selection.paymentMethodId = "previous-cash"
+        for method in ["ORIGINAL", "STORE_CREDIT"] {
+            selection.selectMethod(method)
+            XCTAssertFalse(selection.requiresPaymentMethod)
+            let body = CreateReturnInput(type: "RETURN", reason: nil, restockingFee: nil,
+                refundMethod: selection.method,
+                paymentMethodId: try selection.resolvedPaymentMethodId(methods: []),
+                notes: nil, lines: [], replacementLines: nil, warrantyDisposition: nil, supplierId: nil)
+            XCTAssertNil(try encodeJSONObject(body)["paymentMethodId"])
+        }
+    }
+
     // MARK: - Manual payment overpayment
 
     func testCustomerManualPaymentCanCreateStoreCredit() {
