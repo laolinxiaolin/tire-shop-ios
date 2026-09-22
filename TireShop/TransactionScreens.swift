@@ -1873,6 +1873,23 @@ struct TapToPayOutcome: Equatable {
     let invoiceId: String
     let paymentIntentId: String
     let happenedAt: Date
+
+    func isSuperseded(by intent: TerminalIntent, invoiceId: String, recordedPaymentIntentId: String?) -> Bool {
+        status == .approved && self.invoiceId == invoiceId
+            && recordedPaymentIntentId == paymentIntentId
+            && intent.paymentIntentId != paymentIntentId
+            && intent.balance > 0 && intent.amount > 0
+            && intent.clientSecret?.nilIfBlank != nil
+    }
+}
+
+struct TapToPayChargeContext: Equatable {
+    let invoiceId: String
+    let baselineIntentId: String
+
+    func accepts(invoiceId: String, baselineIntentId: String) -> Bool {
+        self.invoiceId == invoiceId && self.baselineIntentId == baselineIntentId
+    }
 }
 
 private struct TapToPayReceiptShare: Identifiable {
@@ -1986,6 +2003,7 @@ struct TapToPayNativeView: View {
     @State private var chargeSelection = TapToPayChargeSelection()
     @State private var splitMessage: String?
     @State private var charging = false
+    @State private var balanceReload = 0
 
     let invoiceId: String
     let amount: Double
@@ -2023,6 +2041,19 @@ struct TapToPayNativeView: View {
                 }
 
                 splitSection(intent: intent)
+
+                if !invoiceSucceeded && !terminal.isPrepared(invoiceId: invoiceId, baselineIntentId: intent.paymentIntentId) {
+                    Section {
+                        Button("Refresh invoice balance") {
+                            chargeSelection.useFullBalance()
+                            balanceReload += 1
+                        }
+                        .disabled(terminal.isBusy)
+                        Text("Refresh the balance before starting another payment from this screen.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
 
                 Section("Before charging") {
                     ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
@@ -2153,6 +2184,7 @@ struct TapToPayNativeView: View {
                 chargeBar(intent: intent)
             }
         }
+        .id(balanceReload)
         .navigationTitle("Tap to Pay on iPhone")
         .navigationBarBackButtonHidden(invoiceIsProcessing)
         .onAppear {
@@ -2171,10 +2203,21 @@ struct TapToPayNativeView: View {
         }
     }
 
+    @MainActor
     private func loadIntent() async throws -> TerminalIntent {
         // This intent always represents the full balance, including on refresh.
         // Split intents are minted only from a reviewed authorization at charge time.
-        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+        let approved = terminal.latestApproval(for: invoiceId)
+        if let approved {
+            let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
+            guard payments.contains(where: { $0.externalId == approved.paymentIntentId }) else {
+                throw APIError(status: 0, message: "The previous payment is still being recorded. Retry shortly to collect the remaining balance.")
+            }
+        }
+        let intent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+        try Task.checkCancellation()
+        terminal.prepare(invoiceId: invoiceId, intent: intent, recordedPaymentIntentId: approved?.paymentIntentId)
+        return intent
     }
 
     private func splitSection(intent: TerminalIntent) -> some View {
@@ -2336,7 +2379,7 @@ struct TapToPayNativeView: View {
                 splitMessage = "The charge amount changed. Apply this amount again before charging."
                 return
             }
-            terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent)
+            terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent, baselineIntentId: intent.paymentIntentId)
         } catch {
             splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not start the charge."
         }
@@ -2400,8 +2443,10 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     @Published private(set) var updateProgress: Double?
     @Published private var invoiceOutcomes: [String: TapToPayOutcome] = [:]
 
+    private var invoiceApprovals: [String: TapToPayOutcome] = [:]
     private var currentInvoiceId: String?
-    private var pendingInvoiceId: String?
+    @Published private var chargeContext: TapToPayChargeContext?
+    private var pendingPreparation: (invoiceId: String, intent: TerminalIntent?, recordedPaymentIntentId: String?)?
     private var resetWhenIdle = false
     private var lastLocationId: String?
     private var paymentsAPI = PaymentsAPI()
@@ -2413,19 +2458,20 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    func prepare(invoiceId: String) {
-        guard currentInvoiceId != invoiceId else { return }
+    func prepare(invoiceId: String, intent: TerminalIntent? = nil, recordedPaymentIntentId: String? = nil) {
+        if currentInvoiceId == invoiceId && (isBusy || intent == nil) { return }
         if isBusy {
-            pendingInvoiceId = invoiceId
+            pendingPreparation = (invoiceId, intent, recordedPaymentIntentId)
             return
         }
-        activate(invoiceId: invoiceId)
+        activate(invoiceId: invoiceId, intent: intent, recordedPaymentIntentId: recordedPaymentIntentId)
     }
 
     @MainActor
     func resetForSessionChange() {
         invoiceOutcomes.removeAll()
-        pendingInvoiceId = nil
+        invoiceApprovals.removeAll()
+        pendingPreparation = nil
         lastLocationId = nil
         if isBusy {
             resetWhenIdle = true
@@ -2434,6 +2480,11 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         } else {
             clearActiveInvoice()
         }
+    }
+
+    @MainActor
+    func latestApproval(for invoiceId: String) -> TapToPayOutcome? {
+        invoiceApprovals[invoiceId]
     }
 
     @MainActor
@@ -2477,8 +2528,19 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func activate(invoiceId: String) {
+    private func activate(invoiceId: String, intent: TerminalIntent? = nil, recordedPaymentIntentId: String? = nil) {
         currentInvoiceId = invoiceId
+        if let previous = invoiceApprovals[invoiceId] {
+            guard let intent, previous.isSuperseded(by: intent, invoiceId: invoiceId,
+                recordedPaymentIntentId: recordedPaymentIntentId) else {
+                chargeContext = nil
+                invoiceOutcomes[invoiceId] = previous
+                succeeded = true
+                outcome = previous
+                return
+            }
+        }
+        chargeContext = intent.map { TapToPayChargeContext(invoiceId: invoiceId, baselineIntentId: $0.paymentIntentId) }
         invoiceOutcomes.removeValue(forKey: invoiceId)
         succeeded = false
         errorMessage = nil
@@ -2493,6 +2555,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     @MainActor
     private func clearActiveInvoice() {
         currentInvoiceId = nil
+        chargeContext = nil
         succeeded = false
         errorMessage = nil
         outcome = nil
@@ -2539,8 +2602,14 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    func canCharge(invoiceId: String, intent: TerminalIntent) -> Bool {
+    func isPrepared(invoiceId: String, baselineIntentId: String) -> Bool {
+        chargeContext?.accepts(invoiceId: invoiceId, baselineIntentId: baselineIntentId) == true
+    }
+
+    @MainActor
+    func canCharge(invoiceId: String, intent: TerminalIntent, baselineIntentId: String? = nil) -> Bool {
         currentInvoiceId == invoiceId
+            && chargeContext?.accepts(invoiceId: invoiceId, baselineIntentId: baselineIntentId ?? intent.paymentIntentId) == true
             && !isBusy
             && !succeeded(for: invoiceId)
             && intent.clientSecret?.nilIfBlank != nil
@@ -2548,11 +2617,11 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    func startCharge(invoiceId: String, intent: TerminalIntent) {
-        guard chargeTask == nil, canCharge(invoiceId: invoiceId, intent: intent) else { return }
+    func startCharge(invoiceId: String, intent: TerminalIntent, baselineIntentId: String) {
+        guard chargeTask == nil, canCharge(invoiceId: invoiceId, intent: intent, baselineIntentId: baselineIntentId) else { return }
         chargeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.charge(invoiceId: invoiceId, intent: intent)
+            await self.charge(invoiceId: invoiceId, intent: intent, baselineIntentId: baselineIntentId)
             self.chargeTask = nil
         }
     }
@@ -2566,8 +2635,8 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func charge(invoiceId: String, intent serverIntent: TerminalIntent) async {
-        guard canCharge(invoiceId: invoiceId, intent: serverIntent) else { return }
+    private func charge(invoiceId: String, intent serverIntent: TerminalIntent, baselineIntentId: String) async {
+        guard canCharge(invoiceId: invoiceId, intent: serverIntent, baselineIntentId: baselineIntentId) else { return }
 
         isBusy = true
         succeeded = false
@@ -2696,21 +2765,25 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         isBusy = false
         if let outcome, outcome.invoiceId == invoiceId {
             invoiceOutcomes[invoiceId] = outcome
+            if outcome.status == .approved {
+                invoiceApprovals[invoiceId] = outcome
+            }
         }
 
         if resetWhenIdle {
             resetWhenIdle = false
             invoiceOutcomes.removeAll()
+            invoiceApprovals.removeAll()
             lastLocationId = nil
-            let nextInvoiceId = pendingInvoiceId
-            pendingInvoiceId = nil
+            let next = pendingPreparation
+            pendingPreparation = nil
             clearActiveInvoice()
-            if let nextInvoiceId {
-                activate(invoiceId: nextInvoiceId)
+            if let next {
+                activate(invoiceId: next.invoiceId, intent: next.intent, recordedPaymentIntentId: next.recordedPaymentIntentId)
             }
-        } else if let pendingInvoiceId {
-            self.pendingInvoiceId = nil
-            activate(invoiceId: pendingInvoiceId)
+        } else if let next = pendingPreparation {
+            pendingPreparation = nil
+            activate(invoiceId: next.invoiceId, intent: next.intent, recordedPaymentIntentId: next.recordedPaymentIntentId)
         }
     }
 

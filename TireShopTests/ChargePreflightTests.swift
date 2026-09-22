@@ -7,6 +7,28 @@ import XCTest
 /// out, and both remainders are server-quoted so the client never reproduces
 /// the fee math.
 final class ChargePreflightTests: XCTestCase {
+    func testCompletedPartialTerminalPaymentRequiresRecordedPaymentBeforeRemainder() {
+        let approved = TapToPayOutcome(status: .approved, detail: "Approved", amount: 100,
+            invoiceId: "invoice", paymentIntentId: "first", happenedAt: Date())
+        func intent(id: String, balance: Double) -> TerminalIntent {
+            TerminalIntent(paymentIntentId: id, clientSecret: "secret", balance: balance,
+                surcharge: 0, amount: balance, readerId: nil, readerStatus: nil)
+        }
+        XCTAssertTrue(approved.isSuperseded(by: intent(id: "next", balance: 400), invoiceId: "invoice", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "first", balance: 400), invoiceId: "invoice", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 0), invoiceId: "invoice", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 400), invoiceId: "another", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 500), invoiceId: "invoice", recordedPaymentIntentId: nil))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 400), invoiceId: "invoice", recordedPaymentIntentId: "older-payment"))
+    }
+
+    func testFreshTerminalPreparationRevokesOlderScreenAuthorization() {
+        let context = TapToPayChargeContext(invoiceId: "invoice", baselineIntentId: "remaining-400")
+        XCTAssertTrue(context.accepts(invoiceId: "invoice", baselineIntentId: "remaining-400"))
+        XCTAssertFalse(context.accepts(invoiceId: "invoice", baselineIntentId: "original-500"))
+        XCTAssertFalse(context.accepts(invoiceId: "another", baselineIntentId: "remaining-400"))
+    }
+
     func testKeyedCardPreparationKeepsAmountConfirmedBeforeGatewayLookup() async throws {
         var editableAmount = 100.0
         var submittedAmount: Double?
