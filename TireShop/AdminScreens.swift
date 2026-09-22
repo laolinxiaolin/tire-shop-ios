@@ -418,7 +418,7 @@ private struct ResetPasswordView: View {
 
 // MARK: - Roles
 
-private enum PermState: String, CaseIterable, Identifiable {
+enum PermState: String, CaseIterable, Identifiable {
     case off
     case approval
     case granted
@@ -431,6 +431,19 @@ private enum PermState: String, CaseIterable, Identifiable {
         case .approval: return "Approval"
         case .granted: return "Granted"
         }
+    }
+
+    static func initialStates(role: Role?, catalog: [PermissionGroup]) -> [String: PermState] {
+        // The catalog supplies labels, not the source of truth for saved grants.
+        var states: [String: PermState] = [:]
+        for key in role?.approvalPermissions ?? [] { states[key] = .approval }
+        for key in role?.permissions ?? [] { states[key] = .granted }
+        for group in catalog {
+            for permission in group.permissions where states[permission.key] == nil {
+                states[permission.key] = .off
+            }
+        }
+        return states
     }
 }
 
@@ -445,6 +458,7 @@ struct RolesNativeView: View {
 
     @State private var roles: [Role] = []
     @State private var catalog: [PermissionGroup] = []
+    @State private var catalogLoaded = false
     @State private var loaded = false
     @State private var errorMessage: String?
     @State private var editing: RoleEditTarget?
@@ -484,6 +498,7 @@ struct RolesNativeView: View {
                     Button { editing = RoleEditTarget(role: nil) } label: {
                         Label(i18n.t("roles.createTitle"), systemImage: "plus")
                     }
+                    .disabled(!catalogLoaded)
                 }
             }
         }
@@ -506,8 +521,10 @@ struct RolesNativeView: View {
         do {
             async let rolesTask = RolesAPI().list()
             async let catalogTask = RolesAPI().catalog()
-            roles = try await rolesTask
-            catalog = try await catalogTask
+            let (loadedRoles, loadedCatalog) = try await (rolesTask, catalogTask)
+            roles = loadedRoles
+            catalog = loadedCatalog
+            catalogLoaded = true
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load roles."
@@ -660,19 +677,7 @@ private struct RoleEditorView: View {
             name = role.name
             description = role.description ?? ""
         }
-        var next: [String: PermState] = [:]
-        for group in catalog {
-            for permission in group.permissions {
-                if role?.permissions.contains(permission.key) == true {
-                    next[permission.key] = .granted
-                } else if role?.approvalPermissions.contains(permission.key) == true {
-                    next[permission.key] = .approval
-                } else {
-                    next[permission.key] = .off
-                }
-            }
-        }
-        states = next
+        states = PermState.initialStates(role: role, catalog: catalog)
     }
 
     @MainActor

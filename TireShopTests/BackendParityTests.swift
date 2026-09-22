@@ -23,6 +23,36 @@ final class BackendParityTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    func testRoleGrantsSurviveMissingOrIncompleteCatalog() throws {
+        let role = Role(
+            id: "role-1", name: "Staff", description: nil,
+            permissions: ["sales.view", "inventory.view"],
+            approvalPermissions: ["inventory.adjust"], isSystem: false,
+            isAdmin: false, userCount: 2, createdAt: "2026-09-22"
+        )
+        let partialCatalog = [PermissionGroup(group: "sales", permissions: [
+            .init(key: "sales.view", label: "View sales", approvable: false),
+            .init(key: "sales.manage", label: "Manage sales", approvable: false)
+        ])]
+        for catalog in [[], partialCatalog] {
+            let states = PermState.initialStates(role: role, catalog: catalog)
+            let body = RolePatchInput(
+                name: nil, description: "Updated description",
+                permissions: states.filter { $0.value == .granted }.map(\.key).sorted(),
+                approvalPermissions: states.filter { $0.value == .approval }.map(\.key).sorted()
+            )
+            let json = try encodeJSONObject(body)
+            XCTAssertEqual(json["permissions"] as? [String], ["inventory.view", "sales.view"])
+            XCTAssertEqual(json["approvalPermissions"] as? [String], ["inventory.adjust"])
+        }
+
+        var edited = PermState.initialStates(role: role, catalog: partialCatalog)
+        edited["sales.view"] = .off
+        XCTAssertEqual(edited.filter { $0.value == .granted }.map(\.key), ["inventory.view"])
+        XCTAssertEqual(edited["inventory.adjust"], .approval)
+        XCTAssertEqual(edited["sales.manage"], .off)
+    }
+
     // MARK: - Manual payment overpayment
 
     func testCustomerManualPaymentCanCreateStoreCredit() {
