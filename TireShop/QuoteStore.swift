@@ -333,14 +333,18 @@ final class QuoteStore: ObservableObject {
 
     func updateQty(_ lineId: String, qty: Int) {
         guard let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
+        let nextQuantity = max(1, qty)
+        guard lines[index].qty != nextQuantity else { return }
         taxOverride = nil
-        lines[index].qty = max(1, qty)
+        lines[index].qty = nextQuantity
     }
 
     func updatePrice(_ lineId: String, unitPrice: Double) {
         guard let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
+        let nextPrice = unitPrice.isFinite ? max(0, unitPrice) : 0
+        guard lines[index].unitPrice != nextPrice else { return }
         taxOverride = nil
-        lines[index].unitPrice = unitPrice.isFinite ? max(0, unitPrice) : 0
+        lines[index].unitPrice = nextPrice
     }
 
     /// History prices already include the original line's discount.
@@ -388,7 +392,7 @@ final class QuoteStore: ObservableObject {
             )
         }
         taxRate = SaleTaxPercentage.fromFraction(Double(sale.taxRate) ?? 0)
-        taxOverride = nil
+        taxOverride = Double(sale.taxAmount).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
         taxLookupInProgress = false
         taxLookupError = nil
         taxLookupMessage = nil
