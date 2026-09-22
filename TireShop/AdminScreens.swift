@@ -977,6 +977,41 @@ private struct ApiKeyRevealView: View {
 
 // MARK: - Approvals
 
+@MainActor
+enum ApprovalHistoryLoader {
+    typealias PageLoader = @MainActor (ApprovalStatus, Int, Int) async throws -> Paged<ApprovalRequest>
+
+    static func load(fetchPage: PageLoader) async throws -> [ApprovalRequest] {
+        async let executed = pages(status: "EXECUTED", fetchPage: fetchPage)
+        async let denied = pages(status: "DENIED", fetchPage: fetchPage)
+        async let cancelled = pages(status: "CANCELLED", fetchPage: fetchPage)
+        async let failed = pages(status: "FAILED", fetchPage: fetchPage)
+        let batches = try await [executed, denied, cancelled, failed]
+        var byID: [String: ApprovalRequest] = [:]
+        for request in batches.flatMap({ $0 }) { byID[request.id] = request }
+        return byID.values.sorted {
+            let lhs = $0.decidedAt ?? $0.requestedAt
+            let rhs = $1.decidedAt ?? $1.requestedAt
+            if lhs != rhs { return lhs > rhs }
+            if $0.requestedAt != $1.requestedAt { return $0.requestedAt > $1.requestedAt }
+            return $0.id < $1.id
+        }
+    }
+
+    private static func pages(status: ApprovalStatus, fetchPage: PageLoader) async throws -> [ApprovalRequest] {
+        var items: [ApprovalRequest] = []
+        var page = 1
+        while true {
+            try Task.checkCancellation()
+            let result = try await fetchPage(status, page, 50)
+            try Task.checkCancellation()
+            items += result.items
+            if result.items.isEmpty || page * max(1, result.pageSize) >= result.total { return items }
+            page += 1
+        }
+    }
+}
+
 private enum ApprovalTab: String, CaseIterable, Identifiable {
     case pending
     case mine
@@ -1181,8 +1216,9 @@ struct ApprovalsNativeView: View {
         case .mine:
             return try await ApprovalsAPI().list(mine: true, pageSize: 50).items
         case .history:
-            return try await ApprovalsAPI().list(pageSize: 50).items
-                .filter { $0.status != "PENDING" }
+            return try await ApprovalHistoryLoader.load { status, page, pageSize in
+                try await ApprovalsAPI().list(status: status, page: page, pageSize: pageSize)
+            }
         }
     }
 
