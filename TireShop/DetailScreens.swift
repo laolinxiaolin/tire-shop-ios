@@ -1546,15 +1546,6 @@ struct ContainerDetailNativeView: View {
                         .disabled(busy)
                     }
 
-                    if let next = ContainerDetailLabels.nextStatus(after: container.status), next == "RECEIVED", canReceive {
-                        Button {
-                            Task { await advance(to: next) }
-                        } label: {
-                            Label("Receive into inventory", systemImage: "shippingbox.and.arrow.backward")
-                        }
-                        .disabled(busy || lines.isEmpty || !linesAreValid || !locationIsActive)
-                    }
-
                     Button(role: .destructive) {
                         showingCancelConfirm = true
                     } label: {
@@ -1568,9 +1559,18 @@ struct ContainerDetailNativeView: View {
                         Label("Unreceive", systemImage: "arrow.uturn.backward.circle")
                     }
                     .disabled(busy)
-                } else if !canChangeSupplier {
+                } else if !canChangeSupplier && !(container.status == "ARRIVED" && canReceive) {
                     Text("No actions available for this status.")
                         .foregroundStyle(Theme.muted)
+                }
+
+                if container.status == "ARRIVED", canReceive {
+                    Button {
+                        Task { await receiveContainer() }
+                    } label: {
+                        Label("Receive into inventory", systemImage: "shippingbox.and.arrow.backward")
+                    }
+                    .disabled(busy || (canEditDraft ? (lines.isEmpty || !linesAreValid || !locationIsActive) : container.lines.isEmpty))
                 }
             }
 
@@ -2016,9 +2016,6 @@ struct ContainerDetailNativeView: View {
         busy = true
         actionMessage = nil
         do {
-            if status == "RECEIVED", let body = draftBody() {
-                _ = try await ContainersAPI().update(id: id, body: body)
-            }
             let updated = try await ContainersAPI().setStatus(id: id, status: status)
             seed(updated)
             actionMessage = "Moved to \(ContainerDetailLabels.status(status))"
@@ -2026,6 +2023,31 @@ struct ContainerDetailNativeView: View {
             actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not update status."
         }
         busy = false
+    }
+
+    @MainActor
+    private func receiveContainer() async {
+        guard canReceive, !busy, container?.status == "ARRIVED" else { return }
+        let body: ContainerPatchInput?
+        if canEditDraft {
+            guard let draft = draftBody(), !lines.isEmpty else { return }
+            body = draft
+        } else {
+            body = nil
+        }
+        busy = true
+        actionMessage = nil
+        defer { busy = false }
+        do {
+            if let body {
+                _ = try await ContainersAPI().update(id: id, body: body)
+            }
+            let updated = try await ContainersAPI().receive(id: id)
+            seed(updated)
+            actionMessage = "Received into inventory"
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not receive container."
+        }
     }
 
     @MainActor
