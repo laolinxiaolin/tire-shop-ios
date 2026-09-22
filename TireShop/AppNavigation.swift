@@ -38,11 +38,9 @@ final class AppNavigationModel: ObservableObject {
     }
 
     func selectCompactTab(_ key: String) {
-        if key == Self.moreKey {
-            selectedDestinationKey = Self.moreKey
-        } else {
-            selectDestination(key)
-        }
+        guard key == Self.moreKey || DestinationRegistry.destination(for: key) != nil else { return }
+        // Selecting a tab restores its stack; it does not open a module in More.
+        selectedDestinationKey = key
     }
 
     func compactTab(pinnedKeys: [String]) -> String {

@@ -3,6 +3,21 @@ import XCTest
 
 @MainActor
 final class AppNavigationModelTests: XCTestCase {
+    func testSwitchingPinnedTabsPreservesMoreWorkflow() {
+        let navigation = AppNavigationModel()
+        navigation.selectDestination("employees")
+        navigation.append(.employeeDetail("employee-1"), to: AppNavigationModel.moreKey)
+        let originalPath = navigation.path(for: AppNavigationModel.moreKey).wrappedValue
+
+        navigation.selectCompactTab("sales")
+        XCTAssertEqual(navigation.selectedDestinationKey, "sales")
+        XCTAssertEqual(navigation.path(for: AppNavigationModel.moreKey).wrappedValue, originalPath)
+        navigation.selectCompactTab("inventory")
+        navigation.selectCompactTab(AppNavigationModel.moreKey)
+        XCTAssertEqual(navigation.compactTab(pinnedKeys: ["sales", "inventory"]), AppNavigationModel.moreKey)
+        XCTAssertEqual(navigation.path(for: AppNavigationModel.moreKey).wrappedValue, originalPath)
+    }
+
     func testDestinationSelectionAdaptsBetweenSidebarAndCompactMore() {
         let navigation = AppNavigationModel()
 
