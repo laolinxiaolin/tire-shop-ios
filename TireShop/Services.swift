@@ -1036,7 +1036,27 @@ struct InventoryAPI {
     }
 
     func getSku(id: String) async throws -> TireSku {
-        try await client.request("/inventory/skus/\(id)")
+        // The backend reads individual SKUs through the list's IDs filter;
+        // /inventory/skus/:id only supports mutations, not GET.
+        let page = try await listSkus(ids: [id], pageSize: 1)
+        guard let sku = page.items.first(where: { $0.id == id }) else {
+            throw APIError(status: 404, message: "Tire not found.")
+        }
+        return sku
+    }
+
+    func resolveSku(idOrSku: String) async throws -> TireSku {
+        // Inventory selections carry database IDs, which text search does not
+        // match. Only fall back to a SKU-code search when the ID is absent.
+        do {
+            return try await getSku(id: idOrSku)
+        } catch let error as APIError where error.status == 404 {
+            let page = try await listSkus(q: idOrSku, pageSize: 50)
+            guard let exact = page.items.first(where: { $0.id == idOrSku || $0.sku == idOrSku }) else {
+                throw APIError(status: 404, message: "Tire not found.")
+            }
+            return exact
+        }
     }
 
     func createSku(_ body: SkuInput) async throws -> TireSku {
@@ -1322,6 +1342,18 @@ struct SalesAPI {
 
 struct CustomersAPI {
     var client = APIClient.shared
+
+    func taxRate(
+        customerId: String,
+        fulfillment: SaleFulfillment,
+        location: String? = nil
+    ) async throws -> CustomerTaxRateResponse {
+        let search = query([
+            "fulfillment": fulfillment.rawValue,
+            "location": fulfillment == .pickup ? location : nil
+        ])
+        return try await client.request("/customers/\(customerId)/tax-rate\(search)")
+    }
 
     func lastSalePrices(customerId: String, skuIds: [String]) async throws -> [CustomerLastSalePrice] {
         let ids = Array(Set(skuIds)).sorted()

@@ -120,6 +120,12 @@ typealias TireCategory = String
 typealias TirePosition = String
 typealias TireAttributeKind = String
 typealias SaleStatus = String
+enum SaleFulfillment: String, Codable, CaseIterable, Identifiable {
+    case delivery = "DELIVERY"
+    case pickup = "PICKUP"
+
+    var id: String { rawValue }
+}
 typealias CustomerDocumentKind = String
 typealias StockAdjustReason = String
 typealias WorkOrderStatus = String
@@ -469,6 +475,11 @@ struct Warehouse: Codable, Identifiable, Equatable {
     let active: Bool
     let isDefault: Bool
     let notes: String?
+    let address: String?
+    let address2: String?
+    let city: String?
+    let state: String?
+    let postalCode: String?
     let createdAt: String
     let updatedAt: String
     let qtyOnHand: Int
@@ -481,6 +492,11 @@ struct Warehouse: Codable, Identifiable, Equatable {
         case active
         case isDefault
         case notes
+        case address
+        case address2
+        case city
+        case state
+        case postalCode
         case createdAt
         case updatedAt
         case qtyOnHand
@@ -495,6 +511,11 @@ struct Warehouse: Codable, Identifiable, Equatable {
         active = try container.decode(Bool.self, forKey: .active)
         isDefault = try container.decode(Bool.self, forKey: .isDefault)
         notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        address = try container.decodeIfPresent(String.self, forKey: .address)
+        address2 = try container.decodeIfPresent(String.self, forKey: .address2)
+        city = try container.decodeIfPresent(String.self, forKey: .city)
+        state = try container.decodeIfPresent(String.self, forKey: .state)
+        postalCode = try container.decodeIfPresent(String.self, forKey: .postalCode)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
         qtyOnHand = try container.decodeIfPresent(Int.self, forKey: .qtyOnHand) ?? 0
@@ -742,6 +763,10 @@ struct SaleCreateResult: Codable, Identifiable, Equatable {
     let status: SaleStatus
 }
 
+struct SaleTaxEvidence: Codable, Equatable {
+    let type: String?
+}
+
 struct Sale: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
@@ -751,6 +776,9 @@ struct Sale: Codable, Identifiable, Equatable {
     let customerId: String
     let subtotal: String
     let taxRate: String
+    let fulfillment: SaleFulfillment?
+    let taxResolutionId: String?
+    let taxEvidence: SaleTaxEvidence?
     let taxAmount: String
     let total: String
     let createdAt: String
@@ -768,6 +796,9 @@ struct Sale: Codable, Identifiable, Equatable {
         case customerId
         case subtotal
         case taxRate
+        case fulfillment
+        case taxResolutionId
+        case taxEvidence
         case taxAmount
         case total
         case createdAt
@@ -787,6 +818,9 @@ struct Sale: Codable, Identifiable, Equatable {
         customerId: String,
         subtotal: String,
         taxRate: String,
+        fulfillment: SaleFulfillment? = nil,
+        taxResolutionId: String? = nil,
+        taxEvidence: SaleTaxEvidence? = nil,
         taxAmount: String,
         total: String,
         createdAt: String,
@@ -803,6 +837,9 @@ struct Sale: Codable, Identifiable, Equatable {
         self.customerId = customerId
         self.subtotal = subtotal
         self.taxRate = taxRate
+        self.fulfillment = fulfillment
+        self.taxResolutionId = taxResolutionId
+        self.taxEvidence = taxEvidence
         self.taxAmount = taxAmount
         self.total = total
         self.createdAt = createdAt
@@ -822,6 +859,9 @@ struct Sale: Codable, Identifiable, Equatable {
         customerId = try container.decode(String.self, forKey: .customerId)
         subtotal = try container.decode(String.self, forKey: .subtotal)
         taxRate = try container.decode(String.self, forKey: .taxRate)
+        fulfillment = try container.decodeIfPresent(SaleFulfillment.self, forKey: .fulfillment)
+        taxResolutionId = try container.decodeIfPresent(String.self, forKey: .taxResolutionId)
+        taxEvidence = try container.decodeIfPresent(SaleTaxEvidence.self, forKey: .taxEvidence)
         taxAmount = try container.decode(String.self, forKey: .taxAmount)
         total = try container.decode(String.self, forKey: .total)
         createdAt = try container.decode(String.self, forKey: .createdAt)
@@ -848,6 +888,9 @@ struct Sale: Codable, Identifiable, Equatable {
         try container.encode(customerId, forKey: .customerId)
         try container.encode(subtotal, forKey: .subtotal)
         try container.encode(taxRate, forKey: .taxRate)
+        try container.encodeIfPresent(fulfillment, forKey: .fulfillment)
+        try container.encodeIfPresent(taxResolutionId, forKey: .taxResolutionId)
+        try container.encodeIfPresent(taxEvidence, forKey: .taxEvidence)
         try container.encode(taxAmount, forKey: .taxAmount)
         try container.encode(total, forKey: .total)
         try container.encode(createdAt, forKey: .createdAt)
@@ -1070,6 +1113,7 @@ struct Customer: Codable, Identifiable, Equatable {
     let taxExempt: Bool
     let taxExemptNumber: String?
     let taxExemptExpiresAt: String?
+    let taxRateOverride: String?
     let accountEnabled: Bool
     let creditLimit: String?
     let priceTierId: String?
@@ -1419,6 +1463,9 @@ struct SaleUpsertInput: Codable {
     let taxRate: Double?
     let taxAmount: Double?
     let location: String?
+    let fulfillment: SaleFulfillment
+    let taxResolutionId: String?
+    let overrideTaxRate: Bool
     let lines: [NewSaleLine]
 
     init(
@@ -1426,14 +1473,38 @@ struct SaleUpsertInput: Codable {
         taxRate: Double?,
         taxAmount: Double?,
         location: String? = nil,
+        fulfillment: SaleFulfillment = .delivery,
+        taxResolutionId: String? = nil,
+        overrideTaxRate: Bool = false,
         lines: [NewSaleLine]
     ) {
         self.customerId = customerId
         self.taxRate = taxRate
         self.taxAmount = taxAmount
         self.location = location
+        self.fulfillment = fulfillment
+        self.taxResolutionId = taxResolutionId
+        self.overrideTaxRate = overrideTaxRate
         self.lines = lines
     }
+}
+
+struct CustomerTaxRateResponse: Codable, Equatable {
+    struct Resolution: Codable, Equatable {
+        let problemCode: String?
+    }
+
+    struct Automatic: Codable, Equatable {
+        let status: String
+        let resolutionId: String?
+        let rate: Double?
+        let code: String?
+    }
+
+    let rate: Double?
+    let source: String
+    let resolution: Resolution?
+    let automatic: Automatic?
 }
 
 struct DashboardSummary: Codable, Equatable {

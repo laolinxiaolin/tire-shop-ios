@@ -19,6 +19,8 @@ struct DashboardNativeView: View {
     @State private var loadedMonths: Int?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @ScaledMetric(relativeTo: .body) private var metricMinimumWidth: CGFloat = 150
+    @ScaledMetric(relativeTo: .body) private var sectionMinimumWidth: CGFloat = 320
 
     private let periods = [1, 3, 6, 12]
 
@@ -69,7 +71,10 @@ struct DashboardNativeView: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Theme.Space.md) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: metricMinimumWidth), spacing: Theme.Space.md)],
+                spacing: Theme.Space.md
+            ) {
                 metricLink("sales", label: i18n.t("dashboard.todaySales"), value: AppFormat.money(summary.today.revenue), detail: invoiceText(summary.today.saleCount))
                 metricLink("accounting", label: i18n.t("dashboard.mtd"), value: AppFormat.money(summary.month.revenue), detail: invoiceText(summary.month.saleCount))
                 metricLink("money", label: i18n.t("dashboard.openAR"), value: AppFormat.money(summary.openAR.total), detail: i18n.t("dashboard.unpaid", ["n": summary.openAR.invoiceCount]), tone: summary.openAR.total > 0 ? .warning : .normal)
@@ -80,10 +85,16 @@ struct DashboardNativeView: View {
                 metricLink("customerRelations", label: i18n.t("dashboard.atRisk"), value: "\(summary.atRiskCount)", detail: i18n.t("dashboard.atRiskSub"), tone: summary.atRiskCount > 0 ? .danger : .normal)
             }
 
-            purchaseContractsSection(summary.purchaseContracts)
-            lowStockSection(summary.lowStock)
-            topSellerSection(summary.topSkus)
-            mostOrderedSection(summary.mostOrderedSkus)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: sectionMinimumWidth), spacing: Theme.Space.lg, alignment: .top)],
+                alignment: .leading,
+                spacing: Theme.Space.lg
+            ) {
+                purchaseContractsSection(summary.purchaseContracts)
+                lowStockSection(summary.lowStock)
+                topSellerSection(summary.topSkus)
+                mostOrderedSection(summary.mostOrderedSkus)
+            }
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.top, Theme.Space.sm)
@@ -574,6 +585,7 @@ private struct InventoryListRequest {
 
 struct InventoryListNativeView: View {
     var selectForQuote = false
+    var dismissAfterSelection = true
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -734,13 +746,11 @@ struct InventoryListNativeView: View {
 
             Group {
                 if usesSplit {
-                    NavigationSplitView {
+                    BrowsingWorkspaceColumns(width: proxy.size.width) {
                         inventoryListPane(usesSplitView: true)
-                            .navigationTitle(i18n.t("nav.inventory"))
                     } detail: {
                         selectedInventoryDetail
                     }
-                    .navigationSplitViewStyle(.balanced)
                 } else {
                     inventoryListPane(usesSplitView: false)
                 }
@@ -762,7 +772,7 @@ struct InventoryListNativeView: View {
         .onDisappear {
             searchTask?.cancel()
         }
-        .debugLayoutProbe("SalesScreen")
+        .debugLayoutProbe("InventoryScreen")
         .toolbar {
             if !selectForQuote {
                 if selectingRows {
@@ -827,7 +837,7 @@ struct InventoryListNativeView: View {
     @ViewBuilder
     private var selectedInventoryDetail: some View {
         if let id = navigation.selectedInventoryID {
-            SkuLookupNativeView(idOrSku: id)
+            SkuLookupNativeView(idOrSku: id, initialLocation: selectedLocation.nilIfBlank)
                 .id("\(id)-\(inventoryDetailRevision)")
         } else {
             BrowsingSelectionPrompt(
@@ -1517,7 +1527,9 @@ struct InventoryListNativeView: View {
             unitPrice: unitPrice,
             listPrice: Double(sku.priceRetail) ?? 0
         )
-        dismiss()
+        if dismissAfterSelection {
+            dismiss()
+        }
     }
 
     private static func available(_ sku: TireSku, location: String?) -> Int {
@@ -1680,7 +1692,7 @@ struct InventoryListNativeView: View {
 
             if selectForQuote {
                 if quote.location.nilIfBlank == nil {
-                    quote.setLocation(defaultInventoryLocation())
+                    quote.setLocation(defaultSaleLocation())
                 }
             } else if !didChooseInitialLocation {
                 location = defaultInventoryLocation()
@@ -1694,6 +1706,15 @@ struct InventoryListNativeView: View {
 
     private func defaultInventoryLocation() -> String {
         warehouses.first(where: { $0.code == "MAIN" })?.code
+            ?? warehouses.first(where: \.isDefault)?.code
+            ?? warehouses.first?.code
+            ?? ""
+    }
+
+    private func defaultSaleLocation() -> String {
+        auth.user?.homeWarehouse?.nilIfBlank.flatMap { home in
+            warehouses.first { $0.code == home }?.code
+        }
             ?? warehouses.first(where: \.isDefault)?.code
             ?? warehouses.first?.code
             ?? ""
@@ -2807,13 +2828,11 @@ struct SalesListNativeView: View {
 
                     Group {
                         if usesSplit {
-                            NavigationSplitView {
+                            BrowsingWorkspaceColumns(width: proxy.size.width) {
                                 salesListPane(usesSplitView: true)
-                                    .navigationTitle(i18n.t("nav.sales"))
                             } detail: {
                                 selectedSaleDetail
                             }
-                            .navigationSplitViewStyle(.balanced)
                         } else {
                             salesListPane(usesSplitView: false)
                         }
@@ -3506,20 +3525,17 @@ struct CustomersListNativeView: View {
 
             Group {
                 if usesSplit {
-                    NavigationSplitView {
+                    BrowsingWorkspaceColumns(width: proxy.size.width) {
                         customerListPane(usesSplitView: true)
-                            .navigationTitle("Customers")
                     } detail: {
                         selectedCustomerDetail
                     }
-                    .navigationSplitViewStyle(.balanced)
                 } else {
                     customerListPane(usesSplitView: false)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search name, company, phone…")
         .toolbar {
             if canManageCustomers {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -3548,39 +3564,79 @@ struct CustomersListNativeView: View {
 
     @ViewBuilder
     private func customerListPane(usesSplitView: Bool) -> some View {
-        Group {
-            if loading && customers.isEmpty {
-                LoadingView(label: "Loading...")
-            } else if let errorMessage, customers.isEmpty {
-                RetryView(message: errorMessage) { Task { await load() } }
-            } else if customers.isEmpty {
-                customerEmptyState
-            } else {
-                List(customers) { customer in
-                    if usesSplitView {
-                        Button {
-                            navigation.rememberCustomer(customer.id)
-                        } label: {
-                            customerRow(customer)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .listRowBackground(
-                            navigation.selectedCustomerID == customer.id
-                                ? Theme.primary.opacity(0.12)
-                                : Theme.background
-                        )
-                        .accessibilityAddTraits(navigation.selectedCustomerID == customer.id ? .isSelected : [])
-                    } else {
-                        NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
-                            customerRow(customer)
+        VStack(spacing: 0) {
+            customerSearchField
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.vertical, Theme.Space.sm)
+
+            Group {
+                if loading && customers.isEmpty {
+                    LoadingView(label: "Loading...")
+                } else if let errorMessage, customers.isEmpty {
+                    RetryView(message: errorMessage) { Task { await load() } }
+                } else if customers.isEmpty {
+                    customerEmptyState
+                } else {
+                    List(customers) { customer in
+                        if usesSplitView {
+                            Button {
+                                navigation.rememberCustomer(customer.id)
+                            } label: {
+                                customerRow(customer)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(
+                                navigation.selectedCustomerID == customer.id
+                                    ? Theme.primary.opacity(0.12)
+                                    : Theme.background
+                            )
+                            .accessibilityAddTraits(navigation.selectedCustomerID == customer.id ? .isSelected : [])
+                        } else {
+                            NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
+                                customerRow(customer)
+                            }
                         }
                     }
+                    .listStyle(.plain)
+                    .scrollPosition(id: $scrollCustomerID)
+                    .refreshable { await load() }
                 }
-                .listStyle(.plain)
-                .scrollPosition(id: $scrollCustomerID)
-                .refreshable { await load() }
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
+    }
+
+    private var customerSearchField: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Theme.muted)
+
+            TextField("Search name, company, phone…", text: $q)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .accessibilityLabel("Search customers")
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .frame(height: 42)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .stroke(Theme.border)
         }
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var presentationContext: ScenePresentationContext
 
     @State private var email = ""
     @State private var password = ""
@@ -178,7 +179,7 @@ struct LoginView: View {
         serverURL = Server.baseURLString
 
         focusedField = nil
-        KeyboardSession.dismiss()
+        KeyboardSession.dismiss(in: presentationContext.window)
         DebugLayoutLog.event("loginSubmit credentials focusCleared")
         busy = true
         Task {
@@ -202,7 +203,7 @@ struct LoginView: View {
         guard trimmedCode.count >= 6 else { return }
 
         focusedField = nil
-        KeyboardSession.dismiss()
+        KeyboardSession.dismiss(in: presentationContext.window)
         DebugLayoutLog.event("loginSubmit mfa focusCleared")
         busy = true
         Task {

@@ -1,6 +1,8 @@
 **TireShop adaptive layout implementation plan — iPhone Duo and iPad**
 
-Scope agreed with the user: support both Sales/Inventory/Customers list-and-detail browsing and New Sale with a catalog beside the cart. Add native iPad support and use extra space to expose useful information and actions. This document is the implementation plan; application changes have not started.
+Scope agreed with the user: support both Sales/Inventory/Customers list-and-detail browsing and New Sale with a catalog beside the cart. Add native iPad support and use extra space to expose useful information and actions.
+
+Implementation status (2026-09-19): complete in the native app. The shared scene-owned shell, iPad target, adaptive browsing workspaces, catalog-and-cart sale workspace, content-aware dashboard, draft protection, scene-correct UIKit presentation anchors, and regression coverage are implemented. Automated verification covers compact and expanded layout policy, state continuity, and the existing transaction suite. Final release validation uses the installed iPhone Duo 27.1 simulator plus regular iPhone and iPad destinations.
 
 The experience should preserve the current task as the device opens, closes, rotates, or enters a smaller window. Keep the iOS 17 deployment minimum. Use the iOS 27.1 SDK for full iPhone Duo support, with availability checks for newer APIs. The active local toolchain inspected during planning was Xcode 27.0.
 
@@ -27,7 +29,7 @@ Primary files: `RootViews.swift`, `Destinations.swift`, `TireShopApp.swift`, a f
 
 **2. Build the three browsing workspaces, starting with Sales.**
 
-- Use `NavigationSplitView` for each list/detail relationship. Highlight the selected record and keep that selection stable through folding, resizing, and sidebar changes. Use an intentional selection prompt before a record is chosen; show an appropriate unavailable state if the selected record is deleted or becomes inaccessible.
+- Use shared list/detail columns inside the app's existing navigation stack; nesting another `NavigationSplitView` adds a redundant toolbar above the filters on Duo. Highlight the selected record and keep that selection stable through folding, resizing, and sidebar changes. Use an intentional selection prompt before a record is chosen; show an appropriate unavailable state if the selected record is deleted or becomes inaccessible.
 - Sales: keep search, status/date filters, sorting, summaries, and pagination in the list pane; show the selected sale in the detail pane. Preserve deeper edit, return, and payment navigation. Best Sellers remains an alternate Sales view with a useful full content layout, rather than an unrelated empty detail pane.
 - Inventory: show searchable stock rows with the existing warehouse/filter/export behavior and a selected SKU's detail. Keep batch-selection state separate from the single record selected for details. Product browsing and adding products to a sale must have explicit, different row actions.
 - Customers: show the customer list beside the existing profile/account/history detail. Reuse existing customer actions and permission checks.

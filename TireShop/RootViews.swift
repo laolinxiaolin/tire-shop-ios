@@ -116,10 +116,8 @@ enum KeyboardSession {
     /// too late to matter here — this lets AutoFill start and finish its
     /// save-password work while the login hierarchy is still mounted.
     @MainActor
-    static func dismiss() {
-        for window in windows {
-            window.endEditing(true)
-        }
+    static func dismiss(in window: UIWindow?) {
+        window?.endEditing(true)
     }
 
     /// Closes a keyboard session that has no first responder.
@@ -130,8 +128,8 @@ enum KeyboardSession {
     /// and post the `keyboardWillHide` that never arrived. The stand-in field
     /// carries an empty `inputView`, so no keyboard becomes visible.
     @MainActor
-    static func dismissOrphanedSession() {
-        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else { return }
+    static func dismissOrphanedSession(in window: UIWindow?) {
+        guard let window else { return }
 
         let field = UITextField(frame: .zero)
         field.inputView = UIView()
@@ -149,10 +147,10 @@ enum KeyboardSession {
     /// True when a keyboard geometry notification describes a keyboard moving on
     /// screen with no text input focused anywhere in the app.
     @MainActor
-    static func isOrphaned(_ notification: Notification) -> Bool {
+    static func isOrphaned(_ notification: Notification, in window: UIWindow?) -> Bool {
         guard
             let endFrame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
-            let window = windows.first(where: \.isKeyWindow) ?? windows.first
+            let window
         else { return false }
 
         // A keyboard parked at or below the bottom edge is on its way out.
@@ -162,48 +160,27 @@ enum KeyboardSession {
         // responder. Verified on device: with a field focused this captures the
         // `UITextField`; with nothing focused the box stays nil. Testing for
         // `UITextInput` rather than non-nil keeps it failing closed either way.
-        let box = FirstResponderBox()
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.tireShopCaptureFirstResponder(_:)),
-            to: nil,
-            from: box,
-            for: nil
-        )
-        return !(box.responder is UITextInput)
+        return !(window.tireShopFirstResponder is UITextInput)
     }
 
     #if DEBUG
     /// Names the responder `isOrphaned` resolves to, so the physical-device
     /// console can show whether detection is behaving.
     @MainActor
-    static var debugFirstResponderDescription: String {
-        let box = FirstResponderBox()
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.tireShopCaptureFirstResponder(_:)),
-            to: nil,
-            from: box,
-            for: nil
-        )
-        guard let responder = box.responder else { return "nil" }
+    static func debugFirstResponderDescription(in window: UIWindow?) -> String {
+        guard let responder = window?.tireShopFirstResponder else { return "nil" }
         return "\(type(of: responder))\(responder is UITextInput ? "(textInput)" : "")"
     }
     #endif
-
-    @MainActor
-    private static var windows: [UIWindow] {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-    }
 }
 
-private final class FirstResponderBox {
-    var responder: UIResponder?
-}
-
-private extension UIResponder {
-    @objc func tireShopCaptureFirstResponder(_ sender: Any?) {
-        (sender as? FirstResponderBox)?.responder = self
+private extension UIView {
+    var tireShopFirstResponder: UIResponder? {
+        if isFirstResponder { return self }
+        for subview in subviews {
+            if let responder = subview.tireShopFirstResponder { return responder }
+        }
+        return nil
     }
 }
 
@@ -214,6 +191,7 @@ struct RootNavigatorView: View {
     @EnvironmentObject private var tabs: TabsStore
     @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var navigation: AppNavigationModel
+    @EnvironmentObject private var presentationContext: ScenePresentationContext
     @State private var showTapToPayAnnouncement = false
     @StateObject private var checkReminders = CheckReminderStore()
 
@@ -395,11 +373,11 @@ struct RootNavigatorView: View {
     }
 
     private func handleKeyboardGeometry(_ notification: Notification) {
-        guard KeyboardSession.isOrphaned(notification) else { return }
+        guard KeyboardSession.isOrphaned(notification, in: presentationContext.window) else { return }
         DebugLayoutLog.event("orphanedKeyboardDetected")
         // Let UIKit finish the in-flight show before reclaiming the session.
         Task { @MainActor in
-            KeyboardSession.dismissOrphanedSession()
+            KeyboardSession.dismissOrphanedSession(in: presentationContext.window)
         }
     }
 

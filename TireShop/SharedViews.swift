@@ -3,6 +3,61 @@ import UIKit
 import QuickLook
 import UniformTypeIdentifiers
 
+/// The UIKit presentation anchor for one SwiftUI scene. Keeping this scene
+/// scoped prevents a second iPad window from receiving card, print, or system
+/// education controllers launched from the first window.
+@MainActor
+final class ScenePresentationContext: ObservableObject {
+    weak var window: UIWindow?
+
+    var topViewController: UIViewController? {
+        window?.rootViewController?.tireShopTopPresentedViewController
+    }
+}
+
+struct SceneWindowReader: UIViewRepresentable {
+    let context: ScenePresentationContext
+
+    func makeUIView(context: Context) -> SceneWindowReaderView {
+        let view = SceneWindowReaderView()
+        view.onWindowChange = { [weak presentationContext = self.context] window in
+            presentationContext?.window = window
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: SceneWindowReaderView, context: Context) {
+        uiView.onWindowChange = { [weak presentationContext = self.context] window in
+            presentationContext?.window = window
+        }
+        self.context.window = uiView.window
+    }
+}
+
+final class SceneWindowReaderView: UIView {
+    var onWindowChange: ((UIWindow?) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onWindowChange?(window)
+    }
+}
+
+extension UIViewController {
+    var tireShopTopPresentedViewController: UIViewController {
+        if let presentedViewController {
+            return presentedViewController.tireShopTopPresentedViewController
+        }
+        if let navigationController = self as? UINavigationController {
+            return navigationController.visibleViewController?.tireShopTopPresentedViewController ?? navigationController
+        }
+        if let tabBarController = self as? UITabBarController {
+            return tabBarController.selectedViewController?.tireShopTopPresentedViewController ?? tabBarController
+        }
+        return self
+    }
+}
+
 enum AppVersion {
     private static let version = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -160,15 +215,21 @@ struct CameraUploadPicker: UIViewControllerRepresentable {
 
 /// Presents the system AirPrint sheet for a printable file (e.g. a PDF at a local URL).
 enum DocumentPrinter {
-    static func print(url: URL, jobName: String) {
+    static func print(url: URL, jobName: String, from presenter: UIViewController?) {
         let controller = UIPrintInteractionController.shared
         let info = UIPrintInfo(dictionary: nil)
         info.outputType = .general
         info.jobName = jobName
         controller.printInfo = info
         controller.printingItem = url
-        controller.present(animated: true) { _, _, _ in
+        let completion: UIPrintInteractionController.CompletionHandler = { _, _, _ in
             TemporaryDownloadStore.remove(url)
+        }
+        if let view = presenter?.view {
+            let anchor = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            controller.present(from: anchor, in: view, animated: true, completionHandler: completion)
+        } else {
+            controller.present(animated: true, completionHandler: completion)
         }
     }
 }
