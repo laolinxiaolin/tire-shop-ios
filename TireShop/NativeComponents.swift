@@ -609,6 +609,33 @@ struct PaymentSheetNativeView: View {
 
 // MARK: - Keyed card split charge (partial amounts + preflight)
 
+enum KeyedCardChargePreparation {
+    static func prepare(
+        grossAmount: Double,
+        gatewayStatus: () async throws -> GatewayStatus,
+        createIntent: (Double) async throws -> CardPaymentIntent
+    ) async throws -> (publishableKey: String, intent: CardPaymentIntent) {
+        guard grossAmount.isFinite, grossAmount > 0 else {
+            throw APIError(status: 0, message: "Check the charge amount again before charging.")
+        }
+        let status = try await gatewayStatus()
+        guard status.enabled, status.provider.lowercased() == "stripe" else {
+            throw APIError(status: 0, message: "Stripe payments are not enabled.")
+        }
+        guard let publishableKey = status.publishableKey?.nilIfBlank else {
+            throw APIError(status: 0, message: "Stripe publishable key is not configured.")
+        }
+        let intent = try await createIntent(grossAmount)
+        guard intent.clientSecret?.nilIfBlank != nil else {
+            throw APIError(status: 0, message: "The server did not return a card payment client secret.")
+        }
+        if let amount = intent.amount, !amount.isFinite || abs(amount - grossAmount) >= 0.005 {
+            throw APIError(status: 0, message: "The charge amount changed. Check the amount again before charging.")
+        }
+        return (publishableKey, intent)
+    }
+}
+
 /// Collects a keyed-card charge. The amount entered is what the card is charged,
 /// fee included — the server divides the fee back out and applies the rest to
 /// the invoice. Anything below the fee-inclusive ceiling splits the payment,
@@ -658,11 +685,11 @@ private struct KeyedCardSplitSheet: View {
                 Section {
                     TextField("Amount charged to the card", text: $amountText)
                         .keyboardType(.decimalPad)
-                        .disabled(maxGross == nil)
+                        .disabled(maxGross == nil || charging)
                     Button("Charge the full balance") {
                         if let maxGross { amountText = String(format: "%.2f", maxGross) }
                     }
-                    .disabled(maxGross == nil)
+                    .disabled(maxGross == nil || charging)
                 } header: {
                     Text("Amount charged to the card")
                 } footer: {
@@ -741,6 +768,7 @@ private struct KeyedCardSplitSheet: View {
 
     @MainActor
     private func continueFlow() async {
+        guard !charging else { return }
         errorMessage = nil
         if !checked {
             await checkPreflight()
@@ -786,27 +814,23 @@ private struct KeyedCardSplitSheet: View {
 
     @MainActor
     private func charge() async {
+        guard checked, let confirmedQuote = preflight,
+              confirmedQuote.warnings.isEmpty || acknowledgedWarnings else { return }
         charging = true
         errorMessage = nil
         defer { charging = false }
         do {
-            let status = try await PaymentsAPI().gatewayStatus()
-            guard status.enabled, status.provider.lowercased() == "stripe" else {
-                throw APIError(status: 0, message: "Stripe payments are not enabled.")
-            }
-            guard let publishableKey = status.publishableKey?.nilIfBlank else {
-                throw APIError(status: 0, message: "Stripe publishable key is not configured.")
-            }
+            let prepared = try await KeyedCardChargePreparation.prepare(
+                grossAmount: confirmedQuote.amount,
+                gatewayStatus: { try await PaymentsAPI().gatewayStatus() },
+                createIntent: { gross in
+                    try await PaymentsAPI().cardIntent(invoiceId: invoiceId, grossAmount: gross)
+                }
+            )
+            let intent = prepared.intent
+            guard let clientSecret = intent.clientSecret?.nilIfBlank else { return }
 
-            // Mint the intent from the same gross the preflight quoted, not its
-            // applied portion: re-deriving the fee from the net can land a cent
-            // off the total the operator just confirmed.
-            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId, grossAmount: preflight?.amount ?? roundMoney(amountValue))
-            guard let clientSecret = intent.clientSecret?.nilIfBlank else {
-                throw APIError(status: 0, message: "The server did not return a card payment client secret.")
-            }
-
-            STPAPIClient.shared.publishableKey = publishableKey
+            STPAPIClient.shared.publishableKey = prepared.publishableKey
 
             var configuration = PaymentSheet.Configuration()
             configuration.merchantDisplayName = "Tire Force US"

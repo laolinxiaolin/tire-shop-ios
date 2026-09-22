@@ -7,6 +7,56 @@ import XCTest
 /// out, and both remainders are server-quoted so the client never reproduces
 /// the fee math.
 final class ChargePreflightTests: XCTestCase {
+    func testKeyedCardPreparationKeepsAmountConfirmedBeforeGatewayLookup() async throws {
+        var editableAmount = 100.0
+        var submittedAmount: Double?
+        let result = try await KeyedCardChargePreparation.prepare(
+            grossAmount: editableAmount,
+            gatewayStatus: {
+                await Task.yield()
+                editableAmount = 200
+                return GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test")
+            },
+            createIntent: { amount in
+                submittedAmount = amount
+                return CardPaymentIntent(paymentIntentId: "pi_test", clientSecret: "secret",
+                    balance: 500, surcharge: 0, amount: amount)
+            }
+        )
+        XCTAssertEqual(editableAmount, 200)
+        XCTAssertEqual(submittedAmount, 100)
+        XCTAssertEqual(result.intent.amount, 100)
+    }
+
+    func testKeyedCardPreparationRejectsChangedIntentAmount() async {
+        do {
+            _ = try await KeyedCardChargePreparation.prepare(
+                grossAmount: 100,
+                gatewayStatus: { GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test") },
+                createIntent: { _ in
+                    CardPaymentIntent(paymentIntentId: "pi_test", clientSecret: "secret",
+                        balance: 500, surcharge: 0, amount: 200)
+                }
+            )
+            XCTFail("A different amount must never reach the card sheet")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("amount changed"))
+        }
+    }
+
+    func testKeyedCardPreparationSupportsLegacyIntentWithoutAmount() async throws {
+        let result = try await KeyedCardChargePreparation.prepare(
+            grossAmount: 100,
+            gatewayStatus: { GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test") },
+            createIntent: { amount in
+                XCTAssertEqual(amount, 100)
+                return CardPaymentIntent(paymentIntentId: "pi_test", clientSecret: "secret",
+                    balance: nil, surcharge: nil, amount: nil)
+            }
+        )
+        XCTAssertEqual(result.intent.clientSecret, "secret")
+    }
+
     private func decode(_ json: String) throws -> ChargePreflight {
         try JSONDecoder().decode(ChargePreflight.self, from: XCTUnwrap(json.data(using: .utf8)))
     }
