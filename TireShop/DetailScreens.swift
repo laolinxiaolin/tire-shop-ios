@@ -1368,13 +1368,13 @@ struct ContainerDetailNativeView: View {
         .sheet(item: $editingCost) { target in
             ContainerCostEditorView(containerId: id, cost: target.cost) {
                 editingCost = nil
-                Task { await load() }
+                Task { await load(preservingDraft: true) }
             }
         }
         .sheet(item: $dueDateTarget) { cost in
             ContainerCostDueDateSheet(containerId: id, cost: cost) {
                 dueDateTarget = nil
-                Task { await load() }
+                Task { await load(preservingDraft: true) }
             }
         }
         .sheet(isPresented: $showingSupplierCorrection) {
@@ -1835,7 +1835,7 @@ struct ContainerDetailNativeView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(preservingDraft: Bool = false) async {
         loading = true
         errorMessage = nil
         do {
@@ -1843,7 +1843,11 @@ struct ContainerDetailNativeView: View {
             async let warehousesTask = WarehousesAPI().list(activeOnly: true)
             let loaded = try await containerTask
             warehouses = (try? await warehousesTask) ?? []
-            seed(loaded)
+            if preservingDraft {
+                refreshRelatedRecords(loaded)
+            } else {
+                seed(loaded)
+            }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load container."
         }
@@ -1970,7 +1974,7 @@ struct ContainerDetailNativeView: View {
             note: attachmentNote.nilIfBlank
         )
         let updated = try await ContainersAPI().get(id: id)
-        seed(updated)
+        refreshRelatedRecords(updated)
         attachmentNote = ""
         actionMessage = "Document uploaded."
     }
@@ -1985,7 +1989,7 @@ struct ContainerDetailNativeView: View {
         do {
             _ = try await ContainersAPI().deleteAttachment(id: id, attachmentId: attachment.id)
             let updated = try await ContainersAPI().get(id: id)
-            seed(updated)
+            refreshRelatedRecords(updated)
             actionMessage = "Document deleted."
         } catch {
             actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete document."
@@ -2061,7 +2065,7 @@ struct ContainerDetailNativeView: View {
         actionMessage = nil
         do {
             _ = try await ContainersAPI().deleteCost(id: id, costId: cost.id)
-            await load()
+            await load(preservingDraft: true)
         } catch {
             actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete cost."
         }
@@ -2128,6 +2132,17 @@ struct ContainerDetailNativeView: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH.mm"
         return "Purchase document \(formatter.string(from: Date())).\(fileExtension)"
+    }
+
+    @MainActor
+    private func refreshRelatedRecords(_ value: Container) {
+        // Document and cost changes do not submit the editable purchase fields.
+        // Keep those local values, including edits made while the request ran.
+        if canEditDraft && ContainerDetailLabels.isEditable(value.status) {
+            container = value
+        } else {
+            seed(value)
+        }
     }
 
     @MainActor
