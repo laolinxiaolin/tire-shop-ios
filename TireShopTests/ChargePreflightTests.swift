@@ -96,4 +96,132 @@ final class ChargePreflightTests: XCTestCase {
         XCTAssertTrue(warning.message.contains("$40.00 in payments."))
         XCTAssertFalse(warning.message.contains("()"))
     }
+
+    private func terminalQuote(_ amount: Double, warns: Bool = false) -> ChargePreflight {
+        ChargePreflight(
+            balance: 500,
+            applied: amount,
+            surcharge: 0,
+            amount: amount,
+            remaining: 500 - amount,
+            remainingGross: 500 - amount,
+            warnings: warns ? [ChargeWarning(code: "recentPayment", params: [:])] : []
+        )
+    }
+
+    func testTerminalPreflightsCompletingOutOfOrderCannotChangeReviewedCharge() throws {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let first = selection.beginPreflight(grossAmount: 100)
+        selection.editAmount("200")
+        let second = selection.beginPreflight(grossAmount: 200)
+
+        selection.completePreflight(terminalQuote(200, warns: true), for: second)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+        selection.acknowledgeWarnings()
+        let confirmed = try XCTUnwrap(selection.authorization(fullBalanceAmount: 500))
+
+        selection.completePreflight(terminalQuote(100), for: first)
+        selection.failPreflight("Old request failed", for: first)
+
+        XCTAssertEqual(selection.preflight?.amount, 200)
+        XCTAssertEqual(selection.displayedAmount(fullBalanceAmount: 500), 200)
+        XCTAssertEqual(selection.authorization(fullBalanceAmount: 500), confirmed)
+        XCTAssertEqual(confirmed.grossAmount, 200)
+        XCTAssertFalse(confirmed.usesFullBalanceIntent)
+        XCTAssertTrue(selection.acknowledgedWarnings)
+        XCTAssertNil(selection.errorMessage)
+    }
+
+    func testTerminalEditingInvalidatesPendingResponseAndCompletedQuote() {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let pending = selection.beginPreflight(grossAmount: 100)
+        selection.editAmount("200")
+        selection.completePreflight(terminalQuote(100), for: pending)
+        selection.failPreflight("Old request failed", for: pending)
+
+        XCTAssertNil(selection.preflight)
+        XCTAssertNil(selection.errorMessage)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+
+        let next = selection.beginPreflight(grossAmount: 200)
+        selection.completePreflight(terminalQuote(200, warns: true), for: next)
+        selection.acknowledgeWarnings()
+        XCTAssertNotNil(selection.authorization(fullBalanceAmount: 500))
+
+        selection.editAmount("300")
+        XCTAssertNil(selection.preflight)
+        XCTAssertFalse(selection.acknowledgedWarnings)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+    }
+
+    func testTerminalFullBalanceIgnoresPendingSplitAndUsesRefreshedFullAmount() throws {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let pending = selection.beginPreflight(grossAmount: 100)
+        selection.useFullBalance()
+        selection.completePreflight(terminalQuote(100), for: pending)
+        selection.failPreflight("Old request failed", for: pending)
+
+        XCTAssertEqual(selection.amountText, "")
+        XCTAssertNil(selection.preflight)
+        XCTAssertNil(selection.errorMessage)
+        XCTAssertEqual(selection.displayedAmount(fullBalanceAmount: 500), 500)
+        let full = try XCTUnwrap(selection.authorization(fullBalanceAmount: 500))
+        XCTAssertEqual(full.grossAmount, 500)
+        XCTAssertTrue(full.usesFullBalanceIntent)
+
+        let refreshed = try XCTUnwrap(selection.authorization(fullBalanceAmount: 400))
+        XCTAssertEqual(refreshed.grossAmount, 400)
+        XCTAssertTrue(refreshed.usesFullBalanceIntent)
+        XCTAssertEqual(selection.displayedAmount(fullBalanceAmount: 400), 400)
+    }
+
+    func testTerminalRepeatedApplyOfSameAmountStillInvalidatesEarlierWarnings() {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let first = selection.beginPreflight(grossAmount: 100)
+        let second = selection.beginPreflight(grossAmount: 100)
+        selection.completePreflight(terminalQuote(100, warns: true), for: second)
+        selection.completePreflight(terminalQuote(100), for: first)
+
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+        XCTAssertEqual(selection.preflight?.warnings.count, 1)
+        selection.acknowledgeWarnings()
+        XCTAssertNotNil(selection.authorization(fullBalanceAmount: 500))
+    }
+
+    func testTerminalAuthorizationKeepsConfirmedAmountAndRejectsChangedIntent() throws {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let request = selection.beginPreflight(grossAmount: 100)
+        selection.completePreflight(terminalQuote(100), for: request)
+        let authorization = try XCTUnwrap(selection.authorization(fullBalanceAmount: 500))
+
+        selection.editAmount("200")
+        XCTAssertEqual(authorization.grossAmount, 100)
+        XCTAssertTrue(authorization.acceptsIntentAmount(100))
+        XCTAssertFalse(authorization.acceptsIntentAmount(100.01))
+        XCTAssertFalse(authorization.acceptsIntentAmount(200))
+        XCTAssertFalse(authorization.acceptsIntentAmount(.nan))
+        XCTAssertFalse(authorization.acceptsIntentAmount(.infinity))
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+    }
+
+    func testTerminalMismatchedQuoteAndCurrentFailureCannotAuthorizeCharge() {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let request = selection.beginPreflight(grossAmount: 100)
+        selection.completePreflight(terminalQuote(200), for: request)
+        XCTAssertNil(selection.preflight)
+        XCTAssertNotNil(selection.errorMessage)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+
+        let retry = selection.beginPreflight(grossAmount: 100)
+        XCTAssertNil(selection.errorMessage)
+        selection.failPreflight("Current request failed", for: retry)
+        XCTAssertEqual(selection.errorMessage, "Current request failed")
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+    }
 }

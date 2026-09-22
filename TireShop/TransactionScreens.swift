@@ -1890,18 +1890,100 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
+/// A preflight belongs to one applied amount. Editing or choosing the full
+/// balance invalidates both its eventual response and its charge authorization.
+struct TapToPayChargeSelection {
+    struct Request: Equatable {
+        fileprivate let id = UUID()
+        let grossAmount: Double
+    }
+
+    struct Authorization: Equatable {
+        let grossAmount: Double
+        let usesFullBalanceIntent: Bool
+
+        func acceptsIntentAmount(_ amount: Double) -> Bool {
+            amount.isFinite && abs(amount - grossAmount) < 0.005
+        }
+    }
+
+    private(set) var amountText = ""
+    private(set) var isFullBalance = true
+    private(set) var preflight: ChargePreflight?
+    private(set) var acknowledgedWarnings = false
+    private(set) var errorMessage: String?
+    private var request: Request?
+
+    mutating func editAmount(_ text: String) {
+        amountText = text
+        isFullBalance = text.nilIfBlank == nil
+        invalidatePreflight()
+    }
+
+    mutating func useFullBalance() {
+        editAmount("")
+    }
+
+    mutating func beginPreflight(grossAmount: Double) -> Request {
+        invalidatePreflight()
+        isFullBalance = false
+        let next = Request(grossAmount: grossAmount)
+        request = next
+        return next
+    }
+
+    mutating func completePreflight(_ result: ChargePreflight, for request: Request) {
+        guard self.request == request else { return }
+        self.request = nil
+        guard result.amount.isFinite, abs(result.amount - request.grossAmount) < 0.005 else {
+            errorMessage = "The quoted amount changed. Apply this amount again before charging."
+            return
+        }
+        preflight = result
+    }
+
+    mutating func failPreflight(_ message: String, for request: Request) {
+        guard self.request == request else { return }
+        self.request = nil
+        errorMessage = message
+    }
+
+    mutating func acknowledgeWarnings() {
+        guard preflight != nil else { return }
+        acknowledgedWarnings = true
+    }
+
+    func authorization(fullBalanceAmount: Double) -> Authorization? {
+        guard fullBalanceAmount.isFinite, fullBalanceAmount > 0 else { return nil }
+        if isFullBalance {
+            return Authorization(grossAmount: fullBalanceAmount, usesFullBalanceIntent: true)
+        }
+        guard let preflight, preflight.amount > 0,
+              preflight.amount <= fullBalanceAmount + 0.005,
+              preflight.warnings.isEmpty || acknowledgedWarnings else { return nil }
+        return Authorization(grossAmount: preflight.amount, usesFullBalanceIntent: false)
+    }
+
+    func displayedAmount(fullBalanceAmount: Double) -> Double {
+        if isFullBalance { return fullBalanceAmount }
+        return preflight?.amount ?? request?.grossAmount ?? AppFormat.parseAmount(amountText) ?? 0
+    }
+
+    private mutating func invalidatePreflight() {
+        request = nil
+        preflight = nil
+        acknowledgedWarnings = false
+        errorMessage = nil
+    }
+}
+
 struct TapToPayNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
     @ObservedObject private var terminal = TapToPayTerminalController.shared
     @State private var emailInvoice: SaleInvoice?
     @State private var receiptShare: TapToPayReceiptShare?
-    @State private var splitAmountText = ""
-    @State private var splitAmount: Double?
-    /// Fee-inclusive ceiling, captured from the first full-balance intent.
-    @State private var maxGross: Double?
-    @State private var preflight: ChargePreflight?
-    @State private var acknowledgedWarnings = false
+    @State private var chargeSelection = TapToPayChargeSelection()
     @State private var splitMessage: String?
     @State private var charging = false
 
@@ -1915,6 +1997,7 @@ struct TapToPayNativeView: View {
     private var invoiceOutcome: TapToPayOutcome? { terminal.outcome(for: invoiceId) }
     private var invoiceSucceeded: Bool { terminal.succeeded(for: invoiceId) }
     private var invoiceIsProcessing: Bool { terminal.isProcessing(invoiceId: invoiceId) }
+    private var preflight: ChargePreflight? { chargeSelection.preflight }
     private var hasWarnings: Bool { (preflight?.warnings.isEmpty ?? true) == false }
 
     var body: some View {
@@ -1933,7 +2016,7 @@ struct TapToPayNativeView: View {
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
                     if let preflight {
                         RowLine(title: "Card fee", trailing: AppFormat.money(preflight.surcharge))
-                    } else if splitAmount == nil {
+                    } else if chargeSelection.isFullBalance {
                         RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
                     }
                     RowLine(title: "Customer pays", trailing: AppFormat.money(chargeAmount(intent)))
@@ -2089,48 +2172,41 @@ struct TapToPayNativeView: View {
     }
 
     private func loadIntent() async throws -> TerminalIntent {
-        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, grossAmount: splitAmount)
+        // This intent always represents the full balance, including on refresh.
+        // Split intents are minted only from a reviewed authorization at charge time.
+        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
     }
 
     private func splitSection(intent: TerminalIntent) -> some View {
-        // The first intent is minted for the whole balance, so its gross is the
-        // fee-inclusive ceiling. Captured once: a later reload carries a split
-        // amount and would otherwise drag the ceiling down with it.
-        let ceiling = maxGross ?? intent.amount
+        let ceiling = intent.amount
 
         return Section("Amount charged to the card") {
-            TextField("Amount (blank = full balance)", text: $splitAmountText)
-                .keyboardType(.decimalPad)
-                .onChange(of: splitAmountText) { _, _ in
-                    // Editing the field invalidates the applied preflight until
-                    // it's re-applied, so the breakdown/button can't disagree
-                    // with the typed amount.
-                    preflight = nil
-                    acknowledgedWarnings = false
+            TextField("Amount (blank = full balance)", text: Binding(
+                get: { chargeSelection.amountText },
+                set: {
+                    chargeSelection.editAmount($0)
+                    splitMessage = nil
                 }
+            ))
+                .keyboardType(.decimalPad)
             Button("Charge the full balance") {
-                splitAmountText = ""
-                splitAmount = nil
-                preflight = nil
-                acknowledgedWarnings = false
-                // Reverting to the full balance clears any stale split error so
-                // it can't linger over a now-valid, chargeable state.
+                chargeSelection.useFullBalance()
                 splitMessage = nil
             }
             Button("Apply this amount") {
-                let value = AppFormat.parseAmount(splitAmountText)
+                let value = AppFormat.parseAmount(chargeSelection.amountText)
                 guard let value, value > 0, value <= ceiling + 0.005 else {
                     splitMessage = "More than \(AppFormat.money(ceiling)) (balance plus card fee) can't be charged to the card."
                     return
                 }
                 splitMessage = nil
-                splitAmount = value
-                Task { await checkPreflight(grossAmount: value) }
+                let request = chargeSelection.beginPreflight(grossAmount: (value * 100).rounded() / 100)
+                Task { await checkPreflight(request) }
             }
             Text("This is what the card is charged, card fee included. Up to \(AppFormat.money(ceiling)).")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
-            if let splitMessage {
+            if let splitMessage = splitMessage ?? chargeSelection.errorMessage {
                 Text(splitMessage)
                     .font(.caption)
                     .foregroundStyle(Theme.danger)
@@ -2155,31 +2231,29 @@ struct TapToPayNativeView: View {
                     Label(warning.message, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(Theme.danger)
                 }
-                Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
-                    acknowledgedWarnings = true
+                Button(chargeSelection.acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
+                    chargeSelection.acknowledgeWarnings()
                 }
-                .disabled(acknowledgedWarnings)
+                .disabled(chargeSelection.acknowledgedWarnings)
             }
         }
-        .onAppear {
-            if maxGross == nil, splitAmount == nil {
-                maxGross = intent.amount
-            }
-        }
+        .disabled(charging || invoiceIsProcessing)
     }
 
     @MainActor
-    private func checkPreflight(grossAmount: Double) async {
-        acknowledgedWarnings = false
+    private func checkPreflight(_ request: TapToPayChargeSelection.Request) async {
         do {
-            preflight = try await PaymentsAPI().chargePreflight(
+            let result = try await PaymentsAPI().chargePreflight(
                 invoiceId: invoiceId,
                 processor: .terminal,
-                grossAmount: grossAmount
+                grossAmount: request.grossAmount
             )
+            chargeSelection.completePreflight(result, for: request)
         } catch {
-            preflight = nil
-            splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not check this amount."
+            chargeSelection.failPreflight(
+                (error as? LocalizedError)?.errorDescription ?? "Could not check this amount.",
+                for: request
+            )
         }
     }
 
@@ -2223,21 +2297,14 @@ struct TapToPayNativeView: View {
 
     private func canCharge(_ intent: TerminalIntent) -> Bool {
         guard canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent) else { return false }
-        // A split charge requires a completed preflight and acknowledged warnings.
-        if splitAmount != nil {
-            guard preflight != nil else { return false }
-            if hasWarnings && !acknowledgedWarnings {
-                return false
-            }
-        }
-        return true
+        return chargeSelection.authorization(fullBalanceAmount: intent.amount) != nil
     }
 
     /// The amount the charge button should show. Once a preflight has confirmed
     /// a split, that quote's gross (applied + surcharge) is what the customer
     /// pays; otherwise the loaded intent's amount, which is already gross.
     private func chargeAmount(_ intent: TerminalIntent) -> Double {
-        preflight?.amount ?? splitAmount ?? intent.amount
+        chargeSelection.displayedAmount(fullBalanceAmount: intent.amount)
     }
 
     /// Starts the terminal charge. For a plain full-balance charge the already-
@@ -2245,18 +2312,28 @@ struct TapToPayNativeView: View {
     /// time (so adjusting a split doesn't orphan a PaymentIntent per apply).
     @MainActor
     private func chargeWithIntent(intent: TerminalIntent) async {
-        guard !charging else { return }
+        guard !charging, canCharge(intent),
+              let authorization = chargeSelection.authorization(fullBalanceAmount: intent.amount) else { return }
         charging = true
+        splitMessage = nil
         defer { charging = false }
         do {
             let chargeIntent: TerminalIntent
-            if splitAmount == nil {
+            if authorization.usesFullBalanceIntent {
                 chargeIntent = intent
             } else {
-                chargeIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, grossAmount: splitAmount)
+                chargeIntent = try await PaymentsAPI().terminalIntent(
+                    invoiceId: invoiceId,
+                    grossAmount: authorization.grossAmount
+                )
             }
             guard chargeIntent.clientSecret?.nilIfBlank != nil, chargeIntent.amount > 0 else {
                 splitMessage = "The server did not return a chargeable payment intent."
+                return
+            }
+            guard authorization.acceptsIntentAmount(chargeIntent.amount) else {
+                chargeSelection.editAmount(chargeSelection.amountText)
+                splitMessage = "The charge amount changed. Apply this amount again before charging."
                 return
             }
             terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent)
