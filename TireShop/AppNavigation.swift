@@ -22,7 +22,7 @@ final class AppNavigationModel: ObservableObject {
 
     func path(for owner: String) -> Binding<[AppRoute]> {
         Binding(
-            get: { [weak self] in self?.paths[owner] ?? [] },
+            get: { [weak self] in self?.pathValue(for: owner) ?? [] },
             set: { [weak self] in self?.setPath($0, for: owner) }
         )
     }
@@ -31,9 +31,8 @@ final class AppNavigationModel: ObservableObject {
         guard DestinationRegistry.destination(for: key) != nil else { return }
         selectedDestinationKey = key
 
-        // In compact layouts an unpinned destination is presented from More.
-        // Preparing that stack is harmless in regular layouts and lets the
-        // same action adapt without knowing the current presentation.
+        // More stores only the module prefix. Its detail routes are owned by
+        // the module so compact and sidebar stacks read the same workflow.
         paths[Self.moreKey] = [.module(key)]
     }
 
@@ -48,7 +47,23 @@ final class AppNavigationModel: ObservableObject {
     }
 
     func append(_ route: AppRoute, to owner: String) {
-        paths[owner, default: []].append(route)
+        setPath(pathValue(for: owner) + [route], for: owner)
+    }
+
+    var activeDestinationKey: String {
+        selectedDestinationKey == Self.moreKey ? moreDestinationKey ?? Self.moreKey : selectedDestinationKey
+    }
+
+    private var moreDestinationKey: String? {
+        guard case .module(let key) = paths[Self.moreKey]?.first else { return nil }
+        return key
+    }
+
+    private func pathValue(for owner: String) -> [AppRoute] {
+        if owner == Self.moreKey, let key = moreDestinationKey {
+            return [.module(key)] + (paths[key] ?? [])
+        }
+        return paths[owner] ?? []
     }
 
     func showChecks() {
@@ -103,7 +118,11 @@ final class AppNavigationModel: ObservableObject {
             selectedCustomerID = nil
         }
 
-        for owner in paths.keys {
+        for owner in Array(paths.keys) {
+            if owner != Self.moreKey && !visibleDestinationKeys.contains(owner) {
+                paths.removeValue(forKey: owner)
+                continue
+            }
             paths[owner] = paths[owner]?.filter { route in
                 guard case .module(let key) = route else { return true }
                 return visibleDestinationKeys.contains(key)
@@ -121,9 +140,19 @@ final class AppNavigationModel: ObservableObject {
     }
 
     private func setPath(_ path: [AppRoute], for owner: String) {
-        paths[owner] = path
-        if owner == Self.moreKey, path.isEmpty,
-           DestinationRegistry.destination(for: selectedDestinationKey) != nil {
+        guard owner == Self.moreKey else {
+            paths[owner] = path
+            return
+        }
+        let previousModule = moreDestinationKey
+        if case .module(let key) = path.first {
+            paths[Self.moreKey] = [.module(key)]
+            paths[key] = Array(path.dropFirst())
+        } else {
+            paths[Self.moreKey] = path
+            if let previousModule { paths[previousModule] = [] }
+        }
+        if path.isEmpty && (selectedDestinationKey == previousModule || selectedDestinationKey == Self.moreKey) {
             selectedDestinationKey = Self.moreKey
         }
     }
