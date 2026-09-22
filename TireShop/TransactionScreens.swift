@@ -7,17 +7,27 @@ struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
     @EnvironmentObject private var i18n: I18nStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
     private enum FocusField: Hashable {
         case price(String)
-        case taxRate
         case roundTarget
+        case taxRate
+    }
+
+    private enum CatalogKind: String, CaseIterable, Identifiable {
+        case tires
+        case services
+
+        var id: String { rawValue }
+        var title: String { self == .tires ? "Tires" : "Services" }
     }
 
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var roundTarget = ""
+    @State private var taxRateDraft: String?
     @State private var warehouses: [Warehouse] = []
     @State private var loadingWarehouses = true
     @State private var warehouseError: String?
@@ -28,6 +38,7 @@ struct NewQuoteNativeView: View {
     @State private var priceDrafts: [String: String] = [:]
     @StateObject private var priceHistory = SalePriceHistoryStore()
     @State private var catalogBySku: [String: TireSku] = [:]
+    @State private var catalogKind: CatalogKind = .tires
     @FocusState private var focusedField: FocusField?
     @ScaledMetric(relativeTo: .body) private var minimumItemDescriptionWidth: CGFloat = 160
     @ScaledMetric(relativeTo: .body) private var minimumItemPriceWidth: CGFloat = 120
@@ -37,32 +48,21 @@ struct NewQuoteNativeView: View {
     }
 
     var body: some View {
-        Form {
-            if !auth.has("sales.manage") {
-                Section {
-                    Text("You do not have permission to manage sales.")
-                        .foregroundStyle(Theme.muted)
-                }
-            } else {
-                customerSection
-                warehouseSection
-                linesSection
-                totalsSection
+        GeometryReader { proxy in
+            let showsCatalog = SaleWorkspaceLayout.showsCatalog(
+                width: proxy.size.width,
+                horizontalSizeClass: horizontalSizeClass
+            )
 
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(Theme.danger)
-                    }
-                }
+            NewSaleWorkspaceLayout(showsCatalog: showsCatalog, spacing: Theme.Space.md) {
+                catalogPane
+                    .opacity(showsCatalog ? 1 : 0)
+                    .allowsHitTesting(showsCatalog && !saving)
+                    .accessibilityHidden(!showsCatalog)
 
-                Section {
-                    Button(buttonTitle) {
-                        Task { await submit() }
-                    }
-                    .disabled(!canSubmit)
-                }
+                cartForm(showsPickerLinks: !showsCatalog)
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .disabled(saving)
         .navigationTitle(quote.editingSaleId == nil ? "New Sale" : "Edit sale")
@@ -89,16 +89,30 @@ struct NewQuoteNativeView: View {
         .task(id: priceRequest) {
             await priceHistory.load(priceRequest)
         }
-        .onChange(of: quote.customer) { _, _ in
-            Task { await quote.applyCustomerTaxRate() }
+        .task(id: quote.taxContextRevision) {
+            if quote.taxLookupInProgress {
+                await quote.applyCustomerTaxRate()
+            }
+        }
+        .onChange(of: quote.customer?.id) { _, _ in
+            taxRateDraft = nil
         }
         .onChange(of: quote.location) { _, _ in
+            taxRateDraft = nil
             Task { await loadAvailability() }
+        }
+        .onChange(of: quote.fulfillment) { _, _ in
+            taxRateDraft = nil
+        }
+        .onChange(of: quote.editingSaleId) { _, _ in taxRateDraft = nil }
+        .onChange(of: quote.overrideTaxRate) { _, overridden in
+            if !overridden { taxRateDraft = nil }
         }
         .onChange(of: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId)) { _, _ in
             Task { await loadAvailability() }
         }
         .onChange(of: focusedField) { oldField, newField in
+            if oldField == .taxRate { taxRateDraft = nil }
             if case let .price(lineID)? = oldField {
                 finishPriceEditing(lineID)
             }
@@ -110,13 +124,69 @@ struct NewQuoteNativeView: View {
         }
     }
 
+    private func cartForm(showsPickerLinks: Bool) -> some View {
+        Form {
+            if !auth.has("sales.manage") {
+                Section {
+                    Text("You do not have permission to manage sales.")
+                        .foregroundStyle(Theme.muted)
+                }
+            } else {
+                customerSection
+                fulfillmentSection
+                warehouseSection
+                linesSection(showsPickerLinks: showsPickerLinks)
+                totalsSection
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
+
+                Section {
+                    Button(buttonTitle) {
+                        Task { await submit() }
+                    }
+                    .disabled(!canSubmit)
+                }
+            }
+        }
+    }
+
+    private var catalogPane: some View {
+        VStack(spacing: 0) {
+            Picker("Catalog", selection: $catalogKind) {
+                ForEach(CatalogKind.allCases) { kind in
+                    Text(kind.title).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+
+            Group {
+                switch catalogKind {
+                case .tires:
+                    InventoryListNativeView(selectForQuote: true, dismissAfterSelection: false)
+                case .services:
+                    ServicePickerNativeView(dismissAfterSelection: false)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Theme.background)
+        .overlay(Rectangle().frame(width: 1).foregroundStyle(Theme.border), alignment: .trailing)
+    }
+
     private var customerSection: some View {
         Section("Customer") {
             if let customer = quote.customer {
                 RowLine(
                     title: customer.name,
                     subtitle: customer.company,
-                    trailing: customer.taxExempt ? "Tax exempt" : nil
+                    trailing: customer.taxExempt && !quote.overrideTaxRate ? "Tax exempt" : nil
                 )
             } else {
                 Text("No customer selected")
@@ -127,6 +197,32 @@ struct NewQuoteNativeView: View {
                 CustomerPickerNativeView(selectForQuote: true)
             }
         }
+    }
+
+    private var fulfillmentSection: some View {
+        Section(i18n.t("newQuote.fulfillment")) {
+            Picker(i18n.t("newQuote.fulfillment"), selection: Binding(
+                get: { quote.fulfillment },
+                set: { quote.setFulfillment($0) }
+            )) {
+                ForEach(SaleFulfillment.allCases) { fulfillment in
+                    Text(i18n.t(fulfillment == .delivery ? "newQuote.delivery" : "newQuote.pickup"))
+                        .tag(fulfillment)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(i18n.t(fulfillmentTaxHint))
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+        }
+    }
+
+    private var fulfillmentTaxHint: String {
+        guard quote.fulfillment == .pickup else { return "newQuote.taxDeliveryHint" }
+        return warehouses.first(where: { $0.code == quote.location })?.isDefault == true
+            ? "newQuote.taxMainPickupHint"
+            : "newQuote.taxPickupHint"
     }
 
     private var warehouseSection: some View {
@@ -184,7 +280,7 @@ struct NewQuoteNativeView: View {
         }
     }
 
-    private var linesSection: some View {
+    private func linesSection(showsPickerLinks: Bool) -> some View {
         Section("Items") {
             if !priceRequest.skuIds.isEmpty {
                 SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
@@ -298,14 +394,16 @@ struct NewQuoteNativeView: View {
                 .padding(.vertical, Theme.Space.xs)
             }
 
-            NavigationLink("Add tire") {
-                InventoryListNativeView(selectForQuote: true)
-                    .navigationTitle("Add a tire")
-            }
-            .disabled(quote.location.nilIfBlank == nil)
+            if showsPickerLinks {
+                NavigationLink("Add tire") {
+                    InventoryListNativeView(selectForQuote: true)
+                        .navigationTitle("Add a tire")
+                }
+                .disabled(quote.location.nilIfBlank == nil)
 
-            NavigationLink("Add service") {
-                ServicePickerNativeView()
+                NavigationLink("Add service") {
+                    ServicePickerNativeView()
+                }
             }
         }
     }
@@ -314,30 +412,68 @@ struct NewQuoteNativeView: View {
         Section("Totals") {
             RowLine(title: "Subtotal", trailing: AppFormat.money(quote.subtotal))
 
-            if quote.customer?.taxExempt == true {
-                RowLine(title: "Tax exempt", trailing: AppFormat.money(0.0))
-            } else {
-                if let message = quote.taxLookupMessage {
-                    Text(message)
+            if quote.taxLookupInProgress {
+                HStack(spacing: Theme.Space.sm) {
+                    ProgressView()
+                    Text(i18n.t("newQuote.taxLoading"))
                         .font(.footnote)
                         .foregroundStyle(Theme.muted)
                 }
+            } else if let error = quote.taxLookupError {
+                VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.danger)
+                    Button(i18n.t("newQuote.taxRetry")) {
+                        Task { await quote.applyCustomerTaxRate() }
+                    }
+                }
+            }
 
+            if quote.overrideTaxRate {
+                Text(i18n.t("newQuote.taxRateOverride"))
+                    .font(.footnote)
+                    .foregroundStyle(Theme.muted)
+                Button(i18n.t("newQuote.useAutomaticTax")) {
+                    focusedField = nil
+                    taxRateDraft = nil
+                    Task { await quote.useAutomaticTaxRate() }
+                }
+            } else if let message = quote.taxLookupMessage, quote.taxLookupError == nil {
+                Text(i18n.t(message))
+                    .font(.footnote)
+                    .foregroundStyle(Theme.muted)
+            }
+
+            if auth.user?.isAdmin == true {
                 HStack {
-                    Text("Tax rate")
+                    Text(i18n.t("newQuote.taxRateLabel"))
                     Spacer()
-                    TextField("Tax", value: Binding(
-                        get: { quote.taxRate },
-                        set: { quote.setTaxRate($0) }
-                    ), format: .number)
-                        .keyboardType(.decimalPad)
-                        .focused($focusedField, equals: .taxRate)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 90)
+                    TextField(i18n.t("newQuote.taxRateLabel"), text: Binding(
+                        get: { taxRateDraft ?? SaleTaxPercentage.text(quote.effectiveTaxRate) },
+                        set: { text in
+                            guard let percent = SaleTaxPercentage.parseInput(text) else { return }
+                            taxRateDraft = text
+                            quote.setTaxRate(percent, isAdmin: auth.user?.isAdmin == true)
+                        }
+                    ))
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .taxRate)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 105)
+                    .accessibilityLabel(i18n.t("newQuote.taxRateLabel"))
                     Text("%")
                 }
-                RowLine(title: "Tax", trailing: AppFormat.money(quote.taxAmount))
+            } else {
+                RowLine(title: i18n.t("newQuote.taxRate", [
+                    "rate": SaleTaxPercentage.text(quote.effectiveTaxRate)
+                ]))
             }
+
+            RowLine(
+                title: quote.customer?.taxExempt == true && !quote.overrideTaxRate ? "Tax exempt" : "Tax",
+                trailing: AppFormat.money(quote.taxAmount)
+            )
 
             RowLine(title: "Total", trailing: AppFormat.money(quote.total))
 
@@ -352,7 +488,11 @@ struct NewQuoteNativeView: View {
                         roundTarget = ""
                     }
                 }
-                .disabled(Double(roundTarget) == nil)
+                .disabled(
+                    Double(roundTarget) == nil
+                        || quote.taxLookupInProgress
+                        || quote.taxLookupError != nil
+                )
             }
         }
     }
@@ -432,6 +572,8 @@ struct NewQuoteNativeView: View {
             && quote.location.nilIfBlank != nil
             && warehouses.contains(where: { $0.code == quote.location })
             && !quote.lines.isEmpty
+            && !quote.taxLookupInProgress
+            && quote.taxLookupError == nil
             && !(loadingAvailability && quote.lines.contains(where: { $0.itemType == "SKU" }))
             && !hasStockShortage
             && !saving
@@ -618,6 +760,49 @@ struct NewQuoteNativeView: View {
     }
 }
 
+/// Keeps the catalog and cart mounted while the window changes size. Compact
+/// layouts give the full area to the cart and retain its push-based pickers;
+/// regular layouts expose two independently scrolling work areas.
+private struct NewSaleWorkspaceLayout: Layout {
+    let showsCatalog: Bool
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let fallback = subviews.last?.sizeThatFits(proposal) ?? .zero
+        return CGSize(width: proposal.width ?? fallback.width, height: proposal.height ?? fallback.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+
+        if showsCatalog {
+            let catalogWidth = min(max(340, bounds.width * 0.52), max(340, bounds.width - 360 - spacing))
+            let cartWidth = max(0, bounds.width - catalogWidth - spacing)
+            subviews[0].place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: catalogWidth, height: bounds.height)
+            )
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX + catalogWidth + spacing, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: cartWidth, height: bounds.height)
+            )
+        } else {
+            subviews[0].place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: 0, height: 0)
+            )
+            subviews[1].place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+            )
+        }
+    }
+}
+
 /// Repositions the same two subviews so resizing never replaces a focused price editor.
 struct SaleItemHeaderLayout: Layout {
     let spacing: CGFloat
@@ -670,28 +855,84 @@ struct SaleItemHeaderLayout: Layout {
 }
 
 struct EditSaleNativeView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
     let id: String
 
+    @State private var loadedSale: Sale?
+    @State private var loadedCustomer: QuoteCustomer?
+    @State private var ready = false
+    @State private var loading = true
+    @State private var errorMessage: String?
+    @State private var confirmingDraftReplacement = false
+
     var body: some View {
-        AsyncContentView(load: loadSale) { _ in
-            NewQuoteNativeView()
+        Group {
+            if ready {
+                NewQuoteNativeView()
+            } else if loading {
+                LoadingView(label: "Loading sale...")
+            } else if let errorMessage {
+                RetryView(message: errorMessage) { Task { await loadSale() } }
+            } else {
+                EmptyStateView(text: "The sale could not be prepared for editing.")
+            }
         }
         .navigationTitle("Edit sale")
+        .task { await loadSale() }
+        .confirmationDialog(
+            "Replace the unfinished sale?",
+            isPresented: $confirmingDraftReplacement,
+            titleVisibility: .visible
+        ) {
+            Button("Discard draft and edit sale", role: .destructive) {
+                seedLoadedSale()
+            }
+            Button("Keep current draft", role: .cancel) {
+                dismiss()
+            }
+        } message: {
+            Text("You already have an unfinished sale. Editing this sale will discard that cart and customer selection.")
+        }
     }
 
     @MainActor
-    private func loadSale() async throws -> Sale {
-        let sale = try await SalesAPI().get(id: id)
-        let customer = try await CustomersAPI().get(id: sale.customerId)
-        quote.seed(from: sale, customer: QuoteCustomer(customer: customer))
-        return sale
+    private func loadSale() async {
+        guard !ready else { return }
+        loading = true
+        errorMessage = nil
+        defer { loading = false }
+
+        do {
+            let sale = try await SalesAPI().get(id: id)
+            let customer = try await CustomersAPI().get(id: sale.customerId)
+            loadedSale = sale
+            loadedCustomer = QuoteCustomer(customer: customer)
+
+            if quote.editingSaleId == id {
+                ready = true
+            } else if quote.hasDraft {
+                confirmingDraftReplacement = true
+            } else {
+                seedLoadedSale()
+            }
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the sale."
+        }
+    }
+
+    private func seedLoadedSale() {
+        guard let loadedSale, let loadedCustomer else { return }
+        quote.seed(from: loadedSale, customer: loadedCustomer)
+        ready = true
     }
 }
 
 struct ServicePickerNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
+
+    var dismissAfterSelection = true
 
     var body: some View {
         AsyncContentView(load: ServicesAPI().list) { services in
@@ -703,7 +944,9 @@ struct ServicePickerNativeView: View {
                         description: service.name,
                         unitPrice: Double(service.price) ?? 0
                     )
-                    dismiss()
+                    if dismissAfterSelection {
+                        dismiss()
+                    }
                 } label: {
                     RowLine(title: service.name, subtitle: service.code, trailing: AppFormat.money(service.price))
                 }
@@ -785,22 +1028,16 @@ struct SkuDetailNativeView: View {
 
 struct SkuLookupNativeView: View {
     let idOrSku: String
+    var initialLocation: String? = nil
 
     var body: some View {
         AsyncContentView(load: loadSku) { sku in
-            SkuDetailNativeView(sku: sku)
+            SkuDetailNativeView(sku: sku, initialLocation: initialLocation)
         }
     }
 
     private func loadSku() async throws -> TireSku {
-        let page = try await InventoryAPI().listSkus(q: idOrSku, pageSize: 50)
-        if let exact = page.items.first(where: { $0.id == idOrSku || $0.sku == idOrSku }) {
-            return exact
-        }
-        guard let first = page.items.first else {
-            throw APIError(status: 404, message: "Tire not found.")
-        }
-        return first
+        try await InventoryAPI().resolveSku(idOrSku: idOrSku)
     }
 }
 
@@ -814,14 +1051,7 @@ struct SkuLookupEditNativeView: View {
     }
 
     private func loadSku() async throws -> TireSku {
-        let page = try await InventoryAPI().listSkus(q: idOrSku, pageSize: 50)
-        if let exact = page.items.first(where: { $0.id == idOrSku || $0.sku == idOrSku }) {
-            return exact
-        }
-        guard let first = page.items.first else {
-            throw APIError(status: 404, message: "Tire not found.")
-        }
-        return first
+        try await InventoryAPI().resolveSku(idOrSku: idOrSku)
     }
 }
 
@@ -1326,14 +1556,7 @@ struct AdjustStockLookupNativeView: View {
     }
 
     private func loadSku() async throws -> TireSku {
-        let page = try await InventoryAPI().listSkus(q: idOrSku, pageSize: 50)
-        if let exact = page.items.first(where: { $0.id == idOrSku || $0.sku == idOrSku }) {
-            return exact
-        }
-        guard let first = page.items.first else {
-            throw APIError(status: 404, message: "Tire not found.")
-        }
-        return first
+        try await InventoryAPI().resolveSku(idOrSku: idOrSku)
     }
 }
 
@@ -1560,6 +1783,7 @@ private struct TapToPayInfoRow: View {
 private struct ProximityReaderDiscoveryButton: View {
     let title: String
 
+    @EnvironmentObject private var presentationContext: ScenePresentationContext
     @State private var presenting = false
     @State private var errorMessage: String?
 
@@ -1599,7 +1823,7 @@ private struct ProximityReaderDiscoveryButton: View {
         do {
             let discovery = ProximityReaderDiscovery()
             let content = try await discovery.content(for: .payment(.howToTap))
-            guard let viewController = topPresentedViewController() else {
+            guard let viewController = presentationContext.topViewController else {
                 throw APIError(status: 0, message: "Could not open the Apple guide from this screen.")
             }
             try await discovery.presentContent(content, from: viewController)
@@ -1608,29 +1832,6 @@ private struct ProximityReaderDiscoveryButton: View {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not open the Apple guide."
         }
     }
-}
-
-@MainActor
-private func topPresentedViewController() -> UIViewController? {
-    let scene = UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .first { $0.activationState == .foregroundActive }
-    guard let root = scene?.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return nil }
-    return topPresentedViewController(from: root)
-}
-
-@MainActor
-private func topPresentedViewController(from root: UIViewController) -> UIViewController {
-    if let presented = root.presentedViewController {
-        return topPresentedViewController(from: presented)
-    }
-    if let navigation = root as? UINavigationController, let visible = navigation.visibleViewController {
-        return topPresentedViewController(from: visible)
-    }
-    if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
-        return topPresentedViewController(from: selected)
-    }
-    return root
 }
 
 enum TapToPayOutcomeStatus: Equatable {
@@ -2024,7 +2225,7 @@ struct TapToPayNativeView: View {
         guard canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent) else { return false }
         // A split charge requires a completed preflight and acknowledged warnings.
         if splitAmount != nil {
-            guard let preflight else { return false }
+            guard preflight != nil else { return false }
             if hasWarnings && !acknowledgedWarnings {
                 return false
             }

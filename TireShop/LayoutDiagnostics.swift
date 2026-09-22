@@ -56,13 +56,13 @@ enum DebugLayoutLog {
         print("[LAYOUT] geometry \(name) \(snapshot.description) \(windowDescription)")
     }
 
-    static func keyboard(_ name: String, notification: Notification) {
+    static func keyboard(_ name: String, notification: Notification, window: UIWindow?) {
         let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-        let orphaned = KeyboardSession.isOrphaned(notification)
+        let orphaned = KeyboardSession.isOrphaned(notification, in: window)
         print("[LAYOUT] keyboard \(name) endFrame=\(String(describing: frame)) "
             + "duration=\(String(describing: duration)) orphaned=\(orphaned) "
-            + "firstResponder=\(KeyboardSession.debugFirstResponderDescription)")
+            + "firstResponder=\(KeyboardSession.debugFirstResponderDescription(in: window))")
     }
 
     private static var activeWindow: UIWindow? {
@@ -91,19 +91,21 @@ private struct DebugLayoutProbe: ViewModifier {
 }
 
 private struct DebugKeyboardDiagnostics: ViewModifier {
+    let presentationContext: ScenePresentationContext
+
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) {
-                DebugLayoutLog.keyboard("willShow", notification: $0)
+                DebugLayoutLog.keyboard("willShow", notification: $0, window: presentationContext.window)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
-                DebugLayoutLog.keyboard("willChangeFrame", notification: $0)
+                DebugLayoutLog.keyboard("willChangeFrame", notification: $0, window: presentationContext.window)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) {
-                DebugLayoutLog.keyboard("willHide", notification: $0)
+                DebugLayoutLog.keyboard("willHide", notification: $0, window: presentationContext.window)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) {
-                DebugLayoutLog.keyboard("didHide", notification: $0)
+                DebugLayoutLog.keyboard("didHide", notification: $0, window: presentationContext.window)
             }
     }
 }
@@ -113,8 +115,8 @@ extension View {
         modifier(DebugLayoutProbe(name: name))
     }
 
-    func debugKeyboardDiagnostics() -> some View {
-        modifier(DebugKeyboardDiagnostics())
+    func debugKeyboardDiagnostics(context: ScenePresentationContext) -> some View {
+        modifier(DebugKeyboardDiagnostics(presentationContext: context))
     }
 }
 #else
@@ -125,6 +127,6 @@ enum DebugLayoutLog {
 
 extension View {
     func debugLayoutProbe(_ name: String) -> some View { self }
-    func debugKeyboardDiagnostics() -> some View { self }
+    func debugKeyboardDiagnostics(context: ScenePresentationContext) -> some View { self }
 }
 #endif

@@ -139,6 +139,7 @@ struct PaymentSheetNativeView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var i18n: I18nStore
+    @EnvironmentObject private var presentationContext: ScenePresentationContext
 
     @State private var methods: [PaymentMethod] = []
     @State private var creditBalance: Double?
@@ -419,7 +420,7 @@ struct PaymentSheetNativeView: View {
 
     @MainActor
     private func present(paymentSheet: PaymentSheet) async throws -> PaymentSheetResult {
-        guard let controller = UIApplication.shared.tireShopTopViewController else {
+        guard let controller = presentationContext.topViewController else {
             throw APIError(status: 0, message: "Card entry could not open.")
         }
 
@@ -618,6 +619,7 @@ private struct KeyedCardSplitSheet: View {
     let onPaid: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var presentationContext: ScenePresentationContext
     @State private var amountText = ""
     @State private var preflight: ChargePreflight?
     /// The server's fee-inclusive full-balance total: both the default and the
@@ -835,7 +837,7 @@ private struct KeyedCardSplitSheet: View {
 
     @MainActor
     private func present(paymentSheet: PaymentSheet) async throws -> PaymentSheetResult {
-        guard let controller = UIApplication.shared.tireShopTopViewController else {
+        guard let controller = presentationContext.topViewController else {
             throw APIError(status: 0, message: "Card entry could not open.")
         }
 
@@ -848,35 +850,6 @@ private struct KeyedCardSplitSheet: View {
 
     private func roundMoney(_ value: Double) -> Double {
         (value * 100).rounded() / 100
-    }
-}
-
-private extension UIApplication {
-    var tireShopTopViewController: UIViewController? {
-        connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .rootViewController?
-            .tireShopTopPresentedViewController
-    }
-}
-
-private extension UIViewController {
-    var tireShopTopPresentedViewController: UIViewController {
-        if let presentedViewController {
-            return presentedViewController.tireShopTopPresentedViewController
-        }
-
-        if let navigationController = self as? UINavigationController {
-            return navigationController.visibleViewController?.tireShopTopPresentedViewController ?? navigationController
-        }
-
-        if let tabBarController = self as? UITabBarController {
-            return tabBarController.selectedViewController?.tireShopTopPresentedViewController ?? tabBarController
-        }
-
-        return self
     }
 }
 

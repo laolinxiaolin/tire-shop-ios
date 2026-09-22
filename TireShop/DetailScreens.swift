@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct SaleDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var presentationContext: ScenePresentationContext
     @Environment(\.dismiss) private var dismiss
 
     let id: String
@@ -425,7 +426,11 @@ struct SaleDetailNativeView: View {
         actionError = nil
         do {
             let url = try await fetchPDF(invoice: invoice, number: number)
-            DocumentPrinter.print(url: url, jobName: "Invoice \(number)")
+            DocumentPrinter.print(
+                url: url,
+                jobName: "Invoice \(number)",
+                from: presentationContext.topViewController
+            )
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "The invoice PDF could not be printed."
         }

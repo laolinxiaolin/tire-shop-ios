@@ -68,6 +68,7 @@
 		B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */; };
 		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
 		51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */; };
+		9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */; };
 		07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D98F989BA35BDAA193F641 /* PayLinkTests.swift */; };
 		41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */; };
 		0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */; };
@@ -142,6 +143,7 @@
 		BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckScreensSnapshotTests.swift"; sourceTree = "<group>"; };
 		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
 		18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpenseReceiptSubmissionTests.swift"; sourceTree = "<group>"; };
+		9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryLookupTests.swift"; sourceTree = "<group>"; };
 		02D98F989BA35BDAA193F641 /* PayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PayLinkTests.swift"; sourceTree = "<group>"; };
 		12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentMethodPatchInputTests.swift"; sourceTree = "<group>"; };
 		0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePricingTests.swift"; sourceTree = "<group>"; };
@@ -263,6 +265,7 @@
 				BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */,
 				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
 				18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */,
+				9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */,
 				02D98F989BA35BDAA193F641 /* PayLinkTests.swift */,
 				12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */,
 				0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */,
@@ -461,6 +464,7 @@
 				B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */,
 				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
 				51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */,
+				9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */,
 				07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */,
 				41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */,
 				0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */,
@@ -598,7 +602,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091902;
+				CURRENT_PROJECT_VERSION = 2026092201;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -610,7 +614,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.12;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -627,7 +631,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091902;
+				CURRENT_PROJECT_VERSION = 2026092201;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -639,7 +643,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.12;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -656,7 +660,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091902;
+				CURRENT_PROJECT_VERSION = 2026092201;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -665,7 +669,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.12;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;
@@ -679,7 +683,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026091902;
+				CURRENT_PROJECT_VERSION = 2026092201;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -688,7 +692,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.12;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;

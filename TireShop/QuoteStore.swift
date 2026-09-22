@@ -1,11 +1,39 @@
 import Foundation
 import SwiftUI
 
+/// The API stores a six-decimal fraction: four decimal places in a percentage.
+enum SaleTaxPercentage {
+    static func isValid(_ percent: Double) -> Bool {
+        percent.isFinite && (0...100).contains(percent)
+            && abs(percent - (percent * 10_000).rounded() / 10_000) < 1e-10
+    }
+
+    static func fromFraction(_ rate: Double) -> Double {
+        (rate * 1_000_000).rounded() / 10_000
+    }
+
+    static func parseInput(_ text: String) -> Double? {
+        let normalized = text.replacingOccurrences(of: ",", with: ".")
+        guard normalized.range(of: #"^[0-9]*(\.[0-9]{0,4})?$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        let percent = normalized.isEmpty || normalized == "." ? 0 : Double(normalized)
+        guard let percent, isValid(percent) else { return nil }
+        return percent
+    }
+
+    static func text(_ percent: Double) -> String {
+        String(format: "%.4f", locale: Locale(identifier: "en_US_POSIX"), percent)
+            .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+    }
+}
+
 struct QuoteCustomer: Equatable {
     let id: String
     let name: String
     let company: String?
     let taxExempt: Bool
+    let taxExemptExpiresAt: String?
     let state: String?
     let county: String?
     let city: String?
@@ -16,21 +44,45 @@ struct QuoteCustomer: Equatable {
         name = customer.name
         company = customer.company
         taxExempt = customer.taxExempt
+        taxExemptExpiresAt = customer.taxExemptExpiresAt
         state = customer.state
         county = customer.county
         city = customer.city
         postalCode = customer.postalCode
     }
 
-    init(summary: CustomerSummary, taxExempt: Bool = false) {
+    init(summary: CustomerSummary, taxExempt: Bool = false, taxExemptExpiresAt: String? = nil) {
         id = summary.id
         name = summary.name
         company = summary.company
         self.taxExempt = taxExempt
+        self.taxExemptExpiresAt = taxExemptExpiresAt
         state = nil
         county = nil
         city = nil
         postalCode = nil
+    }
+
+    private init(copying customer: QuoteCustomer, taxExempt: Bool) {
+        id = customer.id
+        name = customer.name
+        company = customer.company
+        self.taxExempt = taxExempt
+        taxExemptExpiresAt = customer.taxExemptExpiresAt
+        state = customer.state
+        county = customer.county
+        city = customer.city
+        postalCode = customer.postalCode
+    }
+
+    func withTaxExempt(_ taxExempt: Bool) -> QuoteCustomer {
+        QuoteCustomer(copying: self, taxExempt: taxExempt)
+    }
+
+    var hasActiveTaxExemption: Bool {
+        guard taxExempt else { return false }
+        guard let taxExemptExpiresAt else { return true }
+        return AppFormat.date(taxExemptExpiresAt).map { $0 > Date() } ?? false
     }
 }
 
@@ -51,43 +103,71 @@ struct QuoteLine: Identifiable, Equatable {
 
 @MainActor
 final class QuoteStore: ObservableObject {
+    typealias TaxRateLoader = (String, SaleFulfillment, String?) async throws -> CustomerTaxRateResponse
+
     private let fallbackTaxPct = 7.0
     private var defaultTaxPct = 7.0
     private var taxLookupGeneration = 0
     private var taxRateIsExplicit = false
+    private let taxRateLoader: TaxRateLoader
 
     @Published var customer: QuoteCustomer?
     @Published var lines: [QuoteLine] = []
     @Published var taxRate = 7.0
     @Published var taxOverride: Double?
+    @Published private(set) var overrideTaxRate = false
+    @Published private(set) var taxContextRevision = 0
+    @Published var taxLookupInProgress = false
+    @Published var taxLookupError: String?
     @Published var taxLookupMessage: String?
+    @Published var taxResolutionId: String?
     @Published var editingSaleId: String?
     @Published var pendingConfirmationSaleId: String?
     @Published var pendingCreationIdempotencyKey: String?
     @Published var pendingCreationInput: SaleUpsertInput?
     @Published var location = ""
+    @Published var fulfillment: SaleFulfillment = .delivery
+
+    init(taxRateLoader: @escaping TaxRateLoader = { customerId, fulfillment, location in
+        try await CustomersAPI().taxRate(
+            customerId: customerId,
+            fulfillment: fulfillment,
+            location: location
+        )
+    }) {
+        self.taxRateLoader = taxRateLoader
+    }
 
     var subtotal: Double {
         lines.reduce(0) { $0 + $1.lineTotal }
     }
 
     var taxAmount: Double {
-        guard customer?.taxExempt != true else { return 0 }
+        guard customer?.taxExempt != true || overrideTaxRate else { return 0 }
         if let taxOverride {
             return taxOverride
         }
-        return (subtotal * (taxRate / 100) * 100).rounded() / 100
+        return (subtotal * (effectiveTaxRate / 100) * 100).rounded() / 100
+    }
+
+    var effectiveTaxRate: Double {
+        customer?.taxExempt == true && !overrideTaxRate ? 0 : taxRate
     }
 
     var total: Double {
         ((subtotal + taxAmount) * 100).rounded() / 100
     }
 
+    var hasDraft: Bool {
+        customer != nil || !lines.isEmpty || editingSaleId != nil
+            || pendingConfirmationSaleId != nil || pendingCreationIdempotencyKey != nil
+    }
+
     func restoreDefaultTaxRate() async {
         do {
             let general = try await SettingsAPI().general()
-            defaultTaxPct = (general.defaultTaxRate * 10000).rounded() / 100
-            if editingSaleId == nil && lines.isEmpty && !taxRateIsExplicit {
+            defaultTaxPct = SaleTaxPercentage.fromFraction(general.defaultTaxRate)
+            if customer == nil && editingSaleId == nil && lines.isEmpty && !taxRateIsExplicit {
                 taxRate = defaultTaxPct
             }
         } catch {
@@ -99,67 +179,130 @@ final class QuoteStore: ObservableObject {
         taxLookupGeneration += 1
         taxRateIsExplicit = false
         taxOverride = nil
+        overrideTaxRate = false
         taxRate = defaultTaxPct
+        taxLookupInProgress = customer != nil
+        taxLookupError = nil
         taxLookupMessage = nil
-        self.customer = customer
+        taxResolutionId = nil
+        self.customer = customer.map { $0.withTaxExempt($0.hasActiveTaxExemption) }
+        taxContextRevision += 1
     }
 
-    func setTaxRate(_ pct: Double) {
+    func setTaxRate(_ pct: Double, isAdmin: Bool) {
+        guard isAdmin, SaleTaxPercentage.isValid(pct) else { return }
         taxLookupGeneration += 1
         taxRateIsExplicit = true
+        overrideTaxRate = true
         taxOverride = nil
-        taxRate = pct
+        taxRate = (pct * 10_000).rounded() / 10_000
+        taxLookupInProgress = false
+        taxLookupError = nil
         taxLookupMessage = nil
+        taxResolutionId = nil
     }
 
     func setLocation(_ code: String) {
+        guard location != code else { return }
         location = code
+        guard fulfillment == .pickup || overrideTaxRate else { return }
+        invalidateAutomaticTax()
+    }
+
+    private func invalidateAutomaticTax(scheduleLookup: Bool = true) {
+        taxLookupGeneration += 1
+        overrideTaxRate = false
+        taxOverride = nil
+        taxRateIsExplicit = false
+        taxLookupInProgress = customer != nil
+        taxLookupError = nil
+        taxLookupMessage = nil
+        taxResolutionId = nil
+        if scheduleLookup { taxContextRevision += 1 }
+    }
+
+    func setFulfillment(_ fulfillment: SaleFulfillment) {
+        guard self.fulfillment != fulfillment else { return }
+        self.fulfillment = fulfillment
+        invalidateAutomaticTax()
+    }
+
+    func useAutomaticTaxRate() async {
+        invalidateAutomaticTax(scheduleLookup: false)
+        await applyCustomerTaxRate()
     }
 
     func applyCustomerTaxRate() async {
+        // A queued view callback must not replace an administrator's newer edit.
+        guard !overrideTaxRate else { return }
         taxLookupGeneration += 1
         let generation = taxLookupGeneration
+        let requestedFulfillment = fulfillment
+        let requestedLocation = location
 
-        guard let customer, customer.taxExempt != true else {
+        guard let customer else {
             taxRateIsExplicit = false
             taxRate = defaultTaxPct
+            taxLookupInProgress = false
+            taxLookupError = nil
             taxLookupMessage = nil
+            taxResolutionId = nil
             return
         }
-        guard customer.state?.nilIfBlank != nil
-            || customer.county?.nilIfBlank != nil
-            || customer.city?.nilIfBlank != nil
-            || customer.postalCode?.nilIfBlank != nil else {
-            taxRateIsExplicit = false
-            taxRate = defaultTaxPct
-            taxLookupMessage = nil
-            return
+
+        taxLookupInProgress = true
+        taxLookupError = nil
+        taxLookupMessage = nil
+        taxResolutionId = nil
+        var resumeLookupOnReturn = false
+        defer {
+            if generation == taxLookupGeneration {
+                taxLookupInProgress = resumeLookupOnReturn
+            }
         }
 
         do {
-            let rate = try await TaxRatesAPI().lookup(
-                state: customer.state?.nilIfBlank ?? "GA",
-                county: customer.county?.nilIfBlank,
-                city: customer.city?.nilIfBlank,
-                postalCode: customer.postalCode?.nilIfBlank
+            let result = try await taxRateLoader(
+                customer.id,
+                requestedFulfillment,
+                requestedFulfillment == .pickup ? requestedLocation.nilIfBlank : nil
             )
             guard generation == taxLookupGeneration, self.customer?.id == customer.id else { return }
-            guard let rate else {
+            guard let rate = result.rate else {
                 taxRateIsExplicit = false
                 taxOverride = nil
                 taxRate = defaultTaxPct
-                taxLookupMessage = "No saved tax rate matched this customer location."
+                let problem = result.automatic?.code
+                    ?? result.resolution?.problemCode
+                    ?? "Tax address is unresolved."
+                taxLookupError = problem
+                taxLookupMessage = problem
                 return
             }
-            let fraction = rate.rate
             taxRateIsExplicit = true
             taxOverride = nil
-            taxRate = (fraction * 10000).rounded() / 100
-            let location = [rate.county, rate.city, rate.postalCode].compactMap { $0?.nilIfBlank }.joined(separator: " - ")
-            taxLookupMessage = location.isEmpty ? "Applied saved tax rate." : "Applied tax for \(location)."
+            taxRate = SaleTaxPercentage.fromFraction(rate)
+            taxResolutionId = result.automatic?.status == "RESOLVED"
+                ? result.automatic?.resolutionId
+                : nil
+            self.customer = customer.withTaxExempt(result.source == "EXEMPT")
+            switch result.source {
+            case "EXEMPT": taxLookupMessage = "newQuote.taxExemptionApplied"
+            case "DEFAULT": taxLookupMessage = "newQuote.taxShopDefaultApplied"
+            case "OVERRIDE": taxLookupMessage = "newQuote.taxCustomerOverrideApplied"
+            default: taxLookupMessage = "newQuote.taxVerifiedApplied"
+            }
         } catch {
             guard generation == taxLookupGeneration, self.customer?.id == customer.id else { return }
-            taxLookupMessage = (error as? LocalizedError)?.errorDescription ?? "Could not look up tax rate."
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+                // Navigation cancels the view task. Keep work pending so the
+                // next appearance resumes it without displaying a tax error.
+                resumeLookupOnReturn = true
+                return
+            }
+            let message = (error as? LocalizedError)?.errorDescription ?? "Could not look up tax rate."
+            taxLookupError = message
+            taxLookupMessage = message
         }
     }
 
@@ -217,7 +360,7 @@ final class QuoteStore: ObservableObject {
     func roundTotal(to target: Double) {
         let target = Self.roundMoney(target)
         guard target > 0 else { return }
-        let effectiveRate = customer?.taxExempt == true ? 0 : taxRate / 100
+        let effectiveRate = effectiveTaxRate / 100
         guard let plan = Self.roundTotalPlan(lines: lines, taxRate: effectiveRate, target: target) else { return }
         for (index, planned) in zip(lines.indices, plan.lines) {
             lines[index].unitPrice = planned.unitPrice
@@ -229,7 +372,8 @@ final class QuoteStore: ObservableObject {
     func seed(from sale: Sale, customer: QuoteCustomer) {
         taxLookupGeneration += 1
         taxRateIsExplicit = true
-        self.customer = customer
+        overrideTaxRate = sale.taxEvidence?.type == "SALE_RATE_OVERRIDE"
+        self.customer = customer.withTaxExempt(customer.hasActiveTaxExemption)
         lines = sale.lines.map { line in
             let unitPrice = Double(line.unitPrice) ?? 0
             return QuoteLine(
@@ -243,41 +387,59 @@ final class QuoteStore: ObservableObject {
                 listPrice: unitPrice
             )
         }
-        taxRate = ((Double(sale.taxRate) ?? 0) * 10000).rounded() / 100
+        taxRate = SaleTaxPercentage.fromFraction(Double(sale.taxRate) ?? 0)
         taxOverride = nil
+        taxLookupInProgress = false
+        taxLookupError = nil
         taxLookupMessage = nil
+        taxResolutionId = sale.taxResolutionId
         editingSaleId = sale.id
         pendingConfirmationSaleId = nil
         pendingCreationIdempotencyKey = nil
         pendingCreationInput = nil
         location = sale.location
+        fulfillment = sale.fulfillment ?? .delivery
     }
 
     func clear() {
         taxLookupGeneration += 1
         taxRateIsExplicit = false
+        overrideTaxRate = false
         customer = nil
         lines = []
         taxRate = defaultTaxPct
         taxOverride = nil
+        taxLookupInProgress = false
+        taxLookupError = nil
         taxLookupMessage = nil
+        taxResolutionId = nil
         editingSaleId = nil
         pendingConfirmationSaleId = nil
         pendingCreationIdempotencyKey = nil
         pendingCreationInput = nil
         location = ""
+        fulfillment = .delivery
     }
 
     func saleInput() throws -> SaleUpsertInput {
         guard let customer else {
             throw APIError(status: 0, message: "Pick a customer first.")
         }
+        guard !taxLookupInProgress else {
+            throw APIError(status: 0, message: "Wait for the tax calculation to finish.")
+        }
+        if let taxLookupError {
+            throw APIError(status: 0, message: taxLookupError)
+        }
 
         return SaleUpsertInput(
             customerId: customer.id,
-            taxRate: customer.taxExempt ? 0 : taxRate / 100,
-            taxAmount: customer.taxExempt ? nil : taxOverride,
+            taxRate: (effectiveTaxRate * 10_000).rounded() / 1_000_000,
+            taxAmount: customer.taxExempt && !overrideTaxRate ? nil : taxOverride,
             location: location.nilIfBlank,
+            fulfillment: fulfillment,
+            taxResolutionId: taxResolutionId,
+            overrideTaxRate: overrideTaxRate,
             lines: lines.map {
                 NewSaleLine(
                     itemType: $0.itemType,
