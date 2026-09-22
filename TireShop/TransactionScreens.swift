@@ -3192,7 +3192,6 @@ struct StartReturnNativeView: View {
 
     @State private var reason = ""
     @State private var notes = ""
-    @State private var type = "RETURN"
     @State private var refundSelection = ReturnRefundSelection()
     @State private var refundMethods: [PaymentMethod] = []
     @State private var loadingRefundMethods = false
@@ -3210,11 +3209,6 @@ struct StartReturnNativeView: View {
                 }
 
                 Section("Return") {
-                    Picker("Type", selection: $type) {
-                        Text("Return").tag("RETURN")
-                        Text("Exchange").tag("EXCHANGE")
-                        Text("Warranty").tag("WARRANTY")
-                    }
                     Picker("Refund method", selection: Binding(
                         get: { refundSelection.method },
                         set: { refundSelection.selectMethod($0) }
@@ -3296,7 +3290,7 @@ struct StartReturnNativeView: View {
             }
             .disabled(saving)
         }
-        .navigationTitle("Return / Exchange")
+        .navigationTitle("Return")
         .task { await loadRefundMethods() }
     }
 
@@ -3339,7 +3333,7 @@ struct StartReturnNativeView: View {
                 throw APIError(status: 0, message: "Select at least one item to return.")
             }
             _ = try await ReturnsAPI().create(saleId: saleId, body: CreateReturnInput(
-                type: type,
+                type: "RETURN",
                 reason: reason.nilIfBlank,
                 restockingFee: nil,
                 refundMethod: refundSelection.method,

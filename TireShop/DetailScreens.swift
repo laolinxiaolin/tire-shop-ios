@@ -159,7 +159,7 @@ struct SaleDetailNativeView: View {
                             Text("Edit sale")
                         }
                         NavigationLink(value: AppRoute.startReturn(saleId: sale.id, saleRef: sale.ref)) {
-                            Text("Return / Exchange")
+                            Text("Return")
                         }
                     }
 
