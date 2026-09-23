@@ -23,7 +23,144 @@ final class BackendParityTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    func testEmployeeUpdateClearsBlankFieldsWithoutChangingCreateOrUserLinkSemantics() throws {
+        var input = EmployeeSaveInput(fullName: "Employee", employeeNo: nil, userId: nil,
+            phone: nil, email: nil, address: nil, position: nil, department: nil,
+            status: "ACTIVE", hireDate: nil, endDate: nil, payType: "HOURLY", payRate: 20,
+            commissionRate: 0, commissionBasis: "REVENUE", notes: nil)
+        let fields = ["employeeNo", "phone", "email", "address", "position", "department", "hireDate", "endDate", "notes"]
+        let created = try encodeJSONObject(input)
+        for field in fields { XCTAssertNil(created[field], field) }
+        input.encodeNulls = true
+        let updated = try encodeJSONObject(input)
+        for field in fields { XCTAssertTrue(updated[field] is NSNull, field) }
+        XCTAssertNil(updated["userId"])
+        input.includeUserId = true
+        XCTAssertTrue(try encodeJSONObject(input)["userId"] is NSNull)
+        input.phone = "555-0100"
+        XCTAssertEqual(try encodeJSONObject(input)["phone"] as? String, "555-0100")
+    }
+
+    func testRoleGrantsSurviveMissingOrIncompleteCatalog() throws {
+        let role = Role(
+            id: "role-1", name: "Staff", description: nil,
+            permissions: ["sales.view", "inventory.view"],
+            approvalPermissions: ["inventory.adjust"], isSystem: false,
+            isAdmin: false, userCount: 2, createdAt: "2026-09-22"
+        )
+        let partialCatalog = [PermissionGroup(group: "sales", permissions: [
+            .init(key: "sales.view", label: "View sales", approvable: false),
+            .init(key: "sales.manage", label: "Manage sales", approvable: false)
+        ])]
+        for catalog in [[], partialCatalog] {
+            let states = PermState.initialStates(role: role, catalog: catalog)
+            let body = RolePatchInput(
+                name: nil, description: "Updated description",
+                permissions: states.filter { $0.value == .granted }.map(\.key).sorted(),
+                approvalPermissions: states.filter { $0.value == .approval }.map(\.key).sorted()
+            )
+            let json = try encodeJSONObject(body)
+            XCTAssertEqual(json["permissions"] as? [String], ["inventory.view", "sales.view"])
+            XCTAssertEqual(json["approvalPermissions"] as? [String], ["inventory.adjust"])
+        }
+
+        var edited = PermState.initialStates(role: role, catalog: partialCatalog)
+        edited["sales.view"] = .off
+        XCTAssertEqual(edited.filter { $0.value == .granted }.map(\.key), ["inventory.view"])
+        XCTAssertEqual(edited["inventory.adjust"], .approval)
+        XCTAssertEqual(edited["sales.manage"], .off)
+    }
+
+    func testRefundTenderRequiresFreshExplicitAccountSelection() throws {
+        let cash = PaymentMethod(id: "custom-cash", name: "Second register", feeRate: nil,
+            isActive: true, processor: nil, account: .init(code: "1007", name: "Register two"))
+        let card = PaymentMethod(id: "card", name: "Card", feeRate: nil,
+            isActive: true, processor: nil, account: .init(code: "1030", name: "Card receivable"))
+        var selection = ReturnRefundSelection()
+        selection.selectMethod("CASH")
+        XCTAssertThrowsError(try selection.resolvedPaymentMethodId(methods: [cash, card]))
+        selection.paymentMethodId = cash.id
+        XCTAssertEqual(try selection.resolvedPaymentMethodId(methods: [cash, card]), cash.id)
+        selection.selectMethod("CARD")
+        XCTAssertEqual(selection.paymentMethodId, "")
+        XCTAssertThrowsError(try selection.resolvedPaymentMethodId(methods: [cash, card]))
+        selection.paymentMethodId = card.id
+        let body = CreateReturnInput(type: "RETURN", reason: nil, restockingFee: nil,
+            refundMethod: selection.method,
+            paymentMethodId: try selection.resolvedPaymentMethodId(methods: [cash, card]),
+            notes: nil, lines: [], replacementLines: nil, warrantyDisposition: nil, supplierId: nil)
+        let json = try encodeJSONObject(body)
+        XCTAssertEqual(json["refundMethod"] as? String, "CARD")
+        XCTAssertEqual(json["paymentMethodId"] as? String, card.id)
+    }
+
+    func testRefundRejectsInactiveCreditAndMissingMethods() {
+        let inactive = PaymentMethod(id: "inactive", name: "Old cash", feeRate: nil,
+            isActive: false, processor: nil, account: .init(code: "1000", name: "Cash"))
+        let credit = PaymentMethod(id: "credit", name: "Store credit", feeRate: nil,
+            isActive: true, processor: nil, account: .init(code: "2400", name: "Credit"))
+        var selection = ReturnRefundSelection()
+        selection.selectMethod("CHECK")
+        for id in [inactive.id, credit.id, "missing"] {
+            selection.paymentMethodId = id
+            XCTAssertThrowsError(try selection.resolvedPaymentMethodId(methods: [inactive, credit]))
+        }
+    }
+
+    func testOriginalAndStoreCreditRefundsDoNotDependOnMethodLookup() throws {
+        var selection = ReturnRefundSelection()
+        selection.selectMethod("CASH")
+        selection.paymentMethodId = "previous-cash"
+        for method in ["ORIGINAL", "STORE_CREDIT"] {
+            selection.selectMethod(method)
+            XCTAssertFalse(selection.requiresPaymentMethod)
+            let body = CreateReturnInput(type: "RETURN", reason: nil, restockingFee: nil,
+                refundMethod: selection.method,
+                paymentMethodId: try selection.resolvedPaymentMethodId(methods: []),
+                notes: nil, lines: [], replacementLines: nil, warrantyDisposition: nil, supplierId: nil)
+            XCTAssertNil(try encodeJSONObject(body)["paymentMethodId"])
+        }
+    }
+
     // MARK: - Manual payment overpayment
+
+    func testManualPaymentRetriesPreserveAttemptedAmountMethodAndCheckDate() throws {
+        var row = PaymentRow(paymentMethodId: "check", amount: "100", reference: "123")
+        row.plannedDepositDate = "2026-09-23"
+        row.beginAttempt(isCheck: true)
+        let original = try XCTUnwrap(row.attemptedPayload)
+        let originalId = row.id
+        row.amount = "200"
+        row.paymentMethodId = "cash"
+        row.reference = "changed"
+        row.plannedDepositDate = "2026-10-01"
+        row.beginAttempt(isCheck: false)
+        let retry = try XCTUnwrap(row.attemptedPayload)
+        XCTAssertEqual(retry.amount, 100)
+        XCTAssertEqual(retry.paymentMethodId, "check")
+        XCTAssertEqual(retry.reference, "123")
+        XCTAssertEqual(retry.plannedDepositDate, "2026-09-23")
+        XCTAssertEqual(retry.note, original.note)
+        XCTAssertEqual(row.id, originalId)
+    }
+
+    func testUncertainManualFailureKeepsAttemptButDefiniteRejectionAllowsCorrection() throws {
+        var row = PaymentRow(paymentMethodId: "cash", amount: "100", reference: "")
+        row.beginAttempt(isCheck: false)
+        let originalId = row.id
+        for status in [0, 408, 409, 429, 500, 503] {
+            row.allowCorrection(after: APIError(status: status, message: "Failed"))
+            XCTAssertTrue(row.attempted)
+            XCTAssertEqual(row.id, originalId)
+        }
+        row.allowCorrection(after: APIError(status: 400, message: "Invalid amount"))
+        XCTAssertFalse(row.attempted)
+        XCTAssertNotEqual(row.id, originalId)
+        row.amount = "50"
+        row.beginAttempt(isCheck: false)
+        XCTAssertEqual(try XCTUnwrap(row.attemptedPayload).amount, 50)
+        XCTAssertEqual(row.attemptedPayload?.note, row.reconciliationMarker)
+    }
 
     func testCustomerManualPaymentCanCreateStoreCredit() {
         XCTAssertTrue(ManualPaymentOverpaymentPolicy.allowsOverpayment(

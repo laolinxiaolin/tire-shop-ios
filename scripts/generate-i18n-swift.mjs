@@ -1,51 +1,67 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(import.meta.dirname, '../..');
-const sourcePath = path.join(repoRoot, 'src/lib/i18n.tsx');
-const outputPath = path.join(repoRoot, 'SwiftApp/TireShop/I18nMessages.swift');
-
-const source = fs.readFileSync(sourcePath, 'utf8');
-
-function extractObject(name, endMarker, closeLength) {
-  const start = source.indexOf(`const ${name}`);
-  if (start < 0) throw new Error(`Could not find ${name}`);
-  const bodyStart = source.indexOf('{', start);
-  const end = source.indexOf(endMarker, bodyStart);
-  if (end < 0) throw new Error(`Could not find end for ${name}`);
-  const literal = source.slice(bodyStart, end + closeLength).trim().replace(/;$/, '');
-  return vm.runInNewContext(`(${literal})`, {});
-}
+const scriptPath = fileURLToPath(import.meta.url);
+const repoRoot = path.resolve(path.dirname(scriptPath), '..');
+const sourcePath = path.join(repoRoot, 'localization/messages.json');
+const outputPath = path.join(repoRoot, 'TireShop/I18nMessages.swift');
 
 function swiftString(value) {
-  return `"${String(value)
+  return `"${value
     .replaceAll('\\', '\\\\')
     .replaceAll('"', '\\"')
     .replaceAll('\r', '\\r')
-    .replaceAll('\n', '\\n')}"`
+    .replaceAll('\n', '\\n')
+    .replaceAll('\t', '\\t')
+    .replace(/[\u0000-\u001f\u007f]/g, character => `\\u{${character.charCodeAt(0).toString(16)}}`)}"`;
 }
 
-function renderDictionary(language, messages) {
-  const lines = [`        .${language}: [`];
-  for (const key of Object.keys(messages).sort()) {
-    lines.push(`            ${swiftString(key)}: ${swiftString(messages[key])},`);
+export function renderMessages(messages) {
+  if (!messages || typeof messages !== 'object' || Array.isArray(messages)
+      || Object.keys(messages).sort().join(',') !== 'en,zh') {
+    throw new Error('Translations must contain exactly the en and zh dictionaries.');
   }
-  lines.push('        ]');
-  return lines.join('\n');
-}
+  const dictionaries = ['en', 'zh'].map(language => {
+    const entries = messages[language];
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+      throw new Error(`Invalid ${language} translation dictionary.`);
+    }
+    const lines = [`        .${language}: [`];
+    for (const key of Object.keys(entries).sort()) {
+      if (typeof entries[key] !== 'string') {
+        throw new Error(`Translation ${language}.${key} must be a string.`);
+      }
+      lines.push(`            ${swiftString(key)}: ${swiftString(entries[key])},`);
+    }
+    if (Object.keys(entries).length === 0) {
+      return `        .${language}: [:]`;
+    }
+    lines.push('        ]');
+    return lines.join('\n');
+  });
+  return `import Foundation
 
-const en = extractObject('en', '} satisfies Dict;', 1);
-const zh = extractObject('zh', '\n};\n\nconst messages:', 2);
-
-const output = `import Foundation
-
+// Generated from localization/messages.json by scripts/generate-i18n-swift.mjs.
 extension I18nStore {
     static let messages: [AppLanguage: [String: String]] = [
-${renderDictionary('en', en)},
-${renderDictionary('zh', zh)}
+${dictionaries.join(',\n')}
     ]
 }
 `;
+}
 
-fs.writeFileSync(outputPath, output);
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  const args = process.argv.slice(2);
+  if (args.some(arg => arg !== '--check')) {
+    throw new Error('Usage: node scripts/generate-i18n-swift.mjs [--check]');
+  }
+  const output = renderMessages(JSON.parse(fs.readFileSync(sourcePath, 'utf8')));
+  if (args.includes('--check')) {
+    if (!fs.existsSync(outputPath) || fs.readFileSync(outputPath, 'utf8') !== output) {
+      throw new Error('I18nMessages.swift is out of date. Run node scripts/generate-i18n-swift.mjs.');
+    }
+  } else {
+    fs.writeFileSync(outputPath, output);
+  }
+}

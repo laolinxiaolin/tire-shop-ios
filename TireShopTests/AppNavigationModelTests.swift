@@ -3,6 +3,56 @@ import XCTest
 
 @MainActor
 final class AppNavigationModelTests: XCTestCase {
+    func testSwitchingPinnedTabsPreservesMoreWorkflow() {
+        let navigation = AppNavigationModel()
+        navigation.selectDestination("employees")
+        navigation.append(.employeeDetail("employee-1"), to: AppNavigationModel.moreKey)
+        let originalPath = navigation.path(for: AppNavigationModel.moreKey).wrappedValue
+
+        navigation.selectCompactTab("sales")
+        XCTAssertEqual(navigation.selectedDestinationKey, "sales")
+        XCTAssertEqual(navigation.path(for: AppNavigationModel.moreKey).wrappedValue, originalPath)
+        navigation.selectCompactTab("inventory")
+        navigation.selectCompactTab(AppNavigationModel.moreKey)
+        XCTAssertEqual(navigation.compactTab(pinnedKeys: ["sales", "inventory"]), AppNavigationModel.moreKey)
+        XCTAssertEqual(navigation.path(for: AppNavigationModel.moreKey).wrappedValue, originalPath)
+    }
+
+    func testMoreAndSidebarShareDetailPathAcrossResizingAndBackNavigation() {
+        let navigation = AppNavigationModel()
+        navigation.selectDestination("employees")
+        let more = navigation.path(for: AppNavigationModel.moreKey)
+        more.wrappedValue = [.module("employees"), .employeeDetail("employee-1")]
+        XCTAssertEqual(navigation.path(for: "employees").wrappedValue, [.employeeDetail("employee-1")])
+
+        navigation.selectCompactTab("sales")
+        navigation.selectCompactTab(AppNavigationModel.moreKey)
+        XCTAssertEqual(navigation.activeDestinationKey, "employees")
+        XCTAssertEqual(navigation.compactTab(pinnedKeys: ["sales"]), AppNavigationModel.moreKey)
+
+        // The regular sidebar stack pops the detail; compact More sees it too.
+        navigation.path(for: "employees").wrappedValue = []
+        XCTAssertEqual(more.wrappedValue, [.module("employees")])
+        navigation.append(.employeeDetail("employee-2"), to: "employees")
+        XCTAssertEqual(more.wrappedValue, [.module("employees"), .employeeDetail("employee-2")])
+        more.wrappedValue = []
+        XCTAssertTrue(navigation.path(for: "employees").wrappedValue.isEmpty)
+        XCTAssertEqual(navigation.activeDestinationKey, AppNavigationModel.moreKey)
+    }
+
+    func testSidebarDestinationReusesItsOwnPathWhenReturningToCompact() {
+        let navigation = AppNavigationModel()
+        navigation.selectDestination("employees")
+        navigation.append(.employeeDetail("employee-1"), to: "employees")
+        navigation.selectDestination("sales")
+        navigation.selectDestination("employees")
+        XCTAssertEqual(navigation.path(for: AppNavigationModel.moreKey).wrappedValue,
+            [.module("employees"), .employeeDetail("employee-1")])
+        navigation.sanitize(visibleDestinationKeys: ["sales"])
+        XCTAssertTrue(navigation.path(for: "employees").wrappedValue.isEmpty)
+        XCTAssertTrue(navigation.path(for: AppNavigationModel.moreKey).wrappedValue.isEmpty)
+    }
+
     func testDestinationSelectionAdaptsBetweenSidebarAndCompactMore() {
         let navigation = AppNavigationModel()
 

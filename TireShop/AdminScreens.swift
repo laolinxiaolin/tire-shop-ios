@@ -418,7 +418,7 @@ private struct ResetPasswordView: View {
 
 // MARK: - Roles
 
-private enum PermState: String, CaseIterable, Identifiable {
+enum PermState: String, CaseIterable, Identifiable {
     case off
     case approval
     case granted
@@ -431,6 +431,19 @@ private enum PermState: String, CaseIterable, Identifiable {
         case .approval: return "Approval"
         case .granted: return "Granted"
         }
+    }
+
+    static func initialStates(role: Role?, catalog: [PermissionGroup]) -> [String: PermState] {
+        // The catalog supplies labels, not the source of truth for saved grants.
+        var states: [String: PermState] = [:]
+        for key in role?.approvalPermissions ?? [] { states[key] = .approval }
+        for key in role?.permissions ?? [] { states[key] = .granted }
+        for group in catalog {
+            for permission in group.permissions where states[permission.key] == nil {
+                states[permission.key] = .off
+            }
+        }
+        return states
     }
 }
 
@@ -445,6 +458,7 @@ struct RolesNativeView: View {
 
     @State private var roles: [Role] = []
     @State private var catalog: [PermissionGroup] = []
+    @State private var catalogLoaded = false
     @State private var loaded = false
     @State private var errorMessage: String?
     @State private var editing: RoleEditTarget?
@@ -484,6 +498,7 @@ struct RolesNativeView: View {
                     Button { editing = RoleEditTarget(role: nil) } label: {
                         Label(i18n.t("roles.createTitle"), systemImage: "plus")
                     }
+                    .disabled(!catalogLoaded)
                 }
             }
         }
@@ -506,8 +521,10 @@ struct RolesNativeView: View {
         do {
             async let rolesTask = RolesAPI().list()
             async let catalogTask = RolesAPI().catalog()
-            roles = try await rolesTask
-            catalog = try await catalogTask
+            let (loadedRoles, loadedCatalog) = try await (rolesTask, catalogTask)
+            roles = loadedRoles
+            catalog = loadedCatalog
+            catalogLoaded = true
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load roles."
@@ -660,19 +677,7 @@ private struct RoleEditorView: View {
             name = role.name
             description = role.description ?? ""
         }
-        var next: [String: PermState] = [:]
-        for group in catalog {
-            for permission in group.permissions {
-                if role?.permissions.contains(permission.key) == true {
-                    next[permission.key] = .granted
-                } else if role?.approvalPermissions.contains(permission.key) == true {
-                    next[permission.key] = .approval
-                } else {
-                    next[permission.key] = .off
-                }
-            }
-        }
-        states = next
+        states = PermState.initialStates(role: role, catalog: catalog)
     }
 
     @MainActor
@@ -972,6 +977,41 @@ private struct ApiKeyRevealView: View {
 
 // MARK: - Approvals
 
+@MainActor
+enum ApprovalHistoryLoader {
+    typealias PageLoader = @MainActor (ApprovalStatus, Int, Int) async throws -> Paged<ApprovalRequest>
+
+    static func load(fetchPage: PageLoader) async throws -> [ApprovalRequest] {
+        async let executed = pages(status: "EXECUTED", fetchPage: fetchPage)
+        async let denied = pages(status: "DENIED", fetchPage: fetchPage)
+        async let cancelled = pages(status: "CANCELLED", fetchPage: fetchPage)
+        async let failed = pages(status: "FAILED", fetchPage: fetchPage)
+        let batches = try await [executed, denied, cancelled, failed]
+        var byID: [String: ApprovalRequest] = [:]
+        for request in batches.flatMap({ $0 }) { byID[request.id] = request }
+        return byID.values.sorted {
+            let lhs = $0.decidedAt ?? $0.requestedAt
+            let rhs = $1.decidedAt ?? $1.requestedAt
+            if lhs != rhs { return lhs > rhs }
+            if $0.requestedAt != $1.requestedAt { return $0.requestedAt > $1.requestedAt }
+            return $0.id < $1.id
+        }
+    }
+
+    private static func pages(status: ApprovalStatus, fetchPage: PageLoader) async throws -> [ApprovalRequest] {
+        var items: [ApprovalRequest] = []
+        var page = 1
+        while true {
+            try Task.checkCancellation()
+            let result = try await fetchPage(status, page, 50)
+            try Task.checkCancellation()
+            items += result.items
+            if result.items.isEmpty || page * max(1, result.pageSize) >= result.total { return items }
+            page += 1
+        }
+    }
+}
+
 private enum ApprovalTab: String, CaseIterable, Identifiable {
     case pending
     case mine
@@ -1176,8 +1216,9 @@ struct ApprovalsNativeView: View {
         case .mine:
             return try await ApprovalsAPI().list(mine: true, pageSize: 50).items
         case .history:
-            return try await ApprovalsAPI().list(pageSize: 50).items
-                .filter { $0.status != "PENDING" }
+            return try await ApprovalHistoryLoader.load { status, page, pageSize in
+                try await ApprovalsAPI().list(status: status, page: page, pageSize: pageSize)
+            }
         }
     }
 

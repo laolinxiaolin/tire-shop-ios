@@ -159,7 +159,7 @@ struct SaleDetailNativeView: View {
                             Text("Edit sale")
                         }
                         NavigationLink(value: AppRoute.startReturn(saleId: sale.id, saleRef: sale.ref)) {
-                            Text("Return / Exchange")
+                            Text("Return")
                         }
                     }
 
@@ -1368,13 +1368,13 @@ struct ContainerDetailNativeView: View {
         .sheet(item: $editingCost) { target in
             ContainerCostEditorView(containerId: id, cost: target.cost) {
                 editingCost = nil
-                Task { await load() }
+                Task { await load(preservingDraft: true) }
             }
         }
         .sheet(item: $dueDateTarget) { cost in
             ContainerCostDueDateSheet(containerId: id, cost: cost) {
                 dueDateTarget = nil
-                Task { await load() }
+                Task { await load(preservingDraft: true) }
             }
         }
         .sheet(isPresented: $showingSupplierCorrection) {
@@ -1546,15 +1546,6 @@ struct ContainerDetailNativeView: View {
                         .disabled(busy)
                     }
 
-                    if let next = ContainerDetailLabels.nextStatus(after: container.status), next == "RECEIVED", canReceive {
-                        Button {
-                            Task { await advance(to: next) }
-                        } label: {
-                            Label("Receive into inventory", systemImage: "shippingbox.and.arrow.backward")
-                        }
-                        .disabled(busy || lines.isEmpty || !linesAreValid || !locationIsActive)
-                    }
-
                     Button(role: .destructive) {
                         showingCancelConfirm = true
                     } label: {
@@ -1568,9 +1559,18 @@ struct ContainerDetailNativeView: View {
                         Label("Unreceive", systemImage: "arrow.uturn.backward.circle")
                     }
                     .disabled(busy)
-                } else if !canChangeSupplier {
+                } else if !canChangeSupplier && !(container.status == "ARRIVED" && canReceive) {
                     Text("No actions available for this status.")
                         .foregroundStyle(Theme.muted)
+                }
+
+                if container.status == "ARRIVED", canReceive {
+                    Button {
+                        Task { await receiveContainer() }
+                    } label: {
+                        Label("Receive into inventory", systemImage: "shippingbox.and.arrow.backward")
+                    }
+                    .disabled(busy || (canEditDraft ? (lines.isEmpty || !linesAreValid || !locationIsActive) : container.lines.isEmpty))
                 }
             }
 
@@ -1835,7 +1835,7 @@ struct ContainerDetailNativeView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(preservingDraft: Bool = false) async {
         loading = true
         errorMessage = nil
         do {
@@ -1843,7 +1843,11 @@ struct ContainerDetailNativeView: View {
             async let warehousesTask = WarehousesAPI().list(activeOnly: true)
             let loaded = try await containerTask
             warehouses = (try? await warehousesTask) ?? []
-            seed(loaded)
+            if preservingDraft {
+                refreshRelatedRecords(loaded)
+            } else {
+                seed(loaded)
+            }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load container."
         }
@@ -1970,7 +1974,7 @@ struct ContainerDetailNativeView: View {
             note: attachmentNote.nilIfBlank
         )
         let updated = try await ContainersAPI().get(id: id)
-        seed(updated)
+        refreshRelatedRecords(updated)
         attachmentNote = ""
         actionMessage = "Document uploaded."
     }
@@ -1985,7 +1989,7 @@ struct ContainerDetailNativeView: View {
         do {
             _ = try await ContainersAPI().deleteAttachment(id: id, attachmentId: attachment.id)
             let updated = try await ContainersAPI().get(id: id)
-            seed(updated)
+            refreshRelatedRecords(updated)
             actionMessage = "Document deleted."
         } catch {
             actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete document."
@@ -2012,9 +2016,6 @@ struct ContainerDetailNativeView: View {
         busy = true
         actionMessage = nil
         do {
-            if status == "RECEIVED", let body = draftBody() {
-                _ = try await ContainersAPI().update(id: id, body: body)
-            }
             let updated = try await ContainersAPI().setStatus(id: id, status: status)
             seed(updated)
             actionMessage = "Moved to \(ContainerDetailLabels.status(status))"
@@ -2022,6 +2023,31 @@ struct ContainerDetailNativeView: View {
             actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not update status."
         }
         busy = false
+    }
+
+    @MainActor
+    private func receiveContainer() async {
+        guard canReceive, !busy, container?.status == "ARRIVED" else { return }
+        let body: ContainerPatchInput?
+        if canEditDraft {
+            guard let draft = draftBody(), !lines.isEmpty else { return }
+            body = draft
+        } else {
+            body = nil
+        }
+        busy = true
+        actionMessage = nil
+        defer { busy = false }
+        do {
+            if let body {
+                _ = try await ContainersAPI().update(id: id, body: body)
+            }
+            let updated = try await ContainersAPI().receive(id: id)
+            seed(updated)
+            actionMessage = "Received into inventory"
+        } catch {
+            actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not receive container."
+        }
     }
 
     @MainActor
@@ -2061,7 +2087,7 @@ struct ContainerDetailNativeView: View {
         actionMessage = nil
         do {
             _ = try await ContainersAPI().deleteCost(id: id, costId: cost.id)
-            await load()
+            await load(preservingDraft: true)
         } catch {
             actionMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete cost."
         }
@@ -2128,6 +2154,17 @@ struct ContainerDetailNativeView: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH.mm"
         return "Purchase document \(formatter.string(from: Date())).\(fileExtension)"
+    }
+
+    @MainActor
+    private func refreshRelatedRecords(_ value: Container) {
+        // Document and cost changes do not submit the editable purchase fields.
+        // Keep those local values, including edits made while the request ran.
+        if canEditDraft && ContainerDetailLabels.isEditable(value.status) {
+            container = value
+        } else {
+            seed(value)
+        }
     }
 
     @MainActor
@@ -2262,7 +2299,7 @@ private struct StatusTimelineView: View {
     }
 }
 
-private struct ContainerDraftLineEditor: Identifiable, Equatable {
+struct ContainerDraftLineEditor: Identifiable, Equatable {
     let id: String
     var skuId: String
     var skuLabel: String
@@ -2293,14 +2330,14 @@ private struct ContainerDraftLineEditor: Identifiable, Equatable {
     }
 }
 
-private struct ContainerPreviewLine: Identifiable {
+struct ContainerPreviewLine: Identifiable {
     let id: String
     let allocPerUnit: Double
     let landedUnitCost: Double
     let landedTotal: Double
 }
 
-private struct ContainerLocalPreview {
+struct ContainerLocalPreview {
     let totalQty: Int
     let supplierTotal: Double
     let extrasTotal: Double
@@ -2316,10 +2353,11 @@ private struct ContainerLocalPreview {
         costs: [ContainerCost],
         lines draftLines: [ContainerDraftLineEditor]
     ) -> ContainerLocalPreview {
-        let extras = costs
+        let activeCosts = costs.filter { $0.status != "VOID" }
+        let extras = activeCosts
             .filter { !ContainerDetailLabels.supplierPaymentCategories.contains($0.category) }
             .reduce(0) { $0 + (Double($1.amount) ?? 0) }
-        let supplierPaid = costs
+        let supplierPaid = activeCosts
             .filter { ContainerDetailLabels.supplierPaymentCategories.contains($0.category) }
             .reduce(0) { $0 + (Double($1.amount) ?? 0) }
         let totalQty = draftLines.reduce(0) { $0 + (Int($1.qty) ?? 0) }
@@ -2640,7 +2678,11 @@ private struct ContainerCostEditorView: View {
                     AppTextField(label: "Amount", text: $amount, placeholder: "0.00", keyboardType: .decimalPad)
                     AppTextField(label: "Bill date", text: $occurredAt, placeholder: "YYYY-MM-DD", keyboardType: .numbersAndPunctuation)
                     AppTextField(label: "Due date", text: $dueAt, placeholder: "YYYY-MM-DD", keyboardType: .numbersAndPunctuation)
-                    AppTextField(label: "Vendor", text: $vendor, placeholder: "Vendor or payee")
+                    if cost?.vendorId != nil {
+                        LabeledContent("Vendor", value: vendor.nilIfBlank ?? "—")
+                    } else {
+                        AppTextField(label: "Vendor", text: $vendor, placeholder: "Vendor or payee")
+                    }
                     AppTextField(label: "Reference", text: $reference)
                     TextField("Description", text: $description, axis: .vertical)
                         .lineLimit(2...4)
@@ -2686,7 +2728,7 @@ private struct ContainerCostEditorView: View {
             amount: amountValue,
             description: description.nilIfBlank,
             vendor: vendor.nilIfBlank,
-            vendorId: nil,
+            vendorId: cost?.vendorId,
             occurredAt: occurredAt.nilIfBlank,
             dueAt: dueAt.nilIfBlank,
             reference: reference.nilIfBlank,

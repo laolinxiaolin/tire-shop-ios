@@ -7,6 +7,78 @@ import XCTest
 /// out, and both remainders are server-quoted so the client never reproduces
 /// the fee math.
 final class ChargePreflightTests: XCTestCase {
+    func testCompletedPartialTerminalPaymentRequiresRecordedPaymentBeforeRemainder() {
+        let approved = TapToPayOutcome(status: .approved, detail: "Approved", amount: 100,
+            invoiceId: "invoice", paymentIntentId: "first", happenedAt: Date())
+        func intent(id: String, balance: Double) -> TerminalIntent {
+            TerminalIntent(paymentIntentId: id, clientSecret: "secret", balance: balance,
+                surcharge: 0, amount: balance, readerId: nil, readerStatus: nil)
+        }
+        XCTAssertTrue(approved.isSuperseded(by: intent(id: "next", balance: 400), invoiceId: "invoice", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "first", balance: 400), invoiceId: "invoice", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 0), invoiceId: "invoice", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 400), invoiceId: "another", recordedPaymentIntentId: "first"))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 500), invoiceId: "invoice", recordedPaymentIntentId: nil))
+        XCTAssertFalse(approved.isSuperseded(by: intent(id: "next", balance: 400), invoiceId: "invoice", recordedPaymentIntentId: "older-payment"))
+    }
+
+    func testFreshTerminalPreparationRevokesOlderScreenAuthorization() {
+        let context = TapToPayChargeContext(invoiceId: "invoice", baselineIntentId: "remaining-400")
+        XCTAssertTrue(context.accepts(invoiceId: "invoice", baselineIntentId: "remaining-400"))
+        XCTAssertFalse(context.accepts(invoiceId: "invoice", baselineIntentId: "original-500"))
+        XCTAssertFalse(context.accepts(invoiceId: "another", baselineIntentId: "remaining-400"))
+    }
+
+    func testKeyedCardPreparationKeepsAmountConfirmedBeforeGatewayLookup() async throws {
+        var editableAmount = 100.0
+        var submittedAmount: Double?
+        let result = try await KeyedCardChargePreparation.prepare(
+            grossAmount: editableAmount,
+            gatewayStatus: {
+                await Task.yield()
+                editableAmount = 200
+                return GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test")
+            },
+            createIntent: { amount in
+                submittedAmount = amount
+                return CardPaymentIntent(paymentIntentId: "pi_test", clientSecret: "secret",
+                    balance: 500, surcharge: 0, amount: amount)
+            }
+        )
+        XCTAssertEqual(editableAmount, 200)
+        XCTAssertEqual(submittedAmount, 100)
+        XCTAssertEqual(result.intent.amount, 100)
+    }
+
+    func testKeyedCardPreparationRejectsChangedIntentAmount() async {
+        do {
+            _ = try await KeyedCardChargePreparation.prepare(
+                grossAmount: 100,
+                gatewayStatus: { GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test") },
+                createIntent: { _ in
+                    CardPaymentIntent(paymentIntentId: "pi_test", clientSecret: "secret",
+                        balance: 500, surcharge: 0, amount: 200)
+                }
+            )
+            XCTFail("A different amount must never reach the card sheet")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("amount changed"))
+        }
+    }
+
+    func testKeyedCardPreparationSupportsLegacyIntentWithoutAmount() async throws {
+        let result = try await KeyedCardChargePreparation.prepare(
+            grossAmount: 100,
+            gatewayStatus: { GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test") },
+            createIntent: { amount in
+                XCTAssertEqual(amount, 100)
+                return CardPaymentIntent(paymentIntentId: "pi_test", clientSecret: "secret",
+                    balance: nil, surcharge: nil, amount: nil)
+            }
+        )
+        XCTAssertEqual(result.intent.clientSecret, "secret")
+    }
+
     private func decode(_ json: String) throws -> ChargePreflight {
         try JSONDecoder().decode(ChargePreflight.self, from: XCTUnwrap(json.data(using: .utf8)))
     }
@@ -95,5 +167,133 @@ final class ChargePreflightTests: XCTestCase {
         let warning = ChargeWarning(code: "partiallyPaid", params: ["amount": "40.00", "methods": ""])
         XCTAssertTrue(warning.message.contains("$40.00 in payments."))
         XCTAssertFalse(warning.message.contains("()"))
+    }
+
+    private func terminalQuote(_ amount: Double, warns: Bool = false) -> ChargePreflight {
+        ChargePreflight(
+            balance: 500,
+            applied: amount,
+            surcharge: 0,
+            amount: amount,
+            remaining: 500 - amount,
+            remainingGross: 500 - amount,
+            warnings: warns ? [ChargeWarning(code: "recentPayment", params: [:])] : []
+        )
+    }
+
+    func testTerminalPreflightsCompletingOutOfOrderCannotChangeReviewedCharge() throws {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let first = selection.beginPreflight(grossAmount: 100)
+        selection.editAmount("200")
+        let second = selection.beginPreflight(grossAmount: 200)
+
+        selection.completePreflight(terminalQuote(200, warns: true), for: second)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+        selection.acknowledgeWarnings()
+        let confirmed = try XCTUnwrap(selection.authorization(fullBalanceAmount: 500))
+
+        selection.completePreflight(terminalQuote(100), for: first)
+        selection.failPreflight("Old request failed", for: first)
+
+        XCTAssertEqual(selection.preflight?.amount, 200)
+        XCTAssertEqual(selection.displayedAmount(fullBalanceAmount: 500), 200)
+        XCTAssertEqual(selection.authorization(fullBalanceAmount: 500), confirmed)
+        XCTAssertEqual(confirmed.grossAmount, 200)
+        XCTAssertFalse(confirmed.usesFullBalanceIntent)
+        XCTAssertTrue(selection.acknowledgedWarnings)
+        XCTAssertNil(selection.errorMessage)
+    }
+
+    func testTerminalEditingInvalidatesPendingResponseAndCompletedQuote() {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let pending = selection.beginPreflight(grossAmount: 100)
+        selection.editAmount("200")
+        selection.completePreflight(terminalQuote(100), for: pending)
+        selection.failPreflight("Old request failed", for: pending)
+
+        XCTAssertNil(selection.preflight)
+        XCTAssertNil(selection.errorMessage)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+
+        let next = selection.beginPreflight(grossAmount: 200)
+        selection.completePreflight(terminalQuote(200, warns: true), for: next)
+        selection.acknowledgeWarnings()
+        XCTAssertNotNil(selection.authorization(fullBalanceAmount: 500))
+
+        selection.editAmount("300")
+        XCTAssertNil(selection.preflight)
+        XCTAssertFalse(selection.acknowledgedWarnings)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+    }
+
+    func testTerminalFullBalanceIgnoresPendingSplitAndUsesRefreshedFullAmount() throws {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let pending = selection.beginPreflight(grossAmount: 100)
+        selection.useFullBalance()
+        selection.completePreflight(terminalQuote(100), for: pending)
+        selection.failPreflight("Old request failed", for: pending)
+
+        XCTAssertEqual(selection.amountText, "")
+        XCTAssertNil(selection.preflight)
+        XCTAssertNil(selection.errorMessage)
+        XCTAssertEqual(selection.displayedAmount(fullBalanceAmount: 500), 500)
+        let full = try XCTUnwrap(selection.authorization(fullBalanceAmount: 500))
+        XCTAssertEqual(full.grossAmount, 500)
+        XCTAssertTrue(full.usesFullBalanceIntent)
+
+        let refreshed = try XCTUnwrap(selection.authorization(fullBalanceAmount: 400))
+        XCTAssertEqual(refreshed.grossAmount, 400)
+        XCTAssertTrue(refreshed.usesFullBalanceIntent)
+        XCTAssertEqual(selection.displayedAmount(fullBalanceAmount: 400), 400)
+    }
+
+    func testTerminalRepeatedApplyOfSameAmountStillInvalidatesEarlierWarnings() {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let first = selection.beginPreflight(grossAmount: 100)
+        let second = selection.beginPreflight(grossAmount: 100)
+        selection.completePreflight(terminalQuote(100, warns: true), for: second)
+        selection.completePreflight(terminalQuote(100), for: first)
+
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+        XCTAssertEqual(selection.preflight?.warnings.count, 1)
+        selection.acknowledgeWarnings()
+        XCTAssertNotNil(selection.authorization(fullBalanceAmount: 500))
+    }
+
+    func testTerminalAuthorizationKeepsConfirmedAmountAndRejectsChangedIntent() throws {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let request = selection.beginPreflight(grossAmount: 100)
+        selection.completePreflight(terminalQuote(100), for: request)
+        let authorization = try XCTUnwrap(selection.authorization(fullBalanceAmount: 500))
+
+        selection.editAmount("200")
+        XCTAssertEqual(authorization.grossAmount, 100)
+        XCTAssertTrue(authorization.acceptsIntentAmount(100))
+        XCTAssertFalse(authorization.acceptsIntentAmount(100.01))
+        XCTAssertFalse(authorization.acceptsIntentAmount(200))
+        XCTAssertFalse(authorization.acceptsIntentAmount(.nan))
+        XCTAssertFalse(authorization.acceptsIntentAmount(.infinity))
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+    }
+
+    func testTerminalMismatchedQuoteAndCurrentFailureCannotAuthorizeCharge() {
+        var selection = TapToPayChargeSelection()
+        selection.editAmount("100")
+        let request = selection.beginPreflight(grossAmount: 100)
+        selection.completePreflight(terminalQuote(200), for: request)
+        XCTAssertNil(selection.preflight)
+        XCTAssertNotNil(selection.errorMessage)
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
+
+        let retry = selection.beginPreflight(grossAmount: 100)
+        XCTAssertNil(selection.errorMessage)
+        selection.failPreflight("Current request failed", for: retry)
+        XCTAssertEqual(selection.errorMessage, "Current request failed")
+        XCTAssertNil(selection.authorization(fullBalanceAmount: 500))
     }
 }

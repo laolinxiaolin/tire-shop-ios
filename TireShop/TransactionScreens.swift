@@ -1873,6 +1873,23 @@ struct TapToPayOutcome: Equatable {
     let invoiceId: String
     let paymentIntentId: String
     let happenedAt: Date
+
+    func isSuperseded(by intent: TerminalIntent, invoiceId: String, recordedPaymentIntentId: String?) -> Bool {
+        status == .approved && self.invoiceId == invoiceId
+            && recordedPaymentIntentId == paymentIntentId
+            && intent.paymentIntentId != paymentIntentId
+            && intent.balance > 0 && intent.amount > 0
+            && intent.clientSecret?.nilIfBlank != nil
+    }
+}
+
+struct TapToPayChargeContext: Equatable {
+    let invoiceId: String
+    let baselineIntentId: String
+
+    func accepts(invoiceId: String, baselineIntentId: String) -> Bool {
+        self.invoiceId == invoiceId && self.baselineIntentId == baselineIntentId
+    }
 }
 
 private struct TapToPayReceiptShare: Identifiable {
@@ -1890,20 +1907,103 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
+/// A preflight belongs to one applied amount. Editing or choosing the full
+/// balance invalidates both its eventual response and its charge authorization.
+struct TapToPayChargeSelection {
+    struct Request: Equatable {
+        fileprivate let id = UUID()
+        let grossAmount: Double
+    }
+
+    struct Authorization: Equatable {
+        let grossAmount: Double
+        let usesFullBalanceIntent: Bool
+
+        func acceptsIntentAmount(_ amount: Double) -> Bool {
+            amount.isFinite && abs(amount - grossAmount) < 0.005
+        }
+    }
+
+    private(set) var amountText = ""
+    private(set) var isFullBalance = true
+    private(set) var preflight: ChargePreflight?
+    private(set) var acknowledgedWarnings = false
+    private(set) var errorMessage: String?
+    private var request: Request?
+
+    mutating func editAmount(_ text: String) {
+        amountText = text
+        isFullBalance = text.nilIfBlank == nil
+        invalidatePreflight()
+    }
+
+    mutating func useFullBalance() {
+        editAmount("")
+    }
+
+    mutating func beginPreflight(grossAmount: Double) -> Request {
+        invalidatePreflight()
+        isFullBalance = false
+        let next = Request(grossAmount: grossAmount)
+        request = next
+        return next
+    }
+
+    mutating func completePreflight(_ result: ChargePreflight, for request: Request) {
+        guard self.request == request else { return }
+        self.request = nil
+        guard result.amount.isFinite, abs(result.amount - request.grossAmount) < 0.005 else {
+            errorMessage = "The quoted amount changed. Apply this amount again before charging."
+            return
+        }
+        preflight = result
+    }
+
+    mutating func failPreflight(_ message: String, for request: Request) {
+        guard self.request == request else { return }
+        self.request = nil
+        errorMessage = message
+    }
+
+    mutating func acknowledgeWarnings() {
+        guard preflight != nil else { return }
+        acknowledgedWarnings = true
+    }
+
+    func authorization(fullBalanceAmount: Double) -> Authorization? {
+        guard fullBalanceAmount.isFinite, fullBalanceAmount > 0 else { return nil }
+        if isFullBalance {
+            return Authorization(grossAmount: fullBalanceAmount, usesFullBalanceIntent: true)
+        }
+        guard let preflight, preflight.amount > 0,
+              preflight.amount <= fullBalanceAmount + 0.005,
+              preflight.warnings.isEmpty || acknowledgedWarnings else { return nil }
+        return Authorization(grossAmount: preflight.amount, usesFullBalanceIntent: false)
+    }
+
+    func displayedAmount(fullBalanceAmount: Double) -> Double {
+        if isFullBalance { return fullBalanceAmount }
+        return preflight?.amount ?? request?.grossAmount ?? AppFormat.parseAmount(amountText) ?? 0
+    }
+
+    private mutating func invalidatePreflight() {
+        request = nil
+        preflight = nil
+        acknowledgedWarnings = false
+        errorMessage = nil
+    }
+}
+
 struct TapToPayNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
     @ObservedObject private var terminal = TapToPayTerminalController.shared
     @State private var emailInvoice: SaleInvoice?
     @State private var receiptShare: TapToPayReceiptShare?
-    @State private var splitAmountText = ""
-    @State private var splitAmount: Double?
-    /// Fee-inclusive ceiling, captured from the first full-balance intent.
-    @State private var maxGross: Double?
-    @State private var preflight: ChargePreflight?
-    @State private var acknowledgedWarnings = false
+    @State private var chargeSelection = TapToPayChargeSelection()
     @State private var splitMessage: String?
     @State private var charging = false
+    @State private var balanceReload = 0
 
     let invoiceId: String
     let amount: Double
@@ -1915,6 +2015,7 @@ struct TapToPayNativeView: View {
     private var invoiceOutcome: TapToPayOutcome? { terminal.outcome(for: invoiceId) }
     private var invoiceSucceeded: Bool { terminal.succeeded(for: invoiceId) }
     private var invoiceIsProcessing: Bool { terminal.isProcessing(invoiceId: invoiceId) }
+    private var preflight: ChargePreflight? { chargeSelection.preflight }
     private var hasWarnings: Bool { (preflight?.warnings.isEmpty ?? true) == false }
 
     var body: some View {
@@ -1933,13 +2034,26 @@ struct TapToPayNativeView: View {
                     RowLine(title: "Invoice balance", trailing: AppFormat.money(intent.balance))
                     if let preflight {
                         RowLine(title: "Card fee", trailing: AppFormat.money(preflight.surcharge))
-                    } else if splitAmount == nil {
+                    } else if chargeSelection.isFullBalance {
                         RowLine(title: "Card fee", trailing: AppFormat.money(intent.surcharge))
                     }
                     RowLine(title: "Customer pays", trailing: AppFormat.money(chargeAmount(intent)))
                 }
 
                 splitSection(intent: intent)
+
+                if !invoiceSucceeded && !terminal.isPrepared(invoiceId: invoiceId, baselineIntentId: intent.paymentIntentId) {
+                    Section {
+                        Button("Refresh invoice balance") {
+                            chargeSelection.useFullBalance()
+                            balanceReload += 1
+                        }
+                        .disabled(terminal.isBusy)
+                        Text("Refresh the balance before starting another payment from this screen.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
 
                 Section("Before charging") {
                     ProximityReaderDiscoveryButton(title: "Show Apple Tap to Pay guide")
@@ -2070,6 +2184,7 @@ struct TapToPayNativeView: View {
                 chargeBar(intent: intent)
             }
         }
+        .id(balanceReload)
         .navigationTitle("Tap to Pay on iPhone")
         .navigationBarBackButtonHidden(invoiceIsProcessing)
         .onAppear {
@@ -2088,49 +2203,53 @@ struct TapToPayNativeView: View {
         }
     }
 
+    @MainActor
     private func loadIntent() async throws -> TerminalIntent {
-        try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, grossAmount: splitAmount)
+        // This intent always represents the full balance, including on refresh.
+        // Split intents are minted only from a reviewed authorization at charge time.
+        let approved = terminal.latestApproval(for: invoiceId)
+        if let approved {
+            let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
+            guard payments.contains(where: { $0.externalId == approved.paymentIntentId }) else {
+                throw APIError(status: 0, message: "The previous payment is still being recorded. Retry shortly to collect the remaining balance.")
+            }
+        }
+        let intent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId)
+        try Task.checkCancellation()
+        terminal.prepare(invoiceId: invoiceId, intent: intent, recordedPaymentIntentId: approved?.paymentIntentId)
+        return intent
     }
 
     private func splitSection(intent: TerminalIntent) -> some View {
-        // The first intent is minted for the whole balance, so its gross is the
-        // fee-inclusive ceiling. Captured once: a later reload carries a split
-        // amount and would otherwise drag the ceiling down with it.
-        let ceiling = maxGross ?? intent.amount
+        let ceiling = intent.amount
 
         return Section("Amount charged to the card") {
-            TextField("Amount (blank = full balance)", text: $splitAmountText)
-                .keyboardType(.decimalPad)
-                .onChange(of: splitAmountText) { _, _ in
-                    // Editing the field invalidates the applied preflight until
-                    // it's re-applied, so the breakdown/button can't disagree
-                    // with the typed amount.
-                    preflight = nil
-                    acknowledgedWarnings = false
+            TextField("Amount (blank = full balance)", text: Binding(
+                get: { chargeSelection.amountText },
+                set: {
+                    chargeSelection.editAmount($0)
+                    splitMessage = nil
                 }
+            ))
+                .keyboardType(.decimalPad)
             Button("Charge the full balance") {
-                splitAmountText = ""
-                splitAmount = nil
-                preflight = nil
-                acknowledgedWarnings = false
-                // Reverting to the full balance clears any stale split error so
-                // it can't linger over a now-valid, chargeable state.
+                chargeSelection.useFullBalance()
                 splitMessage = nil
             }
             Button("Apply this amount") {
-                let value = AppFormat.parseAmount(splitAmountText)
+                let value = AppFormat.parseAmount(chargeSelection.amountText)
                 guard let value, value > 0, value <= ceiling + 0.005 else {
                     splitMessage = "More than \(AppFormat.money(ceiling)) (balance plus card fee) can't be charged to the card."
                     return
                 }
                 splitMessage = nil
-                splitAmount = value
-                Task { await checkPreflight(grossAmount: value) }
+                let request = chargeSelection.beginPreflight(grossAmount: (value * 100).rounded() / 100)
+                Task { await checkPreflight(request) }
             }
             Text("This is what the card is charged, card fee included. Up to \(AppFormat.money(ceiling)).")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
-            if let splitMessage {
+            if let splitMessage = splitMessage ?? chargeSelection.errorMessage {
                 Text(splitMessage)
                     .font(.caption)
                     .foregroundStyle(Theme.danger)
@@ -2155,31 +2274,29 @@ struct TapToPayNativeView: View {
                     Label(warning.message, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(Theme.danger)
                 }
-                Button(acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
-                    acknowledgedWarnings = true
+                Button(chargeSelection.acknowledgedWarnings ? "Warnings acknowledged" : "Acknowledge warnings") {
+                    chargeSelection.acknowledgeWarnings()
                 }
-                .disabled(acknowledgedWarnings)
+                .disabled(chargeSelection.acknowledgedWarnings)
             }
         }
-        .onAppear {
-            if maxGross == nil, splitAmount == nil {
-                maxGross = intent.amount
-            }
-        }
+        .disabled(charging || invoiceIsProcessing)
     }
 
     @MainActor
-    private func checkPreflight(grossAmount: Double) async {
-        acknowledgedWarnings = false
+    private func checkPreflight(_ request: TapToPayChargeSelection.Request) async {
         do {
-            preflight = try await PaymentsAPI().chargePreflight(
+            let result = try await PaymentsAPI().chargePreflight(
                 invoiceId: invoiceId,
                 processor: .terminal,
-                grossAmount: grossAmount
+                grossAmount: request.grossAmount
             )
+            chargeSelection.completePreflight(result, for: request)
         } catch {
-            preflight = nil
-            splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not check this amount."
+            chargeSelection.failPreflight(
+                (error as? LocalizedError)?.errorDescription ?? "Could not check this amount.",
+                for: request
+            )
         }
     }
 
@@ -2223,21 +2340,14 @@ struct TapToPayNativeView: View {
 
     private func canCharge(_ intent: TerminalIntent) -> Bool {
         guard canCollect && terminal.canCharge(invoiceId: invoiceId, intent: intent) else { return false }
-        // A split charge requires a completed preflight and acknowledged warnings.
-        if splitAmount != nil {
-            guard preflight != nil else { return false }
-            if hasWarnings && !acknowledgedWarnings {
-                return false
-            }
-        }
-        return true
+        return chargeSelection.authorization(fullBalanceAmount: intent.amount) != nil
     }
 
     /// The amount the charge button should show. Once a preflight has confirmed
     /// a split, that quote's gross (applied + surcharge) is what the customer
     /// pays; otherwise the loaded intent's amount, which is already gross.
     private func chargeAmount(_ intent: TerminalIntent) -> Double {
-        preflight?.amount ?? splitAmount ?? intent.amount
+        chargeSelection.displayedAmount(fullBalanceAmount: intent.amount)
     }
 
     /// Starts the terminal charge. For a plain full-balance charge the already-
@@ -2245,21 +2355,31 @@ struct TapToPayNativeView: View {
     /// time (so adjusting a split doesn't orphan a PaymentIntent per apply).
     @MainActor
     private func chargeWithIntent(intent: TerminalIntent) async {
-        guard !charging else { return }
+        guard !charging, canCharge(intent),
+              let authorization = chargeSelection.authorization(fullBalanceAmount: intent.amount) else { return }
         charging = true
+        splitMessage = nil
         defer { charging = false }
         do {
             let chargeIntent: TerminalIntent
-            if splitAmount == nil {
+            if authorization.usesFullBalanceIntent {
                 chargeIntent = intent
             } else {
-                chargeIntent = try await PaymentsAPI().terminalIntent(invoiceId: invoiceId, grossAmount: splitAmount)
+                chargeIntent = try await PaymentsAPI().terminalIntent(
+                    invoiceId: invoiceId,
+                    grossAmount: authorization.grossAmount
+                )
             }
             guard chargeIntent.clientSecret?.nilIfBlank != nil, chargeIntent.amount > 0 else {
                 splitMessage = "The server did not return a chargeable payment intent."
                 return
             }
-            terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent)
+            guard authorization.acceptsIntentAmount(chargeIntent.amount) else {
+                chargeSelection.editAmount(chargeSelection.amountText)
+                splitMessage = "The charge amount changed. Apply this amount again before charging."
+                return
+            }
+            terminal.startCharge(invoiceId: invoiceId, intent: chargeIntent, baselineIntentId: intent.paymentIntentId)
         } catch {
             splitMessage = (error as? LocalizedError)?.errorDescription ?? "Could not start the charge."
         }
@@ -2323,8 +2443,10 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     @Published private(set) var updateProgress: Double?
     @Published private var invoiceOutcomes: [String: TapToPayOutcome] = [:]
 
+    private var invoiceApprovals: [String: TapToPayOutcome] = [:]
     private var currentInvoiceId: String?
-    private var pendingInvoiceId: String?
+    @Published private var chargeContext: TapToPayChargeContext?
+    private var pendingPreparation: (invoiceId: String, intent: TerminalIntent?, recordedPaymentIntentId: String?)?
     private var resetWhenIdle = false
     private var lastLocationId: String?
     private var paymentsAPI = PaymentsAPI()
@@ -2336,19 +2458,20 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    func prepare(invoiceId: String) {
-        guard currentInvoiceId != invoiceId else { return }
+    func prepare(invoiceId: String, intent: TerminalIntent? = nil, recordedPaymentIntentId: String? = nil) {
+        if currentInvoiceId == invoiceId && (isBusy || intent == nil) { return }
         if isBusy {
-            pendingInvoiceId = invoiceId
+            pendingPreparation = (invoiceId, intent, recordedPaymentIntentId)
             return
         }
-        activate(invoiceId: invoiceId)
+        activate(invoiceId: invoiceId, intent: intent, recordedPaymentIntentId: recordedPaymentIntentId)
     }
 
     @MainActor
     func resetForSessionChange() {
         invoiceOutcomes.removeAll()
-        pendingInvoiceId = nil
+        invoiceApprovals.removeAll()
+        pendingPreparation = nil
         lastLocationId = nil
         if isBusy {
             resetWhenIdle = true
@@ -2357,6 +2480,11 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         } else {
             clearActiveInvoice()
         }
+    }
+
+    @MainActor
+    func latestApproval(for invoiceId: String) -> TapToPayOutcome? {
+        invoiceApprovals[invoiceId]
     }
 
     @MainActor
@@ -2400,8 +2528,19 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func activate(invoiceId: String) {
+    private func activate(invoiceId: String, intent: TerminalIntent? = nil, recordedPaymentIntentId: String? = nil) {
         currentInvoiceId = invoiceId
+        if let previous = invoiceApprovals[invoiceId] {
+            guard let intent, previous.isSuperseded(by: intent, invoiceId: invoiceId,
+                recordedPaymentIntentId: recordedPaymentIntentId) else {
+                chargeContext = nil
+                invoiceOutcomes[invoiceId] = previous
+                succeeded = true
+                outcome = previous
+                return
+            }
+        }
+        chargeContext = intent.map { TapToPayChargeContext(invoiceId: invoiceId, baselineIntentId: $0.paymentIntentId) }
         invoiceOutcomes.removeValue(forKey: invoiceId)
         succeeded = false
         errorMessage = nil
@@ -2416,6 +2555,7 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     @MainActor
     private func clearActiveInvoice() {
         currentInvoiceId = nil
+        chargeContext = nil
         succeeded = false
         errorMessage = nil
         outcome = nil
@@ -2462,8 +2602,14 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    func canCharge(invoiceId: String, intent: TerminalIntent) -> Bool {
+    func isPrepared(invoiceId: String, baselineIntentId: String) -> Bool {
+        chargeContext?.accepts(invoiceId: invoiceId, baselineIntentId: baselineIntentId) == true
+    }
+
+    @MainActor
+    func canCharge(invoiceId: String, intent: TerminalIntent, baselineIntentId: String? = nil) -> Bool {
         currentInvoiceId == invoiceId
+            && chargeContext?.accepts(invoiceId: invoiceId, baselineIntentId: baselineIntentId ?? intent.paymentIntentId) == true
             && !isBusy
             && !succeeded(for: invoiceId)
             && intent.clientSecret?.nilIfBlank != nil
@@ -2471,11 +2617,11 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    func startCharge(invoiceId: String, intent: TerminalIntent) {
-        guard chargeTask == nil, canCharge(invoiceId: invoiceId, intent: intent) else { return }
+    func startCharge(invoiceId: String, intent: TerminalIntent, baselineIntentId: String) {
+        guard chargeTask == nil, canCharge(invoiceId: invoiceId, intent: intent, baselineIntentId: baselineIntentId) else { return }
         chargeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.charge(invoiceId: invoiceId, intent: intent)
+            await self.charge(invoiceId: invoiceId, intent: intent, baselineIntentId: baselineIntentId)
             self.chargeTask = nil
         }
     }
@@ -2489,8 +2635,8 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func charge(invoiceId: String, intent serverIntent: TerminalIntent) async {
-        guard canCharge(invoiceId: invoiceId, intent: serverIntent) else { return }
+    private func charge(invoiceId: String, intent serverIntent: TerminalIntent, baselineIntentId: String) async {
+        guard canCharge(invoiceId: invoiceId, intent: serverIntent, baselineIntentId: baselineIntentId) else { return }
 
         isBusy = true
         succeeded = false
@@ -2619,21 +2765,25 @@ final class TapToPayTerminalController: NSObject, ObservableObject {
         isBusy = false
         if let outcome, outcome.invoiceId == invoiceId {
             invoiceOutcomes[invoiceId] = outcome
+            if outcome.status == .approved {
+                invoiceApprovals[invoiceId] = outcome
+            }
         }
 
         if resetWhenIdle {
             resetWhenIdle = false
             invoiceOutcomes.removeAll()
+            invoiceApprovals.removeAll()
             lastLocationId = nil
-            let nextInvoiceId = pendingInvoiceId
-            pendingInvoiceId = nil
+            let next = pendingPreparation
+            pendingPreparation = nil
             clearActiveInvoice()
-            if let nextInvoiceId {
-                activate(invoiceId: nextInvoiceId)
+            if let next {
+                activate(invoiceId: next.invoiceId, intent: next.intent, recordedPaymentIntentId: next.recordedPaymentIntentId)
             }
-        } else if let pendingInvoiceId {
-            self.pendingInvoiceId = nil
-            activate(invoiceId: pendingInvoiceId)
+        } else if let next = pendingPreparation {
+            pendingPreparation = nil
+            activate(invoiceId: next.invoiceId, intent: next.intent, recordedPaymentIntentId: next.recordedPaymentIntentId)
         }
     }
 
@@ -3007,6 +3157,32 @@ extension TapToPayTerminalController: TapToPayReaderDelegate {
     }
 }
 
+struct ReturnRefundSelection {
+    private(set) var method = "STORE_CREDIT"
+    var paymentMethodId = ""
+
+    var requiresPaymentMethod: Bool { ["CASH", "CHECK", "CARD"].contains(method) }
+
+    mutating func selectMethod(_ method: String) {
+        guard self.method != method else { return }
+        self.method = method
+        paymentMethodId = ""
+    }
+
+    static func availableMethods(_ methods: [PaymentMethod]) -> [PaymentMethod] {
+        methods.filter { $0.isActive && $0.account.code != "2400" }
+    }
+
+    func resolvedPaymentMethodId(methods: [PaymentMethod]) throws -> String? {
+        if method == "ORIGINAL" || method == "STORE_CREDIT" { return nil }
+        guard requiresPaymentMethod,
+              Self.availableMethods(methods).contains(where: { $0.id == paymentMethodId }) else {
+            throw APIError(status: 0, message: "Choose an active payment method for this refund.")
+        }
+        return paymentMethodId
+    }
+}
+
 struct StartReturnNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
@@ -3016,8 +3192,10 @@ struct StartReturnNativeView: View {
 
     @State private var reason = ""
     @State private var notes = ""
-    @State private var type = "RETURN"
-    @State private var refundMethod = "STORE_CREDIT"
+    @State private var refundSelection = ReturnRefundSelection()
+    @State private var refundMethods: [PaymentMethod] = []
+    @State private var loadingRefundMethods = false
+    @State private var refundMethodsError: String?
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var selectedQuantities: [String: Int] = [:]
@@ -3031,17 +3209,35 @@ struct StartReturnNativeView: View {
                 }
 
                 Section("Return") {
-                    Picker("Type", selection: $type) {
-                        Text("Return").tag("RETURN")
-                        Text("Exchange").tag("EXCHANGE")
-                        Text("Warranty").tag("WARRANTY")
-                    }
-                    Picker("Refund method", selection: $refundMethod) {
+                    Picker("Refund method", selection: Binding(
+                        get: { refundSelection.method },
+                        set: { refundSelection.selectMethod($0) }
+                    )) {
                         Text("Store credit").tag("STORE_CREDIT")
                         Text("Original").tag("ORIGINAL")
                         Text("Cash").tag("CASH")
                         Text("Check").tag("CHECK")
                         Text("Card").tag("CARD")
+                    }
+                    if refundSelection.requiresPaymentMethod {
+                        if loadingRefundMethods {
+                            ProgressView("Loading payment methods...")
+                        } else if let refundMethodsError {
+                            Text(refundMethodsError).foregroundStyle(Theme.danger)
+                            Button("Retry payment methods") { Task { await loadRefundMethods() } }
+                        } else {
+                            Picker("Payment method", selection: $refundSelection.paymentMethodId) {
+                                Text("Choose payment method").tag("")
+                                ForEach(ReturnRefundSelection.availableMethods(refundMethods)) { method in
+                                    Text("\(method.name) — \(method.account.name) (\(method.account.code))")
+                                        .tag(method.id)
+                                }
+                            }
+                            if ReturnRefundSelection.availableMethods(refundMethods).isEmpty {
+                                Text("No active refund payment methods are available.")
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
                     }
                     TextField("Reason", text: $reason)
                     TextField("Notes", text: $notes, axis: .vertical)
@@ -3086,16 +3282,35 @@ struct StartReturnNativeView: View {
                         !auth.has("sales.manage")
                             || returnable.lines.isEmpty
                             || selectedQuantities.values.allSatisfy { $0 <= 0 }
+                            || (refundSelection.requiresPaymentMethod &&
+                                (loadingRefundMethods || (try? refundSelection.resolvedPaymentMethodId(methods: refundMethods)) == nil))
                             || saving
                     )
                 }
             }
+            .disabled(saving)
         }
-        .navigationTitle("Return / Exchange")
+        .navigationTitle("Return")
+        .task { await loadRefundMethods() }
+    }
+
+    @MainActor
+    private func loadRefundMethods() async {
+        guard !loadingRefundMethods else { return }
+        loadingRefundMethods = true
+        refundMethodsError = nil
+        defer { loadingRefundMethods = false }
+        do {
+            refundMethods = try await CashAccountsAPI().methods()
+        } catch {
+            refundMethods = []
+            refundMethodsError = error.localizedDescription
+        }
     }
 
     @MainActor
     private func create(returnable: Returnable) async {
+        guard !saving else { return }
         guard auth.has("sales.manage") else {
             errorMessage = "You do not have permission to create returns."
             return
@@ -3104,6 +3319,7 @@ struct StartReturnNativeView: View {
         errorMessage = nil
 
         do {
+            let paymentMethodId = try refundSelection.resolvedPaymentMethodId(methods: refundMethods)
             let lines = returnable.lines.compactMap { line -> ReturnLineInput? in
                 let quantity = min(line.qtyRemaining, max(0, selectedQuantities[line.saleLineId] ?? 0))
                 guard quantity > 0 else { return nil }
@@ -3117,11 +3333,11 @@ struct StartReturnNativeView: View {
                 throw APIError(status: 0, message: "Select at least one item to return.")
             }
             _ = try await ReturnsAPI().create(saleId: saleId, body: CreateReturnInput(
-                type: type,
+                type: "RETURN",
                 reason: reason.nilIfBlank,
                 restockingFee: nil,
-                refundMethod: refundMethod,
-                paymentMethodId: returnable.originalPaymentMethodId,
+                refundMethod: refundSelection.method,
+                paymentMethodId: paymentMethodId,
                 notes: notes.nilIfBlank,
                 lines: lines,
                 replacementLines: nil,

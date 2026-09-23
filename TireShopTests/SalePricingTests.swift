@@ -532,6 +532,33 @@ final class SalePricingTests: XCTestCase {
     }
 
     @MainActor
+    func testReopeningRoundedDraftPreservesSavedTaxUntilPricingChanges() throws {
+        let json = """
+        {"id":"rounded","status":"DRAFT","location":"MAIN","customerId":"customer",
+         "customer":{"id":"customer","name":"Customer"},"subtotal":"121.50",
+         "taxRate":"0.07","taxAmount":"8.50","total":"130.00","createdAt":"2026-09-21T12:00:00Z",
+         "lines":[{"id":"line","itemType":"SERVICE","itemId":"service","description":"Service",
+          "qty":1,"unitPrice":"121.50","discount":"0","lineTotal":"121.50"}]}
+        """
+        let sale = try JSONDecoder().decode(Sale.self, from: Data(json.utf8))
+        let quote = QuoteStore()
+        quote.seed(from: sale, customer: QuoteCustomer(summary: sale.customer))
+
+        XCTAssertEqual(quote.taxAmount, 8.50)
+        XCTAssertEqual(quote.total, 130)
+        XCTAssertEqual(try quote.saleInput().taxAmount, 8.50)
+        quote.updatePrice(quote.lines[0].id, unitPrice: 121.50)
+        quote.updateQty(quote.lines[0].id, qty: 1)
+        XCTAssertEqual(quote.total, 130)
+        XCTAssertEqual(try quote.saleInput().taxAmount, 8.50)
+
+        quote.updateQty(quote.lines[0].id, qty: 2)
+        XCTAssertNil(quote.taxOverride)
+        XCTAssertEqual(quote.taxAmount, 17.01)
+        XCTAssertNil(try quote.saleInput().taxAmount)
+    }
+
+    @MainActor
     func testLegacySaleWithoutTaxEvidenceStillDecodesAndSeedsAutomaticMode() throws {
         let sale = try decodedSale()
         XCTAssertNil(sale.taxEvidence)

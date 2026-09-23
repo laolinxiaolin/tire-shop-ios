@@ -793,7 +793,8 @@ struct EmployeeEditorView: View {
                 payRate: parsedPayRate,
                 commissionRate: parsedCommissionPct / 100,
                 commissionBasis: commissionBasis,
-                notes: notes.nilIfBlank
+                notes: notes.nilIfBlank,
+                encodeNulls: isEditing
             )
 
             let saved: Employee

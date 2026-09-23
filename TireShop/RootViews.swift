@@ -223,9 +223,9 @@ struct RootNavigatorView: View {
     private var sidebarSelection: Binding<String?> {
         Binding(
             get: {
-                DestinationRegistry.destination(for: navigation.selectedDestinationKey) == nil
+                DestinationRegistry.destination(for: navigation.activeDestinationKey) == nil
                     ? nil
-                    : navigation.selectedDestinationKey
+                    : navigation.activeDestinationKey
             },
             set: { key in
                 if let key { navigation.selectDestination(key) }
@@ -363,7 +363,7 @@ struct RootNavigatorView: View {
     }
 
     private var selectedDestination: Destination? {
-        DestinationRegistry.destination(for: navigation.selectedDestinationKey).flatMap { destination in
+        DestinationRegistry.destination(for: navigation.activeDestinationKey).flatMap { destination in
             DestinationRegistry.isVisible(destination, auth: auth) ? destination : nil
         }
     }

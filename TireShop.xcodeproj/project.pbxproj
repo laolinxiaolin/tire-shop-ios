@@ -59,6 +59,7 @@
 		C1BDEF537B0C602DA99FEB06 /* AdaptiveLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79BF500B6DD6BA78C9B55A98 /* AdaptiveLayoutTests.swift */; };
 		0712CF8154DD92889BBDE3FD /* AppFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F55CB291DE211B0E88E40D4 /* AppFormatTests.swift */; };
 		3E68F6A99B53AA4AB664D2BD /* AppNavigationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96635F58EE3856B35548300C /* AppNavigationModelTests.swift */; };
+		1701AF549BB88C445E9226E8 /* ApprovalHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B7C91676DF57EB8B7A21F0E /* ApprovalHistoryTests.swift */; };
 		BA02D5BFD243B36411B46E66 /* AuthStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957EECADE1039A6BD07F762D /* AuthStoreTests.swift */; };
 		CF338C3645474040C3A35EF6 /* BackendParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B91C0C12B60198B275F1A1 /* BackendParityTests.swift */; };
 		0D9752C22931F1BA45E2F6B8 /* BalanceParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC0EFAA8B5380418032923B /* BalanceParityTests.swift */; };
@@ -69,6 +70,7 @@
 		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
 		51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */; };
 		9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */; };
+		A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */; };
 		07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D98F989BA35BDAA193F641 /* PayLinkTests.swift */; };
 		41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */; };
 		0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */; };
@@ -134,6 +136,7 @@
 		79BF500B6DD6BA78C9B55A98 /* AdaptiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AdaptiveLayoutTests.swift"; sourceTree = "<group>"; };
 		4F55CB291DE211B0E88E40D4 /* AppFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppFormatTests.swift"; sourceTree = "<group>"; };
 		96635F58EE3856B35548300C /* AppNavigationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppNavigationModelTests.swift"; sourceTree = "<group>"; };
+		5B7C91676DF57EB8B7A21F0E /* ApprovalHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ApprovalHistoryTests.swift"; sourceTree = "<group>"; };
 		957EECADE1039A6BD07F762D /* AuthStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AuthStoreTests.swift"; sourceTree = "<group>"; };
 		F2B91C0C12B60198B275F1A1 /* BackendParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackendParityTests.swift"; sourceTree = "<group>"; };
 		9AC0EFAA8B5380418032923B /* BalanceParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BalanceParityTests.swift"; sourceTree = "<group>"; };
@@ -144,6 +147,7 @@
 		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
 		18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpenseReceiptSubmissionTests.swift"; sourceTree = "<group>"; };
 		9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryLookupTests.swift"; sourceTree = "<group>"; };
+		5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrdersListStoreTests.swift"; sourceTree = "<group>"; };
 		02D98F989BA35BDAA193F641 /* PayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PayLinkTests.swift"; sourceTree = "<group>"; };
 		12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentMethodPatchInputTests.swift"; sourceTree = "<group>"; };
 		0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePricingTests.swift"; sourceTree = "<group>"; };
@@ -256,6 +260,7 @@
 				79BF500B6DD6BA78C9B55A98 /* AdaptiveLayoutTests.swift */,
 				4F55CB291DE211B0E88E40D4 /* AppFormatTests.swift */,
 				96635F58EE3856B35548300C /* AppNavigationModelTests.swift */,
+				5B7C91676DF57EB8B7A21F0E /* ApprovalHistoryTests.swift */,
 				957EECADE1039A6BD07F762D /* AuthStoreTests.swift */,
 				F2B91C0C12B60198B275F1A1 /* BackendParityTests.swift */,
 				9AC0EFAA8B5380418032923B /* BalanceParityTests.swift */,
@@ -266,6 +271,7 @@
 				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
 				18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */,
 				9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */,
+				5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */,
 				02D98F989BA35BDAA193F641 /* PayLinkTests.swift */,
 				12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */,
 				0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */,
@@ -455,6 +461,7 @@
 				C1BDEF537B0C602DA99FEB06 /* AdaptiveLayoutTests.swift in Sources */,
 				0712CF8154DD92889BBDE3FD /* AppFormatTests.swift in Sources */,
 				3E68F6A99B53AA4AB664D2BD /* AppNavigationModelTests.swift in Sources */,
+				1701AF549BB88C445E9226E8 /* ApprovalHistoryTests.swift in Sources */,
 				BA02D5BFD243B36411B46E66 /* AuthStoreTests.swift in Sources */,
 				CF338C3645474040C3A35EF6 /* BackendParityTests.swift in Sources */,
 				0D9752C22931F1BA45E2F6B8 /* BalanceParityTests.swift in Sources */,
@@ -465,6 +472,7 @@
 				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
 				51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */,
 				9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */,
+				A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */,
 				07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */,
 				41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */,
 				0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */,
@@ -602,7 +610,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026092201;
+				CURRENT_PROJECT_VERSION = 2026092202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -631,7 +639,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026092201;
+				CURRENT_PROJECT_VERSION = 2026092202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -660,7 +668,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026092201;
+				CURRENT_PROJECT_VERSION = 2026092202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -683,7 +691,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026092201;
+				CURRENT_PROJECT_VERSION = 2026092202;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

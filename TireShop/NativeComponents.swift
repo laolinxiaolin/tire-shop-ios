@@ -186,10 +186,13 @@ struct PaymentSheetNativeView: View {
                                 creditBalance: creditBalance,
                                 storeCreditCode: storeCreditCode
                             )
-                            .disabled(recording)
+                            .disabled(recording || row.attempted)
+                            .deleteDisabled(row.attempted)
                         }
                         .onDelete { offsets in
-                            rows.remove(atOffsets: offsets)
+                            for index in offsets.reversed() where !rows[index].attempted {
+                                rows.remove(at: index)
+                            }
                         }
 
                         Button("Add manual payment method") {
@@ -307,7 +310,7 @@ struct PaymentSheetNativeView: View {
     }
 
     private static func isValid(_ row: PaymentRow) -> Bool {
-        row.amountValue > 0 && !row.paymentMethodId.isEmpty
+        row.amountValue.isFinite && row.amountValue > 0 && !row.paymentMethodId.isEmpty
     }
 
     private var validRows: [PaymentRow] {
@@ -483,7 +486,8 @@ struct PaymentSheetNativeView: View {
             }
 
             let rowsToRecord = validRows
-            for row in rowsToRecord {
+            for originalRow in rowsToRecord {
+                var row = originalRow
                 try Task.checkCancellation()
 
                 if row.attempted {
@@ -491,28 +495,24 @@ struct PaymentSheetNativeView: View {
                         applyRecorded(row)
                         continue
                     }
-                } else if let index = rows.firstIndex(where: { $0.id == row.id }) {
-                    rows[index].attempted = true
                 }
+                row.beginAttempt(isCheck: method(for: row)?.account.code == "1010")
+                if let index = rows.firstIndex(where: { $0.id == row.id }) { rows[index] = row }
+                guard let payload = row.attemptedPayload else { continue }
 
                 do {
                     _ = try await PaymentsAPI().record(
                         invoiceId: invoiceId,
-                        body: PaymentRecordInput(
-                            paymentMethodId: row.paymentMethodId,
-                            amount: row.amountValue,
-                            reference: row.reference.nilIfBlank,
-                            note: row.reconciliationMarker,
-                            plannedDepositDate: method(for: row)?.account.code == "1010"
-                                ? row.plannedDepositDate
-                                : nil
-                        ),
+                        body: payload,
                         idempotencyKey: row.id.uuidString
                     )
                 } catch {
                     if (try? await paymentWasRecorded(row)) == true {
                         applyRecorded(row)
                         continue
+                    }
+                    if let index = rows.firstIndex(where: { $0.id == row.id }) {
+                        rows[index].allowCorrection(after: error)
                     }
                     throw error
                 }
@@ -564,9 +564,11 @@ struct PaymentSheetNativeView: View {
     @MainActor
     private func applyRecorded(_ row: PaymentRow) {
         guard rows.contains(where: { $0.id == row.id }) else { return }
-        postedApplied = roundMoney(postedApplied + min(row.amountValue, effectiveBalance))
-        if method(for: row)?.account.code == storeCreditCode, let creditBalance {
-            self.creditBalance = max(0, roundMoney(creditBalance - row.amountValue))
+        let amount = row.attemptedPayload?.amount ?? row.amountValue
+        let methodId = row.attemptedPayload?.paymentMethodId ?? row.paymentMethodId
+        postedApplied = roundMoney(postedApplied + min(amount, effectiveBalance))
+        if methods.first(where: { $0.id == methodId })?.account.code == storeCreditCode, let creditBalance {
+            self.creditBalance = max(0, roundMoney(creditBalance - amount))
         }
         rows.removeAll { $0.id == row.id }
     }
@@ -608,6 +610,33 @@ struct PaymentSheetNativeView: View {
 }
 
 // MARK: - Keyed card split charge (partial amounts + preflight)
+
+enum KeyedCardChargePreparation {
+    static func prepare(
+        grossAmount: Double,
+        gatewayStatus: () async throws -> GatewayStatus,
+        createIntent: (Double) async throws -> CardPaymentIntent
+    ) async throws -> (publishableKey: String, intent: CardPaymentIntent) {
+        guard grossAmount.isFinite, grossAmount > 0 else {
+            throw APIError(status: 0, message: "Check the charge amount again before charging.")
+        }
+        let status = try await gatewayStatus()
+        guard status.enabled, status.provider.lowercased() == "stripe" else {
+            throw APIError(status: 0, message: "Stripe payments are not enabled.")
+        }
+        guard let publishableKey = status.publishableKey?.nilIfBlank else {
+            throw APIError(status: 0, message: "Stripe publishable key is not configured.")
+        }
+        let intent = try await createIntent(grossAmount)
+        guard intent.clientSecret?.nilIfBlank != nil else {
+            throw APIError(status: 0, message: "The server did not return a card payment client secret.")
+        }
+        if let amount = intent.amount, !amount.isFinite || abs(amount - grossAmount) >= 0.005 {
+            throw APIError(status: 0, message: "The charge amount changed. Check the amount again before charging.")
+        }
+        return (publishableKey, intent)
+    }
+}
 
 /// Collects a keyed-card charge. The amount entered is what the card is charged,
 /// fee included — the server divides the fee back out and applies the rest to
@@ -658,11 +687,11 @@ private struct KeyedCardSplitSheet: View {
                 Section {
                     TextField("Amount charged to the card", text: $amountText)
                         .keyboardType(.decimalPad)
-                        .disabled(maxGross == nil)
+                        .disabled(maxGross == nil || charging)
                     Button("Charge the full balance") {
                         if let maxGross { amountText = String(format: "%.2f", maxGross) }
                     }
-                    .disabled(maxGross == nil)
+                    .disabled(maxGross == nil || charging)
                 } header: {
                     Text("Amount charged to the card")
                 } footer: {
@@ -741,6 +770,7 @@ private struct KeyedCardSplitSheet: View {
 
     @MainActor
     private func continueFlow() async {
+        guard !charging else { return }
         errorMessage = nil
         if !checked {
             await checkPreflight()
@@ -786,27 +816,23 @@ private struct KeyedCardSplitSheet: View {
 
     @MainActor
     private func charge() async {
+        guard checked, let confirmedQuote = preflight,
+              confirmedQuote.warnings.isEmpty || acknowledgedWarnings else { return }
         charging = true
         errorMessage = nil
         defer { charging = false }
         do {
-            let status = try await PaymentsAPI().gatewayStatus()
-            guard status.enabled, status.provider.lowercased() == "stripe" else {
-                throw APIError(status: 0, message: "Stripe payments are not enabled.")
-            }
-            guard let publishableKey = status.publishableKey?.nilIfBlank else {
-                throw APIError(status: 0, message: "Stripe publishable key is not configured.")
-            }
+            let prepared = try await KeyedCardChargePreparation.prepare(
+                grossAmount: confirmedQuote.amount,
+                gatewayStatus: { try await PaymentsAPI().gatewayStatus() },
+                createIntent: { gross in
+                    try await PaymentsAPI().cardIntent(invoiceId: invoiceId, grossAmount: gross)
+                }
+            )
+            let intent = prepared.intent
+            guard let clientSecret = intent.clientSecret?.nilIfBlank else { return }
 
-            // Mint the intent from the same gross the preflight quoted, not its
-            // applied portion: re-deriving the fee from the net can land a cent
-            // off the total the operator just confirmed.
-            let intent = try await PaymentsAPI().cardIntent(invoiceId: invoiceId, grossAmount: preflight?.amount ?? roundMoney(amountValue))
-            guard let clientSecret = intent.clientSecret?.nilIfBlank else {
-                throw APIError(status: 0, message: "The server did not return a card payment client secret.")
-            }
-
-            STPAPIClient.shared.publishableKey = publishableKey
+            STPAPIClient.shared.publishableKey = prepared.publishableKey
 
             var configuration = PaymentSheet.Configuration()
             configuration.merchantDisplayName = "Tire Force US"
@@ -853,13 +879,32 @@ private struct KeyedCardSplitSheet: View {
     }
 }
 
-private struct PaymentRow: Identifiable {
-    let id = UUID()
+struct PaymentRow: Identifiable {
+    private(set) var id = UUID()
     var paymentMethodId: String
     var amount: String
     var reference: String
     var plannedDepositDate = ""
-    var attempted = false
+    private(set) var attemptedPayload: PaymentRecordInput?
+    var attempted: Bool { attemptedPayload != nil }
+
+    mutating func beginAttempt(isCheck: Bool) {
+        guard attemptedPayload == nil else { return }
+        attemptedPayload = PaymentRecordInput(
+            paymentMethodId: paymentMethodId, amount: amountValue,
+            reference: reference.nilIfBlank, note: reconciliationMarker,
+            plannedDepositDate: isCheck ? plannedDepositDate : nil
+        )
+    }
+
+    mutating func allowCorrection(after error: Error) {
+        // A transport/server failure may have committed. Keep its payload and
+        // idempotency key together until the same request can be reconciled.
+        guard let error = error as? APIError, (400..<500).contains(error.status),
+              ![408, 409, 429].contains(error.status) else { return }
+        attemptedPayload = nil
+        id = UUID()
+    }
 
     var amountValue: Double {
         Double(amount) ?? 0
@@ -879,6 +924,11 @@ private struct PaymentRowEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            if row.attempted {
+                Text("Retry to confirm this payment before changing it.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.muted)
+            }
             Picker("Method", selection: $row.paymentMethodId) {
                 ForEach(methods) { method in
                     Text(method.name).tag(method.id)
