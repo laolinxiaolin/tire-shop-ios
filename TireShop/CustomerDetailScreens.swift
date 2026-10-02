@@ -124,6 +124,8 @@ struct CustomerDetailNativeView: View {
     @State private var accountEnabled = false
     @State private var creditLimit = ""
     @State private var savingAccount = false
+    @State private var selectedPriceLevel: PriceLevel?
+    @State private var savingPriceLevel = false
     @State private var selectedTier = ""
     @State private var savingTier = false
     @State private var selectedSalesperson = ""
@@ -150,6 +152,7 @@ struct CustomerDetailNativeView: View {
     @State private var busyFollowUpId: String?
 
     private var canManageCustomers: Bool { auth.has("customers.manage") }
+    private var canManagePriceLevel: Bool { canManageCustomers && auth.has("customers.priceLevel.manage") }
     private var canDeleteCustomers: Bool { auth.has("customers.delete") }
     private var canCollectPayments: Bool { auth.has("payments.collect") }
     private var canViewEmployees: Bool { auth.has("employees.view") }
@@ -365,6 +368,7 @@ struct CustomerDetailNativeView: View {
                 }
             }
 
+            priceLevelSection(customer)
             tagsSection
             taxSection
             documentsSection(customer)
@@ -663,6 +667,31 @@ struct CustomerDetailNativeView: View {
         }
     }
 
+    private func priceLevelSection(_ customer: Customer) -> some View {
+        Section {
+            Picker(i18n.t("customers.priceLevel"), selection: $selectedPriceLevel) {
+                Text(i18n.t("customers.level.unassigned")).tag(Optional<PriceLevel>.none)
+                ForEach([PriceLevel.retail, .fleet, .wholesale], id: \.self) { level in
+                    Text(i18n.t("customers.level.\(level.rawValue)")).tag(Optional(level))
+                }
+            }
+            .disabled(!canManagePriceLevel || savingPriceLevel)
+
+            if canManagePriceLevel {
+                Button {
+                    Task { await savePriceLevel() }
+                } label: {
+                    Label(i18n.t(savingPriceLevel ? "common.saving" : "common.save"), systemImage: "tag")
+                }
+                .disabled(savingPriceLevel || selectedPriceLevel == nil || selectedPriceLevel == customer.priceLevel)
+            }
+        } header: {
+            Text(i18n.t("customers.priceLevel"))
+        } footer: {
+            Text(i18n.t(customer.priceLevel == nil ? "customers.priceLevelPending" : "customers.priceLevelDescription"))
+        }
+    }
+
     private func priceTierSection(_ customer: Customer) -> some View {
         Section {
             Picker("Price tier", selection: $selectedTier) {
@@ -671,24 +700,24 @@ struct CustomerDetailNativeView: View {
                     Text(priceTierLabel(tier)).tag(tier.id)
                 }
             }
-            .disabled(!canManageCustomers || savingTier || priceTiers.isEmpty)
+            .disabled(!canManagePriceLevel || savingTier || priceTiers.isEmpty)
 
             if let tier = customer.priceTier {
                 RowLine(title: "Current", subtitle: priceTierLabel(tier))
             }
 
-            if canManageCustomers {
+            if canManagePriceLevel {
                 Button {
                     Task { await savePriceTier() }
                 } label: {
                     Label(savingTier ? "Saving..." : "Save price tier", systemImage: "tag")
                 }
-                .disabled(savingTier)
+                .disabled(savingTier || selectedTier == (customer.priceTierId ?? ""))
             }
         } header: {
-            Text("Price Tier")
+            Text(i18n.t("customers.legacyPriceTierTitle"))
         } footer: {
-            Text("Customer-specific storefront pricing uses this tier when no per-SKU override exists.")
+            Text(i18n.t("customers.legacyPriceTierDesc"))
         }
     }
 
@@ -1011,6 +1040,7 @@ struct CustomerDetailNativeView: View {
         taxExpires = customer.taxExemptExpiresAt.map { String($0.prefix(10)) } ?? ""
         accountEnabled = customer.accountEnabled
         creditLimit = customer.creditLimit ?? ""
+        selectedPriceLevel = customer.priceLevel
         selectedTier = customer.priceTierId ?? ""
         selectedSalesperson = customer.salespersonId ?? ""
     }
@@ -1320,7 +1350,28 @@ struct CustomerDetailNativeView: View {
     }
 
     @MainActor
+    private func savePriceLevel() async {
+        guard canManagePriceLevel, let selectedPriceLevel,
+              selectedPriceLevel != customer?.priceLevel, !savingPriceLevel else { return }
+        savingPriceLevel = true
+        clearMessages()
+        defer { savingPriceLevel = false }
+        do {
+            let updated = try await CustomersAPI().updatePriceLevel(
+                id: id, body: CustomerPriceLevelPatch(priceLevel: selectedPriceLevel)
+            )
+            applyCustomer(updated)
+            statusMessage = i18n.t("customers.priceLevelSaved")
+            BrowsingRecords.changed(.customer, id: id)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? i18n.t("customers.priceLevelSaveFailed")
+        }
+    }
+
+    @MainActor
     private func savePriceTier() async {
+        guard canManagePriceLevel, !savingTier,
+              selectedTier != (customer?.priceTierId ?? "") else { return }
         savingTier = true
         clearMessages()
         do {

@@ -113,3 +113,13 @@ To run the local conversion checks available without Xcode, run:
 node scripts/verify-swift-conversion.mjs
 bash scripts/verify-shop-clock.sh
 ```
+
+## Fleet pricing parity (October 2, 2026)
+
+- Product details, inventory rows, sorting, and SKU forms include Fleet alongside Wholesale and Retail. Standard-price edits require `pricing.manage`; unconfigured Fleet prices remain blank.
+- Customer profiles and creation expose Wholesale/Fleet/Retail levels. Assigning levels or legacy percentage tiers requires `customers.priceLevel.manage` in addition to customer management.
+- Quotes read `/pricing/policy` and use scoped `/pricing/quote-preview` responses when the server enables canonical customer pricing. The app preserves saved baselines and line identities, reviews customer changes and repricing before acceptance, and submits server price versions. Standard price, actual price, signed per-tire difference, and additional line adjustment remain distinct.
+- The server rollout switch controls automatic customer-level pricing. This build does not activate the policy or populate missing prices/customer assignments. Legacy pricing choices remain available while the policy is disabled.
+- An uncertain sale-creation response blocks automatic POST retries because the current backend does not provide idempotent sale creation. Staff can inspect saved Sales before resuming a persisted draft or starting over. Confirmation retries retain the known sale ID and reviewed pricing evidence.
+
+Verification includes API payload and permission contracts, pricing-state regression tests, and English/Chinese phone and tablet visual fixtures. Version `1.0.14`, build `2026100202`, includes these Fleet controls.

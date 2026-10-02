@@ -383,6 +383,7 @@ private enum InventoryLabels {
         InventorySortOption(id: "category", label: "Category"),
         InventorySortOption(id: "position", label: "Position"),
         InventorySortOption(id: "priceRetail", label: "Retail price"),
+        InventorySortOption(id: "priceFleet", label: "Fleet price"),
         InventorySortOption(id: "priceCost", label: "Cost"),
         InventorySortOption(id: "reorderPoint", label: "Reorder point"),
         InventorySortOption(id: "createdAt", label: "Created")
@@ -624,6 +625,8 @@ struct InventoryListNativeView: View {
     @State private var loadingMore = false
     @State private var errorMessage: String?
     @State private var loadMoreError: String?
+    @State private var addingSkuID: String?
+    @State private var salePriceError: String?
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
     @State private var selectingRows = false
@@ -733,7 +736,10 @@ struct InventoryListNativeView: View {
         if !category.isEmpty { parts.append(InventoryLabels.category(category)) }
         if !position.isEmpty { parts.append(InventoryLabels.position(position)) }
         if !brand.isEmpty { parts.append(brand) }
-        if !sortBy.isEmpty { parts.append("\(InventoryLabels.sort(sortBy)) \(sortOrder.uppercased())") }
+        if !sortBy.isEmpty {
+            let label = sortBy == "priceFleet" ? i18n.t("sku.fleetPrice") : InventoryLabels.sort(sortBy)
+            parts.append("\(label) \(sortOrder.uppercased())")
+        }
         return parts.isEmpty ? nil : parts.joined(separator: " • ")
     }
 
@@ -764,6 +770,14 @@ struct InventoryListNativeView: View {
             if !hasLoaded { await reload() }
         }
         .task(id: priceRequest) { await priceHistory.load(priceRequest) }
+        .task {
+            guard selectForQuote else { return }
+            do {
+                try await quote.loadPricingPolicy()
+            } catch {
+                salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
+            }
+        }
         .onChange(of: quote.location) { _, _ in
             if selectForQuote {
                 Task { await reload() }
@@ -966,6 +980,11 @@ struct InventoryListNativeView: View {
         List {
             if selectForQuote {
                 SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
+                if let salePriceError {
+                    Text(salePriceError)
+                        .font(.caption)
+                        .foregroundStyle(Theme.danger)
+                }
             }
             ForEach(items) { sku in
                 skuRow(sku, usesSplitView: usesSplitView)
@@ -1010,13 +1029,20 @@ struct InventoryListNativeView: View {
                     showsUnitCost: false,
                     showsAvailableQuantity: true
                 )
+                Button {
+                    Task { await addToQuote(sku) }
+                } label: {
+                    Label(i18n.t(addingSkuID == sku.id ? "salePrice.adding" : "salePrice.addStandard"), systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canAddToQuote(sku))
                 SkuSalePriceChoices(
                     sku: sku,
                     history: priceHistory,
                     request: priceRequest,
                     disabled: !canAddToQuote(sku)
                 ) { chosenPrice in
-                    addToQuote(sku, unitPrice: chosenPrice)
+                    Task { await addToQuote(sku, overridePrice: chosenPrice) }
                 }
             }
         } else if selectingRows {
@@ -1388,7 +1414,7 @@ struct InventoryListNativeView: View {
                     Button {
                         updateSort(option.id)
                     } label: {
-                        menuLabel(option.label, selected: sortBy == option.id)
+                        menuLabel(option.id == "priceFleet" ? i18n.t("sku.fleetPrice") : option.label, selected: sortBy == option.id)
                     }
                 }
             }
@@ -1513,22 +1539,32 @@ struct InventoryListNativeView: View {
 
     private func canAddToQuote(_ sku: TireSku) -> Bool {
         auth.has("sales.manage") && selectedLocation.nilIfBlank != nil
+            && (quote.pricingEnabled == false || quote.customer != nil) && addingSkuID == nil
             && !loadingWarehouses && warehouseError == nil
             && warehouses.contains { $0.code == selectedLocation }
             && availableToAdd(sku) > 0
     }
 
-    private func addToQuote(_ sku: TireSku, unitPrice: Double) {
-        guard canAddToQuote(sku), unitPrice.isFinite, unitPrice >= 0 else { return }
-        quote.addLine(
-            itemType: "SKU",
-            itemId: sku.id,
-            description: "\(sku.brand) \(sku.model) \(sku.size) (\(sku.position.replacingOccurrences(of: "_", with: "-")))",
-            unitPrice: unitPrice,
-            listPrice: Double(sku.priceRetail) ?? 0
-        )
-        if dismissAfterSelection {
-            dismiss()
+    @MainActor
+    private func addToQuote(_ sku: TireSku, overridePrice: Double? = nil) async {
+        guard canAddToQuote(sku) else { return }
+        if overridePrice != nil {
+            do {
+                let enabled = try await quote.loadPricingPolicy()
+                guard !enabled || auth.has("sales.price.override"), canAddToQuote(sku) else { return }
+            } catch {
+                salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
+                return
+            }
+        }
+        addingSkuID = sku.id
+        salePriceError = nil
+        defer { addingSkuID = nil }
+        do {
+            try await quote.addSku(sku, overridePrice: overridePrice)
+            if dismissAfterSelection { dismiss() }
+        } catch {
+            salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
         }
     }
 
@@ -1880,6 +1916,13 @@ private struct InventorySkuRow: View {
                         .font(.subheadline.weight(.semibold).monospacedDigit())
                         .foregroundStyle(Theme.text)
                     Text(i18n.t("sku.wholesale").uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(Theme.muted)
+                    Text(sku.priceFleet.map { AppFormat.money($0) } ?? i18n.t("salePrice.fleetUnset"))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(Theme.text)
+                    Text(i18n.t("sku.fleet").uppercased())
                         .font(.system(size: 9, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(Theme.muted)
@@ -3649,16 +3692,24 @@ struct CustomersListNativeView: View {
     }
 
     private func customerRow(_ customer: Customer) -> some View {
-        RowLine(
-            title: customer.company ?? customer.name,
-            subtitle: [customer.company == nil ? nil : customer.name, AppFormat.phone(customer.phone), customer.email]
-                .compactMap { text in
-                    guard let text, !text.isEmpty else { return nil }
-                    return text
-                }
-                .joined(separator: " - "),
-            trailing: customer.taxExempt ? "Tax exempt" : nil
-        )
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            RowLine(
+                title: customer.company ?? customer.name,
+                subtitle: [customer.company == nil ? nil : customer.name, AppFormat.phone(customer.phone), customer.email]
+                    .compactMap { text in
+                        guard let text, !text.isEmpty else { return nil }
+                        return text
+                    }
+                    .joined(separator: " - "),
+                trailing: customer.taxExempt ? "Tax exempt" : nil
+            )
+            Label(
+                i18n.t(customer.priceLevel.map { "customers.level.\($0.rawValue)" } ?? "customers.level.unassigned"),
+                systemImage: "tag"
+            )
+            .font(.caption)
+            .foregroundStyle(customer.priceLevel == nil ? Color.orange : Theme.muted)
+        }
     }
 
     @ViewBuilder

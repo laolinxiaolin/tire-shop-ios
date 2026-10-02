@@ -36,13 +36,15 @@ struct TireSkuPatchInput: Codable {
     var plyRating: String?
     var priceWholesale: Double?
     var clearPriceWholesale = false
+    var priceFleet: Double?
+    var clearPriceFleet = false
     var priceRetail: Double?
     var priceCost: Double?
     var reorderPoint: Int?
     var active: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case sku, brand, model, size, category, position, segment, loadIndex, pattern, treadDepth32, maxLoadSingleLb, weightLb, plyRating, priceRetail, priceCost, reorderPoint, active, priceWholesale
+        case sku, brand, model, size, category, position, segment, loadIndex, pattern, treadDepth32, maxLoadSingleLb, weightLb, plyRating, priceRetail, priceCost, reorderPoint, active, priceWholesale, priceFleet
     }
 
     func encode(to encoder: Encoder) throws {
@@ -68,6 +70,11 @@ struct TireSkuPatchInput: Codable {
             try container.encodeNil(forKey: .priceWholesale)
         } else {
             try container.encodeIfPresent(priceWholesale, forKey: .priceWholesale)
+        }
+        if clearPriceFleet {
+            try container.encodeNil(forKey: .priceFleet)
+        } else {
+            try container.encodeIfPresent(priceFleet, forKey: .priceFleet)
         }
     }
 }
@@ -1400,6 +1407,10 @@ struct CustomersAPI {
     }
 
     func updateAccount(id: String, body: CustomerAccountPatch) async throws -> Customer {
+        try await client.request("/customers/\(id)", method: "PATCH", body: body)
+    }
+
+    func updatePriceLevel(id: String, body: CustomerPriceLevelPatch) async throws -> Customer {
         try await client.request("/customers/\(id)", method: "PATCH", body: body)
     }
 

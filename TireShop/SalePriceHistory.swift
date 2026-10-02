@@ -2,6 +2,20 @@ import Combine
 import Foundation
 import SwiftUI
 
+/// Standard catalog prices share the backend's positive, two-decimal limit.
+enum StandardSkuPrice {
+    static func parse(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.range(of: #"^([0-9]+(\.[0-9]*)?|\.[0-9]+)$"#, options: .regularExpression) != nil,
+              var amount = Decimal(string: trimmed, locale: Locale(identifier: "en_US_POSIX")),
+              amount > 0, amount <= (Decimal(string: "9999999999.99") ?? 0) else { return nil }
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &amount, 2, .plain)
+        guard rounded == amount else { return nil }
+        return NSDecimalNumber(decimal: amount).doubleValue
+    }
+}
+
 extension Notification.Name {
     static let customerSalePricesChanged = Notification.Name("customerSalePricesChanged")
 }
@@ -163,6 +177,8 @@ struct LastSalePriceChoice: View {
 }
 
 struct SkuSalePriceChoices: View {
+    @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var quote: QuoteStore
     @EnvironmentObject private var i18n: I18nStore
     let sku: TireSku
     @ObservedObject var history: SalePriceHistoryStore
@@ -172,15 +188,33 @@ struct SkuSalePriceChoices: View {
 
     private var retail: Double? { validPrice(sku.priceRetail) }
     private var wholesale: Double? { validPrice(sku.priceWholesale) }
+    private var fleet: Double? { validPrice(sku.priceFleet) }
+    private var canChoosePrice: Bool {
+        !quote.pricingLoading && (quote.pricingEnabled == false
+            || (quote.pricingEnabled == true && auth.has("sales.price.override")))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Theme.Space.sm) { catalogChoices }
-                VStack(alignment: .leading, spacing: Theme.Space.sm) { catalogChoices }
+            if canChoosePrice {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Theme.Space.sm) { catalogChoices }
+                    VStack(alignment: .leading, spacing: Theme.Space.sm) { catalogChoices }
+                }
+            } else {
+                Text(sku.priceFleet.map { "\(i18n.t("sku.fleet")) \(AppFormat.money($0))" }
+                     ?? i18n.t("salePrice.fleetUnset"))
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
             }
             if let previous = history.price(for: sku.id, request: request) {
-                LastSalePriceChoice(price: previous, disabled: disabled, onSelect: onSelect)
+                if canChoosePrice {
+                    LastSalePriceChoice(price: previous, disabled: disabled, onSelect: onSelect)
+                } else {
+                    Text(i18n.t("salePrice.lastSold", ["price": AppFormat.money(previous.effectiveUnitPrice)]))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
             } else if request.customerId != nil, history.request == request,
                       !history.isLoading, !history.hasError {
                 Text(i18n.t("salePrice.noHistory"))
@@ -202,6 +236,12 @@ struct SkuSalePriceChoices: View {
                 if let wholesale { onSelect(wholesale) }
             }
             .disabled(disabled || wholesale == nil)
+
+            Button(sku.priceFleet.map { "\(i18n.t("sku.fleet")) \(AppFormat.money($0))" }
+                   ?? i18n.t("salePrice.fleetUnset")) {
+                if let fleet { onSelect(fleet) }
+            }
+            .disabled(disabled || fleet == nil)
         }
         .buttonStyle(.bordered)
         .font(.caption.weight(.semibold))
