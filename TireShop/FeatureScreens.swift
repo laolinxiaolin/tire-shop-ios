@@ -3502,6 +3502,7 @@ struct SalesListNativeView: View {
 
 struct CustomersListNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var navigation: AppNavigationModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -3537,6 +3538,13 @@ struct CustomersListNativeView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .toolbar {
+            if auth.has("customers.analytics.view") {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: AppRoute.module("customerAnalytics")) {
+                        Label(i18n.t("nav.customerAnalytics"), systemImage: "chart.bar.xaxis")
+                    }
+                }
+            }
             if canManageCustomers {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.newCustomer) {

@@ -186,6 +186,15 @@ struct CustomerDetailNativeView: View {
             }
         }
         .navigationTitle(customer?.name ?? fallbackName)
+        .toolbar {
+            if auth.has("customers.analytics.view") {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: AppRoute.customerAnalyticsDetail(customerId: id, query: .init())) {
+                        Label(i18n.t("nav.customerAnalytics"), systemImage: "chart.bar.xaxis")
+                    }
+                }
+            }
+        }
         .task {
             if customer == nil { await load() }
         }

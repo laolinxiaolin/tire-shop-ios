@@ -37,6 +37,15 @@ These workflows require the corresponding backend endpoints. Wholesale pricing r
 
 Regression tests live in `TireShopTests/`. Build and run the `TireShop` scheme's tests against an installed iOS simulator. Camera capture must also be checked on a physical iPhone; simulators offer Photos and Files.
 
+The October 2 customer analytics update follows backend/web PRs [#485](https://github.com/laolinxiaolin/tire-shop/pull/485) and [#486](https://github.com/laolinxiaolin/tire-shop/pull/486), verified against `aa712265`:
+
+- Open Customer Analytics from More/the sidebar, Customers, a customer profile, or Profile. Staff with only `customers.analytics.view` can use its standalone ranking and detail screens.
+- Rankings use server totals and sorting, with search, shop-calendar periods, inclusive custom dates, historical price-level filters, pagination, and a matching Excel export. Customer drilldowns retain the period and level and show selected-period/lifetime totals plus separately paginated products and posted history.
+- Cost and profit require `customers.profit.view` as well as the response's profit access flag. Missing cost evidence stays unavailable. History links open only when the server confirms the original invoice generation still exists and the user can view sales. Demo sessions cannot export.
+- English/Chinese report notes explain the pretax recognition basis, return/reversal effects, differences from CRM, and incomplete historical coverage. Current customer level remains distinct from transaction-time level.
+
+Deploy the corresponding analytics API and migration `20260928050000_customer_analytics_events`, run the backend's documented historical backfill, and grant the intended roles analytics/profit permissions before using these reports. The app displays the server's coverage status; it does not reconstruct missing history or infer historical cost. This update adds analytics independently of the earlier pricing and Freight workflow changes.
+
 Login survives closing and reopening the app. The access token and its server URL are stored together in the device-only Keychain; passwords and user permissions are not cached. Each cold launch validates the token through `GET /api/auth/session` and loads current user permissions before opening the app. A network or server failure keeps the credential for Retry; an expired/revoked session or explicit sign-out removes it. Changing servers never sends the saved token to the new server.
 
 Deploy the backend's `GET /api/auth/session` endpoint and seven-day staff access-token lifetime before distributing this app change. No database migration or environment change is required. Until the endpoint is deployed, reopening offers password login with an explanation. New logins last one week; existing tokens retain their original expiration. Sessions are not renewed on reopening, and sign-out or server-side revocation ends access sooner. Users need to sign in once after updating because earlier app versions did not save a session. Authentication regression coverage is in `AuthStoreTests` and `SessionStorageTests`.

@@ -20,6 +20,10 @@
 		0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */; };
 		16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7712053F65DA51C8D430D86 /* ChecksScreens.swift */; };
 		05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */; };
+		C76BE52704EF2615C4C1BCF7 /* CustomerAnalyticsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */; };
+		D19C97EC38A9A290E65EE257 /* CustomerAnalyticsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371796B1B6F78C4181807205 /* CustomerAnalyticsModels.swift */; };
+		A0BC8EFFDD978DFF7D46D6EE /* CustomerAnalyticsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C7569CCEBAB332DEC66820 /* CustomerAnalyticsScreens.swift */; };
+		9F736308324BEE6C9F203639 /* CustomerAnalyticsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8764B0A3D03DE973F00D67 /* CustomerAnalyticsStore.swift */; };
 		1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */; };
 		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
 		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
@@ -68,6 +72,10 @@
 		898F530EBC3540AE11ABE056 /* CheckReminderLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */; };
 		B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */; };
 		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
+		AB86C7D557B8CDF86CB93681 /* CustomerAnalyticsNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */; };
+		30DF235BC1BE65A12C537D96 /* CustomerAnalyticsSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */; };
+		BAD7EEF2D21DF905E40A34DF /* CustomerAnalyticsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */; };
+		A36542384337308C690AB0D2 /* CustomerAnalyticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */; };
 		51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */; };
 		9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */; };
 		A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */; };
@@ -97,6 +105,10 @@
 		0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDraft.swift"; sourceTree = "<group>"; };
 		D7712053F65DA51C8D430D86 /* ChecksScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksScreens.swift"; sourceTree = "<group>"; };
 		7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStore.swift"; sourceTree = "<group>"; };
+		95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsAPI.swift"; sourceTree = "<group>"; };
+		371796B1B6F78C4181807205 /* CustomerAnalyticsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsModels.swift"; sourceTree = "<group>"; };
+		A2C7569CCEBAB332DEC66820 /* CustomerAnalyticsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsScreens.swift"; sourceTree = "<group>"; };
+		CC8764B0A3D03DE973F00D67 /* CustomerAnalyticsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsStore.swift"; sourceTree = "<group>"; };
 		E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerDetailScreens.swift"; sourceTree = "<group>"; };
 		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerRelationsScreens.swift"; sourceTree = "<group>"; };
 		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Destinations.swift"; sourceTree = "<group>"; };
@@ -145,6 +157,10 @@
 		1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckReminderLayoutTests.swift"; sourceTree = "<group>"; };
 		BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckScreensSnapshotTests.swift"; sourceTree = "<group>"; };
 		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
+		F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsNavigationTests.swift"; sourceTree = "<group>"; };
+		949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsSnapshotTests.swift"; sourceTree = "<group>"; };
+		B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsStoreTests.swift"; sourceTree = "<group>"; };
+		600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsTests.swift"; sourceTree = "<group>"; };
 		18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpenseReceiptSubmissionTests.swift"; sourceTree = "<group>"; };
 		9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryLookupTests.swift"; sourceTree = "<group>"; };
 		5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrdersListStoreTests.swift"; sourceTree = "<group>"; };
@@ -208,6 +224,10 @@
 				0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */,
 				D7712053F65DA51C8D430D86 /* ChecksScreens.swift */,
 				7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */,
+				95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */,
+				371796B1B6F78C4181807205 /* CustomerAnalyticsModels.swift */,
+				A2C7569CCEBAB332DEC66820 /* CustomerAnalyticsScreens.swift */,
+				CC8764B0A3D03DE973F00D67 /* CustomerAnalyticsStore.swift */,
 				E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */,
 				C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */,
 				6EAC7CD9D797892BEB3CA375 /* Destinations.swift */,
@@ -269,6 +289,10 @@
 				1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */,
 				BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */,
 				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
+				F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */,
+				949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */,
+				B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */,
+				600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */,
 				18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */,
 				9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */,
 				5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */,
@@ -415,6 +439,10 @@
 				0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */,
 				16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */,
 				05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */,
+				C76BE52704EF2615C4C1BCF7 /* CustomerAnalyticsAPI.swift in Sources */,
+				D19C97EC38A9A290E65EE257 /* CustomerAnalyticsModels.swift in Sources */,
+				A0BC8EFFDD978DFF7D46D6EE /* CustomerAnalyticsScreens.swift in Sources */,
+				9F736308324BEE6C9F203639 /* CustomerAnalyticsStore.swift in Sources */,
 				1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */,
 				47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */,
 				3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */,
@@ -470,6 +498,10 @@
 				898F530EBC3540AE11ABE056 /* CheckReminderLayoutTests.swift in Sources */,
 				B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */,
 				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
+				AB86C7D557B8CDF86CB93681 /* CustomerAnalyticsNavigationTests.swift in Sources */,
+				30DF235BC1BE65A12C537D96 /* CustomerAnalyticsSnapshotTests.swift in Sources */,
+				BAD7EEF2D21DF905E40A34DF /* CustomerAnalyticsStoreTests.swift in Sources */,
+				A36542384337308C690AB0D2 /* CustomerAnalyticsTests.swift in Sources */,
 				51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */,
 				9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */,
 				A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */,

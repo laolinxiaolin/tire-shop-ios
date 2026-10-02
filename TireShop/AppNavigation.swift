@@ -311,6 +311,10 @@ struct AppRouteDestinationView: View {
                 CustomerDetailNativeView(id: id, fallbackName: name)
                     .onAppear { navigation.rememberCustomer(id) }
             }
+        case .customerAnalyticsDetail(let customerId, let query):
+            authorized(auth.has("customers.analytics.view")) {
+                CustomerAnalyticsDetailNativeView(customerId: customerId, initialQuery: query)
+            }
         case .employeeDetail(let id):
             authorized(auth.has("employees.view")) {
                 EmployeeDetailNativeView(id: id)
