@@ -14,6 +14,8 @@ The generated Xcode project is `TireShop.xcodeproj/`. `project.yml` is the Xcode
 - `node scripts/generate-i18n-swift.mjs`: regenerate Swift localization output.
 - `xcodebuild -project TireShop.xcodeproj -scheme TireShop -destination 'platform=iOS Simulator,name=iPhone 16' build`: build from the command line when Xcode simulators are installed.
 
+App Store archives and uploads must use a stable Xcode release and its stable SDKs. Never build an App Store archive with beta Xcode. Set `DEVELOPER_DIR` explicitly for both archive and export, and verify `xcodebuild -version` against Apple's shipping releases before building; `/Applications/Xcode.app` may point to a beta. The verified stable installation on October 2, 2026 is `/Applications/Xcode-27.0.0.app/Contents/Developer` (Xcode 27.0, build `27A266a`). Before uploading, verify the archived app's `DTXcodeBuild` and `DTSDKName` match that stable toolchain.
+
 The README also references `pnpm swift:*` aliases, but this checkout does not currently include a `package.json`; use the direct `node` commands above unless package scripts are restored.
 
 ## Coding Style & Naming Conventions
