@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct SaleDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @EnvironmentObject private var presentationContext: ScenePresentationContext
     @Environment(\.dismiss) private var dismiss
 
@@ -50,6 +51,8 @@ struct SaleDetailNativeView: View {
                 Section {
                     RowLine(title: sale.customer.name, subtitle: sale.ref ?? sale.id, trailing: AppFormat.money(sale.total))
                     RowLine(title: "Status", subtitle: sale.status)
+                    RowLine(title: i18n.t("customers.priceLevel"),
+                            trailing: sale.priceLevelAtQuote.map { i18n.t($0.localizationKey) } ?? "—")
                     RowLine(title: "Warehouse", subtitle: sale.location)
                     RowLine(title: "Tax", subtitle: AppFormat.money(sale.taxAmount), trailing: sale.taxRate)
                     if canAssignSalesperson || sale.salesperson != nil {
@@ -465,6 +468,7 @@ struct SaleDetailNativeView: View {
 }
 
 private struct SaleLineDetailRow: View {
+    @EnvironmentObject private var i18n: I18nStore
     let line: SaleLine
     let sku: TireSku?
 
@@ -542,6 +546,22 @@ private struct SaleLineDetailRow: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
                     .lineLimit(2)
+                if line.itemType == "SKU" {
+                    Text("\(i18n.t("pricing.standard")): \(line.standardUnitPrice.map(AppFormat.money) ?? "—")")
+                        .font(.caption).foregroundStyle(Theme.muted)
+                    Text("\(i18n.t("pricing.actual")): \(AppFormat.money(line.unitPrice))")
+                        .font(.caption).foregroundStyle(Theme.muted)
+                    if let standard = line.standardUnitPrice.flatMap(Double.init),
+                       let actual = Double(line.unitPrice) {
+                        let difference = actual - standard
+                        Text("\(i18n.t("pricing.difference")): \(difference > 0 ? "+" : difference < 0 ? "−" : "")\(AppFormat.money(abs(difference)))")
+                            .font(.caption).foregroundStyle(Theme.muted)
+                    }
+                    if (Double(line.discount) ?? 0) > 0 {
+                        Text("\(i18n.t("pricing.additionalAdjustment")): \(AppFormat.money(line.discount))")
+                            .font(.caption).foregroundStyle(Theme.muted)
+                    }
+                }
             }
 
             Spacer()
@@ -2848,6 +2868,8 @@ private struct SkuSearchSheet: View {
 }
 
 struct NewCustomerNativeView: View {
+    @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
@@ -2863,8 +2885,11 @@ struct NewCustomerNativeView: View {
     @State private var notes = ""
     @State private var taxExempt = false
     @State private var taxExemptNumber = ""
+    @State private var priceLevel: PriceLevel = .retail
     @State private var saving = false
     @State private var errorMessage: String?
+
+    private var canManagePriceLevel: Bool { auth.has("customers.priceLevel.manage") }
 
     var body: some View {
         Form {
@@ -2887,6 +2912,21 @@ struct NewCustomerNativeView: View {
                 TextField("Notes", text: $notes, axis: .vertical)
             }
 
+            Section {
+                Picker(i18n.t("customers.priceLevel"), selection: $priceLevel) {
+                    Text(i18n.t("customers.level.RETAIL")).tag(PriceLevel.retail)
+                    if canManagePriceLevel {
+                        Text(i18n.t("customers.level.FLEET")).tag(PriceLevel.fleet)
+                        Text(i18n.t("customers.level.WHOLESALE")).tag(PriceLevel.wholesale)
+                    }
+                }
+                .disabled(!canManagePriceLevel || saving)
+            } header: {
+                Text(i18n.t("customers.priceLevel"))
+            } footer: {
+                Text(i18n.t("customers.priceLevelPending"))
+            }
+
             Section("Tax") {
                 Toggle("Tax exempt", isOn: $taxExempt)
                 TextField("Tax exemption number", text: $taxExemptNumber)
@@ -2907,6 +2947,9 @@ struct NewCustomerNativeView: View {
             }
         }
         .navigationTitle("New customer")
+        .onChange(of: canManagePriceLevel) { _, allowed in
+            if !allowed { priceLevel = .retail }
+        }
     }
 
     @MainActor
@@ -2929,7 +2972,8 @@ struct NewCustomerNativeView: View {
                 postalCode: postalCode.nilIfBlank,
                 notes: notes.nilIfBlank,
                 taxExempt: taxExempt,
-                taxExemptNumber: taxExemptNumber.nilIfBlank
+                taxExemptNumber: taxExemptNumber.nilIfBlank,
+                priceLevel: canManagePriceLevel ? priceLevel : .retail
             ))
             BrowsingRecords.changed(.customer, id: created.id)
             dismiss()
@@ -3044,12 +3088,14 @@ struct SkuPickerNativeView: View {
 private struct QuoteCustomerPickerList: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
+    @EnvironmentObject private var i18n: I18nStore
 
     @State private var q = ""
     @State private var customers: [Customer] = []
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var selectingCustomerID: String?
+    @State private var pricingProposal: QuotePricingProposal?
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
@@ -3066,18 +3112,21 @@ private struct QuoteCustomerPickerList: View {
                 } else {
                     List(customers) { customer in
                         Button {
-                            select(customer)
+                            Task { await select(customer) }
                         } label: {
                             RowLine(
                                 title: customer.company ?? customer.name,
                                 subtitle: customer.company == nil ? nil : customer.name,
-                                trailing: customer.taxExempt ? "Tax exempt" : nil
+                                trailing: i18n.t(customer.priceLevel?.localizationKey ?? "customers.level.unassigned")
                             )
                         }
                     }
                     .listStyle(.plain)
                     .disabled(selectingCustomerID != nil)
                 }
+            }
+            if let errorMessage, !customers.isEmpty {
+                Text(errorMessage).foregroundStyle(Theme.danger).padding(Theme.Space.md)
             }
         }
         .task(id: q) {
@@ -3088,6 +3137,20 @@ private struct QuoteCustomerPickerList: View {
             await load()
         }
         .navigationTitle("Select customer")
+        .sheet(item: $pricingProposal) { proposal in
+            FleetPricingReviewView(proposal: proposal) {
+                do {
+                    try quote.acceptPrices(proposal)
+                    dismiss()
+                    return true
+                } catch {
+                    errorMessage = (error as? QuotePricingError).map { i18n.t($0.localizationKey) }
+                        ?? (error as? LocalizedError)?.errorDescription
+                    pricingProposal = nil
+                    return false
+                }
+            }
+        }
     }
 
     private var customerSearchField: some View {
@@ -3126,9 +3189,11 @@ private struct QuoteCustomerPickerList: View {
     }
 
     @MainActor
-    private func select(_ customer: Customer) {
+    private func select(_ customer: Customer) async {
         guard selectingCustomerID == nil else { return }
         selectingCustomerID = customer.id
+        defer { selectingCustomerID = nil }
+        errorMessage = nil
 
         searchFieldFocused = false
         UIApplication.shared.sendAction(
@@ -3138,10 +3203,15 @@ private struct QuoteCustomerPickerList: View {
             for: nil
         )
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            quote.setCustomer(QuoteCustomer(customer: customer))
-            dismiss()
+        do {
+            pricingProposal = try await quote.prepareCustomerSelection(QuoteCustomer(customer: customer))
+            if pricingProposal == nil { dismiss() }
+        } catch {
+            if !(error is CancellationError) {
+                errorMessage = (error as? QuotePricingError).map { i18n.t($0.localizationKey) }
+                    ?? (error as? LocalizedError)?.errorDescription
+                    ?? i18n.t("salePrice.resolveError")
+            }
         }
     }
 

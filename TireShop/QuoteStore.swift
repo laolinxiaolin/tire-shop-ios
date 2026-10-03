@@ -34,6 +34,7 @@ struct QuoteCustomer: Equatable {
     let company: String?
     let taxExempt: Bool
     let taxExemptExpiresAt: String?
+    let priceLevel: PriceLevel?
     let state: String?
     let county: String?
     let city: String?
@@ -45,6 +46,7 @@ struct QuoteCustomer: Equatable {
         company = customer.company
         taxExempt = customer.taxExempt
         taxExemptExpiresAt = customer.taxExemptExpiresAt
+        priceLevel = customer.priceLevel
         state = customer.state
         county = customer.county
         city = customer.city
@@ -57,6 +59,7 @@ struct QuoteCustomer: Equatable {
         company = summary.company
         self.taxExempt = taxExempt
         self.taxExemptExpiresAt = taxExemptExpiresAt
+        priceLevel = nil
         state = nil
         county = nil
         city = nil
@@ -69,6 +72,7 @@ struct QuoteCustomer: Equatable {
         company = customer.company
         self.taxExempt = taxExempt
         taxExemptExpiresAt = customer.taxExemptExpiresAt
+        priceLevel = customer.priceLevel
         state = customer.state
         county = customer.county
         city = customer.city
@@ -95,6 +99,12 @@ struct QuoteLine: Identifiable, Equatable {
     var unitPrice: Double
     var discount: Double?
     var listPrice: Double
+    var savedLineId: String? = nil
+    var standardUnitPrice: Double? = nil
+    var priceSource: String? = nil
+    var priceVersion: String? = nil
+    var resolvedUnitPrice: Double? = nil
+    var resolvedPriceSource: String? = nil
 
     var lineTotal: Double {
         unitPrice * Double(qty) - (discount ?? 0)
@@ -103,6 +113,8 @@ struct QuoteLine: Identifiable, Equatable {
 
 @MainActor
 final class QuoteStore: ObservableObject {
+    typealias PricingPolicyLoader = () async throws -> FleetPricingPolicy
+    typealias PricingPreviewLoader = (String, [String]) async throws -> [FleetPricePreview]
     typealias TaxRateLoader = (String, SaleFulfillment, String?) async throws -> CustomerTaxRateResponse
 
     private let fallbackTaxPct = 7.0
@@ -110,6 +122,16 @@ final class QuoteStore: ObservableObject {
     private var taxLookupGeneration = 0
     private var taxRateIsExplicit = false
     private let taxRateLoader: TaxRateLoader
+    private let pricingPolicyLoader: PricingPolicyLoader
+    private let pricingPreviewLoader: PricingPreviewLoader
+    private var pricingContextGeneration = 0
+    private var pricingPolicyRequestId = UUID()
+    private var pricingPolicyTask: Task<FleetPricingPolicy, Error>?
+
+    @Published private(set) var pricingEnabled: Bool?
+    @Published private(set) var pricingLoading = false
+    @Published private(set) var pricingError: String?
+    @Published private(set) var priceLevelAtQuote: PriceLevel?
 
     @Published var customer: QuoteCustomer?
     @Published var lines: [QuoteLine] = []
@@ -134,8 +156,13 @@ final class QuoteStore: ObservableObject {
             fulfillment: fulfillment,
             location: location
         )
+    }, pricingPolicyLoader: @escaping PricingPolicyLoader = { try await FleetPricingAPI().policy() },
+       pricingPreviewLoader: @escaping PricingPreviewLoader = { customerId, skuIds in
+        try await FleetPricingAPI().preview(customerId: customerId, skuIds: skuIds)
     }) {
         self.taxRateLoader = taxRateLoader
+        self.pricingPolicyLoader = pricingPolicyLoader
+        self.pricingPreviewLoader = pricingPreviewLoader
     }
 
     var subtotal: Double {
@@ -163,6 +190,220 @@ final class QuoteStore: ObservableObject {
             || pendingConfirmationSaleId != nil || pendingCreationIdempotencyKey != nil
     }
 
+    var hasUnconfirmedCreation: Bool {
+        pendingCreationInput != nil && pendingConfirmationSaleId == nil
+    }
+
+    var hasUnresolvedPrices: Bool {
+        pricingEnabled == true && lines.contains {
+            $0.itemType == "SKU" && (priceLevelAtQuote == nil || $0.standardUnitPrice == nil
+                || ($0.savedLineId == nil && $0.priceVersion == nil))
+        }
+    }
+
+    /// A failed policy request never opts a client into the legacy resolver.
+    @discardableResult
+    func loadPricingPolicy(force: Bool = false) async throws -> Bool {
+        if let pricingEnabled, !force { return pricingEnabled }
+        if force {
+            pricingPolicyTask?.cancel()
+            pricingPolicyTask = nil
+            pricingPolicyRequestId = UUID()
+            pricingEnabled = nil
+        }
+        if pricingPolicyTask == nil {
+            let loader = pricingPolicyLoader
+            pricingPolicyTask = Task { try await loader() }
+        }
+        guard let task = pricingPolicyTask else { throw CancellationError() }
+        let requestId = pricingPolicyRequestId
+        pricingLoading = true
+        pricingError = nil
+        do {
+            let policy = try await task.value
+            try Task.checkCancellation()
+            guard requestId == pricingPolicyRequestId else { throw CancellationError() }
+            pricingEnabled = policy.enabled
+            pricingLoading = false
+            pricingPolicyTask = nil
+            return policy.enabled
+        } catch {
+            if requestId == pricingPolicyRequestId {
+                pricingLoading = false
+                pricingPolicyTask = nil
+                if !(error is CancellationError) {
+                    pricingError = (error as? LocalizedError)?.errorDescription ?? "Could not load pricing policy."
+                }
+            }
+            throw error
+        }
+    }
+
+    func addSku(_ sku: TireSku, qty: Int = 1, overridePrice: Double? = nil) async throws {
+        let generation = pricingContextGeneration
+        let requestedCustomer = customer?.id
+        let requestedLocation = location
+        let enabled = try await loadPricingPolicy()
+        guard generation == pricingContextGeneration, customer?.id == requestedCustomer,
+              location == requestedLocation else { throw CancellationError() }
+        if let overridePrice, !Self.validMoney(overridePrice, allowZero: true) {
+            throw QuotePricingError.invalidPrice
+        }
+        if !enabled {
+            guard let retail = Double(sku.priceRetail), Self.validMoney(retail, allowZero: true) else {
+                throw QuotePricingError.invalidPrice
+            }
+            addLine(itemType: "SKU", itemId: sku.id,
+                    description: "\(sku.brand) \(sku.model) \(sku.size)", qty: qty,
+                    unitPrice: overridePrice ?? retail, listPrice: retail)
+            return
+        }
+        guard let requestedCustomer else { throw QuotePricingError.pickCustomer }
+        let resolved = try await pricingPreviewLoader(requestedCustomer, [sku.id])
+        try Task.checkCancellation()
+        guard generation == pricingContextGeneration, customer?.id == requestedCustomer,
+              location == requestedLocation else { throw CancellationError() }
+        let prices = try Self.validatedPrices(resolved, skuIds: [sku.id])
+        guard let price = prices[sku.id], let standard = Double(price.standardUnitPrice),
+              let actual = Double(price.unitPrice) else { throw QuotePricingError.invalidPreview }
+        if lines.contains(where: { $0.itemType == "SKU" }),
+           priceLevelAtQuote != price.priceLevel {
+            throw QuotePricingError.reviewRequired
+        }
+        let selectedPrice = overridePrice ?? actual
+        taxOverride = nil
+        priceLevelAtQuote = price.priceLevel
+        // A new tire never inherits an older saved line's pricing evidence.
+        if let index = lines.firstIndex(where: {
+            $0.itemType == "SKU" && $0.itemId == sku.id && $0.savedLineId == nil
+                && $0.priceVersion == price.version && $0.unitPrice == selectedPrice
+                && $0.standardUnitPrice == standard && ($0.discount ?? 0) == 0
+        }) {
+            lines[index].qty += max(1, qty)
+        } else {
+            lines.append(QuoteLine(id: UUID().uuidString, itemType: "SKU", itemId: sku.id,
+                description: "\(sku.brand) \(sku.model) \(sku.size)", qty: max(1, qty),
+                unitPrice: selectedPrice, discount: nil, listPrice: standard,
+                standardUnitPrice: standard,
+                priceSource: selectedPrice == actual ? price.priceSource : "OVERRIDE",
+                priceVersion: price.version, resolvedUnitPrice: actual,
+                resolvedPriceSource: price.priceSource))
+        }
+    }
+
+    func prepareCustomerSelection(_ next: QuoteCustomer) async throws -> QuotePricingProposal? {
+        let generation = pricingContextGeneration
+        let originals = lines
+        let originalCustomerId = customer?.id
+        let enabled = try await loadPricingPolicy()
+        guard generation == pricingContextGeneration, lines == originals else { throw QuotePricingError.staleReview }
+        guard enabled, next.id != originalCustomerId,
+              originals.contains(where: { $0.itemType == "SKU" }) else {
+            setCustomer(next)
+            return nil
+        }
+        return try await pricingProposal(for: next, originalCustomerId: originalCustomerId,
+                                         originals: originals, generation: generation)
+    }
+
+    func preparePriceRefresh() async throws -> QuotePricingProposal? {
+        guard let customer else { throw QuotePricingError.pickCustomer }
+        let generation = pricingContextGeneration
+        let originals = lines
+        guard try await loadPricingPolicy(force: true) else { return nil }
+        guard generation == pricingContextGeneration, lines == originals else { throw QuotePricingError.staleReview }
+        guard originals.contains(where: { $0.itemType == "SKU" }) else { return nil }
+        return try await pricingProposal(for: customer, originalCustomerId: customer.id,
+                                         originals: originals, generation: generation)
+    }
+
+    private func pricingProposal(for next: QuoteCustomer, originalCustomerId: String?,
+                                 originals: [QuoteLine], generation: Int) async throws -> QuotePricingProposal {
+        let ids = Array(Set(originals.filter { $0.itemType == "SKU" }.map(\.itemId))).sorted()
+        let resolved = try await pricingPreviewLoader(next.id, ids)
+        try Task.checkCancellation()
+        guard generation == pricingContextGeneration, customer?.id == originalCustomerId,
+              lines == originals else { throw QuotePricingError.staleReview }
+        let prices = try Self.validatedPrices(resolved, skuIds: ids)
+        guard let level = resolved.first?.priceLevel else { throw QuotePricingError.invalidPreview }
+        let proposed = try originals.map { original -> QuoteLine in
+            var line = original
+            if next.id != originalCustomerId { line.savedLineId = nil }
+            guard line.itemType == "SKU" else { return line }
+            guard let price = prices[line.itemId], let actual = Double(price.unitPrice),
+                  let standard = Double(price.standardUnitPrice) else { throw QuotePricingError.invalidPreview }
+            line.savedLineId = nil
+            line.unitPrice = actual
+            line.listPrice = standard
+            line.standardUnitPrice = standard
+            line.priceSource = price.priceSource
+            line.resolvedUnitPrice = actual
+            line.resolvedPriceSource = price.priceSource
+            line.priceVersion = price.version
+            line.discount = nil
+            return line
+        }
+        return QuotePricingProposal(customer: next, originalCustomerId: originalCustomerId,
+            originalLines: originals, proposedLines: proposed, priceLevel: level,
+            contextGeneration: generation)
+    }
+
+    func acceptPrices(_ proposal: QuotePricingProposal) throws {
+        guard proposal.contextGeneration == pricingContextGeneration,
+              customer?.id == proposal.originalCustomerId, lines == proposal.originalLines else {
+            throw QuotePricingError.staleReview
+        }
+        if customer?.id != proposal.customer.id { setCustomer(proposal.customer) }
+        lines = proposal.proposedLines
+        priceLevelAtQuote = proposal.priceLevel
+        taxOverride = nil
+    }
+
+    /// Bind a newly persisted draft's trusted IDs before a confirmation retry.
+    func adoptSavedPricing(from sale: Sale) {
+        guard sale.customerId == customer?.id, sale.lines.count == lines.count else { return }
+        if lines.contains(where: { $0.itemType == "SKU" }), sale.priceLevelAtQuote != priceLevelAtQuote { return }
+        var unmatched = sale.lines
+        var adopted = lines
+        for index in adopted.indices {
+            let line = adopted[index]
+            guard let savedIndex = unmatched.firstIndex(where: {
+                $0.itemType == line.itemType && $0.itemId == line.itemId && $0.qty == line.qty
+                    && Double($0.unitPrice) == line.unitPrice && Double($0.discount) == (line.discount ?? 0)
+                    && $0.standardUnitPrice.flatMap(Double.init) == line.standardUnitPrice
+                    && $0.priceSource == line.priceSource
+            }) else { return }
+            let saved = unmatched.remove(at: savedIndex)
+            adopted[index].savedLineId = saved.id
+            adopted[index].standardUnitPrice = saved.standardUnitPrice.flatMap(Double.init)
+            adopted[index].priceSource = saved.priceSource
+            adopted[index].resolvedUnitPrice = Double(saved.unitPrice)
+            adopted[index].resolvedPriceSource = saved.priceSource
+            adopted[index].priceVersion = nil
+        }
+        lines = adopted
+        priceLevelAtQuote = sale.priceLevelAtQuote
+    }
+
+    private static func validatedPrices(_ resolved: [FleetPricePreview], skuIds: [String]) throws -> [String: FleetPricePreview] {
+        var prices: [String: FleetPricePreview] = [:]
+        for price in resolved {
+            guard skuIds.contains(price.skuId), prices[price.skuId] == nil,
+                  let standard = Double(price.standardUnitPrice), validMoney(standard, allowZero: false),
+                  let actual = Double(price.unitPrice), validMoney(actual, allowZero: false),
+                  !price.version.isEmpty,
+                  resolved.first?.priceLevel == price.priceLevel else { throw QuotePricingError.invalidPreview }
+            prices[price.skuId] = price
+        }
+        guard prices.count == Set(skuIds).count else { throw QuotePricingError.invalidPreview }
+        return prices
+    }
+
+    private static func validMoney(_ value: Double, allowZero: Bool) -> Bool {
+        value.isFinite && (allowZero ? value >= 0 : value > 0) && value <= 9_999_999_999.99
+            && abs(value * 100 - (value * 100).rounded()) < 0.0001
+    }
+
     func restoreDefaultTaxRate() async {
         do {
             let general = try await SettingsAPI().general()
@@ -176,6 +417,18 @@ final class QuoteStore: ObservableObject {
     }
 
     func setCustomer(_ customer: QuoteCustomer?) {
+        pricingContextGeneration += 1
+        if self.customer?.id != customer?.id {
+            priceLevelAtQuote = nil
+            for index in lines.indices {
+                lines[index].savedLineId = nil
+                if lines[index].itemType == "SKU" {
+                    lines[index].standardUnitPrice = nil
+                    lines[index].priceSource = nil
+                    lines[index].priceVersion = nil
+                }
+            }
+        }
         taxLookupGeneration += 1
         taxRateIsExplicit = false
         taxOverride = nil
@@ -345,6 +598,7 @@ final class QuoteStore: ObservableObject {
         guard lines[index].unitPrice != nextPrice else { return }
         taxOverride = nil
         lines[index].unitPrice = nextPrice
+        updatePriceSource(at: index)
     }
 
     /// History prices already include the original line's discount.
@@ -354,6 +608,7 @@ final class QuoteStore: ObservableObject {
         taxOverride = nil
         lines[index].unitPrice = unitPrice
         lines[index].discount = nil
+        updatePriceSource(at: index)
     }
 
     func removeLine(_ lineId: String) {
@@ -369,11 +624,14 @@ final class QuoteStore: ObservableObject {
         for (index, planned) in zip(lines.indices, plan.lines) {
             lines[index].unitPrice = planned.unitPrice
             lines[index].discount = planned.discount
+            updatePriceSource(at: index)
         }
         taxOverride = plan.taxAmount
     }
 
     func seed(from sale: Sale, customer: QuoteCustomer) {
+        pricingContextGeneration += 1
+        priceLevelAtQuote = sale.priceLevelAtQuote
         taxLookupGeneration += 1
         taxRateIsExplicit = true
         overrideTaxRate = sale.taxEvidence?.type == "SALE_RATE_OVERRIDE"
@@ -388,7 +646,12 @@ final class QuoteStore: ObservableObject {
                 qty: line.qty,
                 unitPrice: unitPrice,
                 discount: Double(line.discount),
-                listPrice: unitPrice
+                listPrice: line.standardUnitPrice.flatMap(Double.init) ?? unitPrice,
+                savedLineId: line.id,
+                standardUnitPrice: line.standardUnitPrice.flatMap(Double.init),
+                priceSource: line.priceSource,
+                resolvedUnitPrice: unitPrice,
+                resolvedPriceSource: line.priceSource
             )
         }
         taxRate = SaleTaxPercentage.fromFraction(Double(sale.taxRate) ?? 0)
@@ -406,6 +669,14 @@ final class QuoteStore: ObservableObject {
     }
 
     func clear() {
+        pricingContextGeneration += 1
+        pricingPolicyTask?.cancel()
+        pricingPolicyTask = nil
+        pricingPolicyRequestId = UUID()
+        pricingEnabled = nil
+        pricingLoading = false
+        pricingError = nil
+        priceLevelAtQuote = nil
         taxLookupGeneration += 1
         taxRateIsExplicit = false
         overrideTaxRate = false
@@ -426,6 +697,7 @@ final class QuoteStore: ObservableObject {
     }
 
     func saleInput() throws -> SaleUpsertInput {
+        guard !hasUnconfirmedCreation else { throw QuotePricingError.unconfirmedCreation }
         guard let customer else {
             throw APIError(status: 0, message: "Pick a customer first.")
         }
@@ -434,6 +706,17 @@ final class QuoteStore: ObservableObject {
         }
         if let taxLookupError {
             throw APIError(status: 0, message: taxLookupError)
+        }
+
+        if pricingEnabled == true, hasUnresolvedPrices {
+            throw QuotePricingError.reviewRequired
+        }
+        if pricingEnabled == true, lines.contains(where: { line in
+            !Self.validMoney(line.unitPrice, allowZero: true) || line.qty < 1
+                || !Self.validMoney(line.discount ?? 0, allowZero: true)
+                || (line.discount ?? 0) > line.unitPrice * Double(line.qty)
+        }) {
+            throw QuotePricingError.invalidPrice
         }
 
         return SaleUpsertInput(
@@ -446,6 +729,8 @@ final class QuoteStore: ObservableObject {
             overrideTaxRate: overrideTaxRate,
             lines: lines.map {
                 NewSaleLine(
+                    id: pricingEnabled == true ? $0.savedLineId : nil,
+                    priceVersion: pricingEnabled == true ? $0.priceVersion : nil,
                     itemType: $0.itemType,
                     itemId: $0.itemId,
                     description: $0.description,
@@ -459,6 +744,12 @@ final class QuoteStore: ObservableObject {
 
     private static func roundMoney(_ value: Double) -> Double {
         (value * 100).rounded() / 100
+    }
+
+    private func updatePriceSource(at index: Int) {
+        guard pricingEnabled == true, lines[index].itemType == "SKU" else { return }
+        lines[index].priceSource = lines[index].unitPrice == lines[index].resolvedUnitPrice
+            ? lines[index].resolvedPriceSource : "OVERRIDE"
     }
 
     private static func roundTotalPlan(lines: [QuoteLine], taxRate: Double, target: Double) -> (lines: [QuoteLine], taxAmount: Double)? {

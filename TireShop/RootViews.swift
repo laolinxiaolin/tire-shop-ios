@@ -27,6 +27,7 @@ enum AppRoute: Hashable {
     case paymentApplicationEditor(id: String?, vendorId: String?)
     case tapToPay(invoiceId: String, amount: Double, saleId: String?, saleRef: String?, customerName: String?)
     case customerDetail(id: String, name: String)
+    case customerAnalyticsDetail(customerId: String, query: CustomerAnalyticsQuery)
     case employeeDetail(String)
     case skuPicker
     case customerPicker
@@ -487,6 +488,8 @@ struct DestinationView: View {
             VendorsListNativeView()
         case "customers":
             CustomersListNativeView()
+        case "customerAnalytics":
+            CustomerAnalyticsNativeView()
         case "customerRelations":
             CustomerRelationsNativeView()
         case "workOrders":
@@ -635,6 +638,13 @@ struct ProfileView: View {
 
     var body: some View {
         List {
+            if auth.has("customers.analytics.view") {
+                Section {
+                    NavigationLink(value: AppRoute.module("customerAnalytics")) {
+                        Label(i18n.t("nav.customerAnalytics"), systemImage: "chart.bar.xaxis")
+                    }
+                }
+            }
             if let user = auth.user {
                 Section(i18n.t("profile.account")) {
                     LabeledContent(i18n.t("profile.displayName"), value: user.fullName)

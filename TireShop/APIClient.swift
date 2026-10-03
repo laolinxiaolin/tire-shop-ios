@@ -86,6 +86,7 @@ struct SessionUser: Codable, Identifiable, Equatable {
     let permissions: [String]
     let approvalPermissions: [String]?
     let mfaMethod: String?
+    var demo: Bool? = nil
 }
 
 struct MFALoginChallenge: Decodable, Equatable {

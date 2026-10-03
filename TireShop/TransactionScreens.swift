@@ -39,12 +39,19 @@ struct NewQuoteNativeView: View {
     @StateObject private var priceHistory = SalePriceHistoryStore()
     @State private var catalogBySku: [String: TireSku] = [:]
     @State private var catalogKind: CatalogKind = .tires
+    @State private var pricingProposal: QuotePricingProposal?
+    @State private var loadingPricePreview = false
+    @State private var confirmingStartOver = false
     @FocusState private var focusedField: FocusField?
     @ScaledMetric(relativeTo: .body) private var minimumItemDescriptionWidth: CGFloat = 160
     @ScaledMetric(relativeTo: .body) private var minimumItemPriceWidth: CGFloat = 120
 
     private var priceRequest: SalePriceRequest {
         SalePriceRequest(customerId: quote.customer?.id, skuIds: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId))
+    }
+
+    private var canAdjustPrices: Bool {
+        quote.pricingEnabled == false || (quote.pricingEnabled == true && auth.has("sales.price.override"))
     }
 
     var body: some View {
@@ -86,6 +93,38 @@ struct NewQuoteNativeView: View {
             await quote.restoreDefaultTaxRate()
             await loadAvailability()
         }
+        .task(id: auth.user?.id) {
+            guard auth.has("sales.manage") else { return }
+            do { try await quote.loadPricingPolicy(force: true) }
+            catch { if !(error is CancellationError) { errorMessage = pricingMessage(error) } }
+        }
+        .sheet(item: $pricingProposal) { proposal in
+            FleetPricingReviewView(proposal: proposal) {
+                do {
+                    try quote.acceptPrices(proposal)
+                    priceDrafts = [:]
+                    return true
+                } catch {
+                    errorMessage = pricingMessage(error)
+                    pricingProposal = nil
+                    return false
+                }
+            }
+        }
+        .alert(i18n.t("pricing.startOverTitle"), isPresented: $confirmingStartOver) {
+            Button(i18n.t("common.cancel"), role: .cancel) {}
+            Button(i18n.t("pricing.startOver"), role: .destructive) {
+                quote.clear()
+                applyDefaultWarehouse()
+                errorMessage = nil
+                Task {
+                    do { try await quote.loadPricingPolicy() }
+                    catch { errorMessage = pricingMessage(error) }
+                }
+            }
+        } message: {
+            Text(i18n.t("pricing.startOverDescription"))
+        }
         .task(id: priceRequest) {
             await priceHistory.load(priceRequest)
         }
@@ -96,6 +135,8 @@ struct NewQuoteNativeView: View {
         }
         .onChange(of: quote.customer?.id) { _, _ in
             taxRateDraft = nil
+            priceDrafts.removeAll()
+            focusedField = nil
         }
         .onChange(of: quote.location) { _, _ in
             taxRateDraft = nil
@@ -135,6 +176,7 @@ struct NewQuoteNativeView: View {
                 customerSection
                 fulfillmentSection
                 warehouseSection
+                pricingSection
                 linesSection(showsPickerLinks: showsPickerLinks)
                 totalsSection
 
@@ -188,6 +230,8 @@ struct NewQuoteNativeView: View {
                     subtitle: customer.company,
                     trailing: customer.taxExempt && !quote.overrideTaxRate ? "Tax exempt" : nil
                 )
+                RowLine(title: i18n.t("customers.priceLevel"),
+                        trailing: i18n.t((quote.priceLevelAtQuote ?? customer.priceLevel)?.localizationKey ?? "customers.level.unassigned"))
             } else {
                 Text("No customer selected")
                     .foregroundStyle(Theme.muted)
@@ -197,6 +241,56 @@ struct NewQuoteNativeView: View {
                 CustomerPickerNativeView(selectForQuote: true)
             }
         }
+    }
+
+    private var pricingSection: some View {
+        Section(i18n.t("pricing.title")) {
+            if quote.hasUnconfirmedCreation {
+                Text(i18n.t("pricing.unconfirmedCreation")).foregroundStyle(Theme.danger)
+                if auth.has("sales.view") {
+                    NavigationLink(i18n.t("pricing.checkSales")) { SalesListNativeView() }
+                }
+                Button(i18n.t("pricing.startOver")) { confirmingStartOver = true }
+            }
+            if quote.pricingLoading || quote.pricingEnabled == nil {
+                HStack { ProgressView(); Text(i18n.t("pricing.loading")) }
+            }
+            if let error = quote.pricingError {
+                Text(error).foregroundStyle(Theme.danger)
+                Button(i18n.t("common.retry")) {
+                    Task {
+                        do { try await quote.loadPricingPolicy(force: true) }
+                        catch { errorMessage = pricingMessage(error) }
+                    }
+                }
+            } else if quote.pricingEnabled == false {
+                Text(i18n.t("pricing.legacyPolicy"))
+                    .font(.footnote).foregroundStyle(Theme.muted)
+            } else if quote.pricingEnabled == true {
+                Text(i18n.t("pricing.customerPolicy"))
+                    .font(.footnote).foregroundStyle(Theme.muted)
+                if quote.hasUnresolvedPrices {
+                    Text(i18n.t("pricing.reviewRequired")).foregroundStyle(Theme.danger)
+                }
+                if quote.lines.contains(where: { $0.itemType == "SKU" }) {
+                    Button(i18n.t("pricing.refresh")) { Task { await reviewCurrentPrices() } }
+                        .disabled(loadingPricePreview || saving)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func reviewCurrentPrices() async {
+        loadingPricePreview = true
+        defer { loadingPricePreview = false }
+        do { pricingProposal = try await quote.preparePriceRefresh() }
+        catch { if !(error is CancellationError) { errorMessage = pricingMessage(error) } }
+    }
+
+    private func pricingMessage(_ error: Error) -> String {
+        if let pricing = error as? QuotePricingError { return i18n.t(pricing.localizationKey) }
+        return (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
     }
 
     private var fulfillmentSection: some View {
@@ -326,6 +420,7 @@ struct NewQuoteNativeView: View {
                                         .multilineTextAlignment(.trailing)
                                         .font(.body.monospacedDigit().weight(.semibold))
                                         .accessibilityLabel("Unit price for \(line.description)")
+                                        .disabled(!canAdjustPrices)
                                 }
                         }
                         .padding(.horizontal, Theme.Space.sm)
@@ -348,18 +443,36 @@ struct NewQuoteNativeView: View {
                     }
 
                     if line.itemType == "SKU" {
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                            RowLine(title: i18n.t("pricing.standard"), trailing: line.standardUnitPrice.map(AppFormat.money) ?? "—")
+                            RowLine(title: i18n.t("pricing.actual"), trailing: AppFormat.money(line.unitPrice))
+                            if let standard = line.standardUnitPrice {
+                                let difference = line.unitPrice - standard
+                                RowLine(title: i18n.t("pricing.difference"), trailing: "\(difference > 0 ? "+" : difference < 0 ? "−" : "")\(AppFormat.money(abs(difference)))")
+                            }
+                            if let source = line.priceSource {
+                                Text(i18n.t("pricing.source.\(source)"))
+                                    .font(.caption).foregroundStyle(Theme.muted)
+                            }
+                            if (line.discount ?? 0) > 0 {
+                                RowLine(title: i18n.t("pricing.additionalAdjustment"), trailing: AppFormat.money(line.discount ?? 0))
+                            }
+                        }
+                    }
+
+                    if line.itemType == "SKU" {
                         if let sku = catalogBySku[line.itemId] {
                             SkuSalePriceChoices(sku: sku, history: priceHistory, request: priceRequest, disabled: saving) { price in
                                 applyPrice(price, to: line)
                             }
-                        } else if let previous = priceHistory.price(for: line.itemId, request: priceRequest) {
+                        } else if canAdjustPrices, let previous = priceHistory.price(for: line.itemId, request: priceRequest) {
                             LastSalePriceChoice(price: previous, apply: true, disabled: saving) { price in
                                 applyPrice(price, to: line)
                             }
                         }
                     }
 
-                    if line.unitPrice != line.listPrice {
+                    if canAdjustPrices, line.unitPrice != line.listPrice {
                         Button(i18n.t("newQuote.listReset", ["price": AppFormat.money(line.listPrice)])) {
                             applyPrice(line.listPrice, to: line)
                         }
@@ -490,6 +603,7 @@ struct NewQuoteNativeView: View {
                 }
                 .disabled(
                     Double(roundTarget) == nil
+                        || !canAdjustPrices
                         || quote.taxLookupInProgress
                         || quote.taxLookupError != nil
                 )
@@ -503,6 +617,7 @@ struct NewQuoteNativeView: View {
                 priceDrafts[line.id] ?? formattedPriceText(line.unitPrice)
             },
             set: { input in
+                guard canAdjustPrices else { return }
                 let sanitized = sanitizePriceInput(input)
                 priceDrafts[line.id] = sanitized
 
@@ -514,6 +629,7 @@ struct NewQuoteNativeView: View {
     }
 
     private func applyPrice(_ price: Double, to line: QuoteLine) {
+        guard canAdjustPrices else { return }
         // Commit the selected value into the text draft as well so losing
         // focus cannot restore the price that preceded this choice.
         priceDrafts[line.id] = formattedPriceText(price)
@@ -527,7 +643,7 @@ struct NewQuoteNativeView: View {
             return
         }
 
-        if let draft = priceDrafts[lineID], let value = Double(draft) {
+        if canAdjustPrices, let draft = priceDrafts[lineID], let value = Double(draft) {
             quote.updatePrice(lineID, unitPrice: value)
             priceDrafts[lineID] = formattedPriceText(value)
         } else {
@@ -574,6 +690,12 @@ struct NewQuoteNativeView: View {
             && !quote.lines.isEmpty
             && !quote.taxLookupInProgress
             && quote.taxLookupError == nil
+            && quote.pricingEnabled != nil
+            && quote.pricingError == nil
+            && !quote.pricingLoading
+            && !quote.hasUnresolvedPrices
+            && !loadingPricePreview
+            && !quote.hasUnconfirmedCreation
             && !(loadingAvailability && quote.lines.contains(where: { $0.itemType == "SKU" }))
             && !hasStockShortage
             && !saving
@@ -589,7 +711,7 @@ struct NewQuoteNativeView: View {
     private var buttonTitle: String {
         if saving { return quote.editingSaleId == nil ? "Confirming..." : "Saving..." }
         if quote.pendingConfirmationSaleId != nil { return "Retry confirmation" }
-        if quote.pendingCreationIdempotencyKey != nil { return "Retry sale creation" }
+        if quote.hasUnconfirmedCreation { return i18n.t("pricing.checkSales") }
         return quote.editingSaleId == nil ? "Confirm & invoice" : "Save changes"
     }
 
@@ -599,6 +721,7 @@ struct NewQuoteNativeView: View {
         errorMessage = nil
 
         do {
+            try await quote.loadPricingPolicy(force: true)
             let input = try quote.saleInput()
             if let editingId = quote.editingSaleId {
                 _ = try await SalesAPI().update(id: editingId, body: input)
@@ -615,32 +738,29 @@ struct NewQuoteNativeView: View {
                         saving = false
                         return
                     }
-                    _ = try await SalesAPI().update(id: pendingID, body: input)
+                    quote.adoptSavedPricing(from: pendingSale)
+                    let updated = try await SalesAPI().update(id: pendingID, body: quote.saleInput())
+                    quote.adoptSavedPricing(from: updated)
                     saleID = pendingID
                 } else {
-                    let isCreationRetry = quote.pendingCreationInput != nil
-                    if !isCreationRetry {
-                        quote.pendingCreationInput = input
-                        quote.pendingCreationIdempotencyKey = UUID().uuidString
-                    }
-                    let creationInput = quote.pendingCreationInput ?? input
-                    let idempotencyKey = quote.pendingCreationIdempotencyKey ?? UUID().uuidString
-                    quote.pendingCreationIdempotencyKey = idempotencyKey
+                    quote.pendingCreationInput = input
+                    quote.pendingCreationIdempotencyKey = UUID().uuidString
 
                     let sale: SaleCreateResult
                     do {
-                        sale = try await SalesAPI().create(creationInput, idempotencyKey: idempotencyKey)
+                        sale = try await SalesAPI().create(input, idempotencyKey: quote.pendingCreationIdempotencyKey)
                     } catch {
-                        if let apiError = error as? APIError, apiError.status != 0 {
+                        if let apiError = error as? APIError,
+                           (400..<500).contains(apiError.status), apiError.status != 408 {
                             quote.pendingCreationInput = nil
                             quote.pendingCreationIdempotencyKey = nil
                         }
                         throw error
                     }
                     quote.pendingConfirmationSaleId = sale.id
-                    if isCreationRetry {
-                        _ = try await SalesAPI().update(id: sale.id, body: input)
-                    }
+                    quote.pendingCreationInput = nil
+                    quote.pendingCreationIdempotencyKey = nil
+                    if let saved = sale.savedSale { quote.adoptSavedPricing(from: saved) }
                     saleID = sale.id
                 }
 
@@ -650,7 +770,7 @@ struct NewQuoteNativeView: View {
                 applyDefaultWarehouse()
             }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
+            errorMessage = pricingMessage(error)
         }
 
         saving = false
@@ -975,6 +1095,7 @@ struct SkuDetailNativeView: View {
                 RowLine(title: "On hand", trailing: String(onHand))
                 RowLine(title: "Retail", trailing: AppFormat.money(sku.priceRetail))
                 RowLine(title: i18n.t("sku.wholesale"), trailing: sku.priceWholesale.map(AppFormat.money) ?? "—")
+                RowLine(title: i18n.t("sku.fleet"), trailing: sku.priceFleet.map(AppFormat.money) ?? i18n.t("salePrice.fleetUnset"))
                 RowLine(title: "Cost", trailing: AppFormat.money(sku.priceCost))
             }
 
@@ -1059,11 +1180,14 @@ struct SkuAddToQuoteView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
+    @EnvironmentObject private var i18n: I18nStore
     let sku: TireSku
 
     @State private var loadingWarehouse = true
     @State private var warehouseError: String?
     @State private var validatedWarehouse: String?
+    @State private var adding = false
+    @State private var salePriceError: String?
     @StateObject private var priceHistory = SalePriceHistoryStore()
 
     private var priceRequest: SalePriceRequest {
@@ -1072,6 +1196,7 @@ struct SkuAddToQuoteView: View {
 
     private var canAdd: Bool {
         auth.has("sales.manage") && quote.location.nilIfBlank != nil
+            && (quote.pricingEnabled == false || quote.customer != nil) && !adding
             && available > 0 && !loadingWarehouse && warehouseError == nil
             && validatedWarehouse == quote.location
     }
@@ -1102,16 +1227,20 @@ struct SkuAddToQuoteView: View {
                 .font(.subheadline)
                 .foregroundStyle(available > 0 && warehouseError == nil ? Theme.muted : Theme.danger)
             SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
+            if let salePriceError {
+                Text(salePriceError)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+            }
+            Button {
+                Task { await addSku() }
+            } label: {
+                Label(i18n.t(adding ? "salePrice.adding" : "salePrice.addStandard"), systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canAdd)
             SkuSalePriceChoices(sku: sku, history: priceHistory, request: priceRequest, disabled: !canAdd) { price in
-                guard canAdd else { return }
-                quote.addLine(
-                    itemType: "SKU",
-                    itemId: sku.id,
-                    description: "\(sku.brand) \(sku.model) \(sku.size) (\(sku.position.replacingOccurrences(of: "_", with: "-")))",
-                    unitPrice: price,
-                    listPrice: Double(sku.priceRetail) ?? 0
-                )
-                dismiss()
+                Task { await addSku(overridePrice: price) }
             }
         }
         .padding(Theme.Space.xl)
@@ -1122,6 +1251,36 @@ struct SkuAddToQuoteView: View {
         }
         .task(id: priceRequest) {
             await priceHistory.load(priceRequest)
+        }
+        .task {
+            do {
+                try await quote.loadPricingPolicy()
+            } catch {
+                salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
+            }
+        }
+    }
+
+    @MainActor
+    private func addSku(overridePrice: Double? = nil) async {
+        guard canAdd else { return }
+        if overridePrice != nil {
+            do {
+                let enabled = try await quote.loadPricingPolicy()
+                guard !enabled || auth.has("sales.price.override"), canAdd else { return }
+            } catch {
+                salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
+                return
+            }
+        }
+        adding = true
+        salePriceError = nil
+        defer { adding = false }
+        do {
+            try await quote.addSku(sku, overridePrice: overridePrice)
+            dismiss()
+        } catch {
+            salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
         }
     }
 
@@ -1174,6 +1333,7 @@ struct SkuFormNativeView: View {
     @State private var plyRating = ""
     @State private var priceRetail = ""
     @State private var priceWholesale = ""
+    @State private var priceFleet = ""
     @State private var priceCost = ""
     @State private var reorderPoint = ""
     @State private var active = true
@@ -1205,13 +1365,24 @@ struct SkuFormNativeView: View {
             }
 
             Section("Pricing") {
-                TextField("Retail", text: $priceRetail)
-                    .keyboardType(.decimalPad)
-                TextField(i18n.t("sku.wholesale"), text: $priceWholesale)
-                    .keyboardType(.decimalPad)
-                Text(i18n.t("sku.wholesaleHint"))
-                    .font(.caption)
-                    .foregroundStyle(Theme.muted)
+                if canManagePrices {
+                    standardPriceField(i18n.t("sku.retail"), text: $priceRetail)
+                    standardPriceField(i18n.t("sku.wholesale"), text: $priceWholesale)
+                    Text(i18n.t("sku.wholesaleHint"))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                    standardPriceField(i18n.t("sku.fleet"), text: $priceFleet)
+                    Text(i18n.t("sku.fleetHint"))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                } else if let editing {
+                    RowLine(title: i18n.t("sku.retail"), trailing: AppFormat.money(editing.priceRetail))
+                    RowLine(title: i18n.t("sku.wholesale"), trailing: editing.priceWholesale.map(AppFormat.money) ?? "—")
+                    RowLine(title: i18n.t("sku.fleet"), trailing: editing.priceFleet.map(AppFormat.money) ?? i18n.t("salePrice.fleetUnset"))
+                } else {
+                    Text(i18n.t("sku.pricingPermissionRequired"))
+                        .foregroundStyle(Theme.muted)
+                }
                 TextField("Cost", text: $priceCost)
                     .keyboardType(.decimalPad)
                 TextField("Reorder point", text: $reorderPoint)
@@ -1232,21 +1403,37 @@ struct SkuFormNativeView: View {
                 Button(saving ? "Saving..." : editing == nil ? "Create tire" : "Save changes") {
                     Task { await save() }
                 }
-                .disabled(!auth.has("inventory.manage") || !isValid || saving)
+                .disabled(!auth.has("inventory.manage") || (editing == nil && !canManagePrices) || !isValid || saving)
             }
         }
         .navigationTitle(editing == nil ? "New tire" : "Edit tire")
         .onAppear(perform: seed)
     }
 
-    private var isValid: Bool {
-        !sku.isEmpty && !brand.isEmpty && !model.isEmpty && !size.isEmpty && !category.isEmpty && !position.isEmpty
-            && isValidPrice(priceRetail) && (priceWholesale.nilIfBlank == nil || isValidPrice(priceWholesale))
+    private var canManagePrices: Bool { auth.has("pricing.manage") }
+
+    private func standardPriceField(_ title: String, text: Binding<String>) -> some View {
+        LabeledContent(title) {
+            TextField("0.00", text: text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .accessibilityLabel(title)
+                .frame(minWidth: 90)
+        }
     }
 
-    private func isValidPrice(_ value: String) -> Bool {
-        guard let price = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
-        return price.isFinite && price >= 0
+    private var isValid: Bool {
+        !sku.isEmpty && !brand.isEmpty && !model.isEmpty && !size.isEmpty && !category.isEmpty && !position.isEmpty
+            && (!canManagePrices || validStandardPrices)
+    }
+
+    private var validStandardPrices: Bool {
+        let retailChanged = editing.map { priceRetail != $0.priceRetail } ?? true
+        let wholesaleChanged = editing.map { priceWholesale != ($0.priceWholesale ?? "") } ?? true
+        let fleetChanged = editing.map { priceFleet != ($0.priceFleet ?? "") } ?? true
+        return (!retailChanged || StandardSkuPrice.parse(priceRetail) != nil)
+            && (!wholesaleChanged || priceWholesale.nilIfBlank == nil || StandardSkuPrice.parse(priceWholesale) != nil)
+            && (!fleetChanged || priceFleet.nilIfBlank == nil || StandardSkuPrice.parse(priceFleet) != nil)
     }
 
     private func seed() {
@@ -1266,6 +1453,7 @@ struct SkuFormNativeView: View {
         plyRating = editing.plyRating ?? ""
         priceRetail = editing.priceRetail
         priceWholesale = editing.priceWholesale ?? ""
+        priceFleet = editing.priceFleet ?? ""
         priceCost = editing.priceCost
         reorderPoint = String(editing.reorderPoint)
         active = editing.active
@@ -1275,6 +1463,10 @@ struct SkuFormNativeView: View {
     private func save() async {
         guard auth.has("inventory.manage") else {
             errorMessage = "You do not have permission to manage inventory."
+            return
+        }
+        guard editing != nil || canManagePrices else {
+            errorMessage = i18n.t("sku.pricingPermissionRequired")
             return
         }
         guard isValid else { return }
@@ -1297,9 +1489,11 @@ struct SkuFormNativeView: View {
                     maxLoadSingleLb: Int(maxLoadSingleLb),
                     weightLb: Double(weightLb),
                     plyRating: plyRating.nilIfBlank,
-                    priceWholesale: priceWholesale.nilIfBlank.flatMap(Double.init),
-                    clearPriceWholesale: priceWholesale.nilIfBlank == nil,
-                    priceRetail: priceRetail.nilIfBlank.flatMap(Double.init),
+                    priceWholesale: canManagePrices && priceWholesale != (editing.priceWholesale ?? "") ? priceWholesale.nilIfBlank.flatMap(StandardSkuPrice.parse) : nil,
+                    clearPriceWholesale: canManagePrices && priceWholesale != (editing.priceWholesale ?? "") && priceWholesale.nilIfBlank == nil,
+                    priceFleet: canManagePrices && priceFleet != (editing.priceFleet ?? "") ? priceFleet.nilIfBlank.flatMap(StandardSkuPrice.parse) : nil,
+                    clearPriceFleet: canManagePrices && priceFleet != (editing.priceFleet ?? "") && priceFleet.nilIfBlank == nil,
+                    priceRetail: canManagePrices && priceRetail != editing.priceRetail ? StandardSkuPrice.parse(priceRetail) : nil,
                     priceCost: Double(priceCost),
                     reorderPoint: Int(reorderPoint),
                     active: active
@@ -1320,8 +1514,9 @@ struct SkuFormNativeView: View {
                     maxLoadSingleLb: Int(maxLoadSingleLb),
                     weightLb: Double(weightLb),
                     plyRating: plyRating.nilIfBlank,
-                    priceRetail: priceRetail.nilIfBlank.flatMap(Double.init) ?? 0,
-                    priceWholesale: priceWholesale.nilIfBlank.flatMap(Double.init),
+                    priceRetail: StandardSkuPrice.parse(priceRetail) ?? 0,
+                    priceWholesale: priceWholesale.nilIfBlank.flatMap(StandardSkuPrice.parse),
+                    priceFleet: priceFleet.nilIfBlank.flatMap(StandardSkuPrice.parse),
                     priceCost: Double(priceCost),
                     reorderPoint: Int(reorderPoint),
                     active: active

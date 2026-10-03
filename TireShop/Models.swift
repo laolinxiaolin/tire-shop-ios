@@ -186,6 +186,7 @@ struct TireSku: Codable, Identifiable, Equatable {
     let plyRating: String?
     let priceRetail: String
     var priceWholesale: String? = nil
+    var priceFleet: String? = nil
     let priceCost: String
     let reorderPoint: Int
     let active: Bool
@@ -276,6 +277,7 @@ struct SkuInput: Codable {
     var plyRating: String?
     var priceRetail: Double
     var priceWholesale: Double? = nil
+    var priceFleet: Double? = nil
     var priceCost: Double?
     var reorderPoint: Int?
     var active: Bool?
@@ -648,6 +650,10 @@ struct SaleLine: Codable, Identifiable, Equatable {
     let description: String
     let qty: Int
     let unitPrice: String
+    let standardUnitPrice: String?
+    let priceSource: String?
+    let priceOverrideById: String?
+    let priceOverrideAt: String?
     let discount: String
     let lineTotal: String
     let sku: SaleLineSku?
@@ -666,6 +672,10 @@ struct SaleLine: Codable, Identifiable, Equatable {
         case description
         case qty
         case unitPrice
+        case standardUnitPrice
+        case priceSource
+        case priceOverrideById
+        case priceOverrideAt
         case discount
         case lineTotal
         case sku
@@ -689,6 +699,10 @@ struct SaleLine: Codable, Identifiable, Equatable {
         description = try container.decode(String.self, forKey: .description)
         qty = try container.decode(Int.self, forKey: .qty)
         unitPrice = try container.decode(String.self, forKey: .unitPrice)
+        standardUnitPrice = try container.decodeIfPresent(String.self, forKey: .standardUnitPrice)
+        priceSource = try container.decodeIfPresent(String.self, forKey: .priceSource)
+        priceOverrideById = try container.decodeIfPresent(String.self, forKey: .priceOverrideById)
+        priceOverrideAt = try container.decodeIfPresent(String.self, forKey: .priceOverrideAt)
         discount = try container.decode(String.self, forKey: .discount)
         lineTotal = try container.decode(String.self, forKey: .lineTotal)
 
@@ -719,6 +733,10 @@ struct SaleLine: Codable, Identifiable, Equatable {
         try container.encode(description, forKey: .description)
         try container.encode(qty, forKey: .qty)
         try container.encode(unitPrice, forKey: .unitPrice)
+        try container.encodeIfPresent(standardUnitPrice, forKey: .standardUnitPrice)
+        try container.encodeIfPresent(priceSource, forKey: .priceSource)
+        try container.encodeIfPresent(priceOverrideById, forKey: .priceOverrideById)
+        try container.encodeIfPresent(priceOverrideAt, forKey: .priceOverrideAt)
         try container.encode(discount, forKey: .discount)
         try container.encode(lineTotal, forKey: .lineTotal)
         try container.encodeIfPresent(sku, forKey: .sku)
@@ -755,12 +773,49 @@ struct SaleInvoice: Codable, Identifiable, Equatable {
     let paidTotal: String
 }
 
-/// Response of POST /sales, which returns the sale without the customer
-/// relation — decoding the full `Sale` there fails.
+/// New servers return the persisted sale with pricing evidence. Older servers
+/// may return only its identity; both responses can still be confirmed safely.
 struct SaleCreateResult: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
     let status: SaleStatus
+    let savedSale: Sale?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, ref, status, customer, lines
+    }
+
+    init(id: String, ref: String?, status: SaleStatus, savedSale: Sale? = nil) {
+        self.id = id
+        self.ref = ref
+        self.status = status
+        self.savedSale = savedSale
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        ref = try container.decodeIfPresent(String.self, forKey: .ref)
+        status = try container.decode(SaleStatus.self, forKey: .status)
+        if container.contains(.customer), container.contains(.lines) {
+            savedSale = try Sale(from: decoder)
+        } else {
+            savedSale = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        if let savedSale {
+            // Keep the backend's flat sale payload rather than inventing a
+            // nested savedSale field in caches or test fixtures.
+            try savedSale.encode(to: encoder)
+        } else {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encodeIfPresent(ref, forKey: .ref)
+            try container.encode(status, forKey: .status)
+        }
+    }
 }
 
 struct SaleTaxEvidence: Codable, Equatable {
@@ -774,6 +829,7 @@ struct Sale: Codable, Identifiable, Equatable {
     let location: String
     let customer: CustomerSummary
     let customerId: String
+    let priceLevelAtQuote: PriceLevel?
     let subtotal: String
     let taxRate: String
     let fulfillment: SaleFulfillment?
@@ -794,6 +850,7 @@ struct Sale: Codable, Identifiable, Equatable {
         case location
         case customer
         case customerId
+        case priceLevelAtQuote
         case subtotal
         case taxRate
         case fulfillment
@@ -816,6 +873,7 @@ struct Sale: Codable, Identifiable, Equatable {
         location: String,
         customer: CustomerSummary,
         customerId: String,
+        priceLevelAtQuote: PriceLevel? = nil,
         subtotal: String,
         taxRate: String,
         fulfillment: SaleFulfillment? = nil,
@@ -835,6 +893,7 @@ struct Sale: Codable, Identifiable, Equatable {
         self.location = location
         self.customer = customer
         self.customerId = customerId
+        self.priceLevelAtQuote = priceLevelAtQuote
         self.subtotal = subtotal
         self.taxRate = taxRate
         self.fulfillment = fulfillment
@@ -857,6 +916,7 @@ struct Sale: Codable, Identifiable, Equatable {
         location = try container.decode(String.self, forKey: .location)
         customer = try container.decode(CustomerSummary.self, forKey: .customer)
         customerId = try container.decode(String.self, forKey: .customerId)
+        priceLevelAtQuote = try container.decodeIfPresent(PriceLevel.self, forKey: .priceLevelAtQuote)
         subtotal = try container.decode(String.self, forKey: .subtotal)
         taxRate = try container.decode(String.self, forKey: .taxRate)
         fulfillment = try container.decodeIfPresent(SaleFulfillment.self, forKey: .fulfillment)
@@ -886,6 +946,7 @@ struct Sale: Codable, Identifiable, Equatable {
         try container.encode(location, forKey: .location)
         try container.encode(customer, forKey: .customer)
         try container.encode(customerId, forKey: .customerId)
+        try container.encodeIfPresent(priceLevelAtQuote, forKey: .priceLevelAtQuote)
         try container.encode(subtotal, forKey: .subtotal)
         try container.encode(taxRate, forKey: .taxRate)
         try container.encodeIfPresent(fulfillment, forKey: .fulfillment)
@@ -1116,6 +1177,7 @@ struct Customer: Codable, Identifiable, Equatable {
     let taxRateOverride: String?
     let accountEnabled: Bool
     let creditLimit: String?
+    var priceLevel: PriceLevel? = nil
     let priceTierId: String?
     let priceTier: PriceTier?
     let salespersonId: String?
@@ -1139,6 +1201,7 @@ struct NewCustomerInput: Codable {
     var notes: String?
     var taxExempt: Bool?
     var taxExemptNumber: String?
+    var priceLevel: PriceLevel? = nil
 }
 
 struct CustomerProfilePatch: Encodable {
@@ -1450,6 +1513,8 @@ struct ServiceItem: Codable, Identifiable, Equatable {
 }
 
 struct NewSaleLine: Codable, Equatable {
+    var id: String? = nil
+    var priceVersion: String? = nil
     let itemType: String
     let itemId: String
     let description: String
