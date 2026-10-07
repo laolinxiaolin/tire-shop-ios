@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class AuthStoreTests: XCTestCase {
+    func testReplacingSameUserSessionInvalidatesCapturedIdentity() async throws {
+        let auth = AuthStore(api: loginClient(), storage: MemorySessionStorage())
+        _ = try await auth.signIn(email: "password@example.com", password: "test-password")
+        let original = AppSessionIdentity(auth)
+        let userId = auth.user?.id
+        _ = try await auth.signIn(email: "password@example.com", password: "test-password")
+        XCTAssertEqual(auth.user?.id, userId)
+        XCTAssertFalse(original.isCurrent(auth))
+        XCTAssertNotEqual(auth.sessionRevision, original.revision)
+        let replacement = AppSessionIdentity(auth)
+        auth.signOut()
+        XCTAssertFalse(replacement.isCurrent(auth))
+    }
+
     private func loginClient() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LoginStubProtocol.self]

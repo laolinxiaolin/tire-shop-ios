@@ -123,6 +123,19 @@ typealias SaleStatus = String
 enum SaleFulfillment: String, Codable, CaseIterable, Identifiable {
     case delivery = "DELIVERY"
     case pickup = "PICKUP"
+    case freight = "FREIGHT"
+
+    // Freight drafts also require destination, fees, and manual-tax evidence.
+    // Installed clients can view them while their complete editor remains on web.
+    static let editableCases: [SaleFulfillment] = [.delivery, .pickup]
+
+    var reportingLabel: String {
+        switch self {
+        case .delivery: return "Delivery"
+        case .pickup: return "Pickup"
+        case .freight: return "Freight / LTL"
+        }
+    }
 
     var id: String { rawValue }
 }
@@ -262,7 +275,8 @@ struct InventorySkuPage: Codable {
 }
 
 struct SkuInput: Codable {
-    var sku: String
+    // Omit on creation so the API generates the canonical code and collision suffix.
+    var sku: String? = nil
     var brand: String
     var model: String
     var size: String
@@ -270,7 +284,6 @@ struct SkuInput: Codable {
     var position: TirePosition
     var segment: String?
     var loadIndex: String?
-    var pattern: String?
     var treadDepth32: Double?
     var maxLoadSingleLb: Int?
     var weightLb: Double?
@@ -835,6 +848,7 @@ struct Sale: Codable, Identifiable, Equatable {
     let fulfillment: SaleFulfillment?
     let taxResolutionId: String?
     let taxEvidence: SaleTaxEvidence?
+    let taxRateSource: String?
     let taxAmount: String
     let total: String
     let createdAt: String
@@ -856,6 +870,7 @@ struct Sale: Codable, Identifiable, Equatable {
         case fulfillment
         case taxResolutionId
         case taxEvidence
+        case taxRateSource
         case taxAmount
         case total
         case createdAt
@@ -879,6 +894,7 @@ struct Sale: Codable, Identifiable, Equatable {
         fulfillment: SaleFulfillment? = nil,
         taxResolutionId: String? = nil,
         taxEvidence: SaleTaxEvidence? = nil,
+        taxRateSource: String? = nil,
         taxAmount: String,
         total: String,
         createdAt: String,
@@ -899,6 +915,7 @@ struct Sale: Codable, Identifiable, Equatable {
         self.fulfillment = fulfillment
         self.taxResolutionId = taxResolutionId
         self.taxEvidence = taxEvidence
+        self.taxRateSource = taxRateSource
         self.taxAmount = taxAmount
         self.total = total
         self.createdAt = createdAt
@@ -922,6 +939,7 @@ struct Sale: Codable, Identifiable, Equatable {
         fulfillment = try container.decodeIfPresent(SaleFulfillment.self, forKey: .fulfillment)
         taxResolutionId = try container.decodeIfPresent(String.self, forKey: .taxResolutionId)
         taxEvidence = try container.decodeIfPresent(SaleTaxEvidence.self, forKey: .taxEvidence)
+        taxRateSource = try container.decodeIfPresent(String.self, forKey: .taxRateSource)
         taxAmount = try container.decode(String.self, forKey: .taxAmount)
         total = try container.decode(String.self, forKey: .total)
         createdAt = try container.decode(String.self, forKey: .createdAt)
@@ -952,6 +970,7 @@ struct Sale: Codable, Identifiable, Equatable {
         try container.encodeIfPresent(fulfillment, forKey: .fulfillment)
         try container.encodeIfPresent(taxResolutionId, forKey: .taxResolutionId)
         try container.encodeIfPresent(taxEvidence, forKey: .taxEvidence)
+        try container.encodeIfPresent(taxRateSource, forKey: .taxRateSource)
         try container.encode(taxAmount, forKey: .taxAmount)
         try container.encode(total, forKey: .total)
         try container.encode(createdAt, forKey: .createdAt)
@@ -971,6 +990,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
     let customerId: String
     let subtotal: String
     let taxRate: String
+    let fulfillment: SaleFulfillment?
     let taxAmount: String
     let total: String
     let createdAt: String
@@ -993,6 +1013,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         case customerId
         case subtotal
         case taxRate
+        case fulfillment
         case taxAmount
         case total
         case createdAt
@@ -1018,6 +1039,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         customerId = try container.decode(String.self, forKey: .customerId)
         subtotal = try container.decode(String.self, forKey: .subtotal)
         taxRate = try container.decode(String.self, forKey: .taxRate)
+        fulfillment = try container.decodeIfPresent(SaleFulfillment.self, forKey: .fulfillment)
         taxAmount = try container.decode(String.self, forKey: .taxAmount)
         total = try container.decode(String.self, forKey: .total)
         createdAt = try container.decode(String.self, forKey: .createdAt)
@@ -1048,6 +1070,7 @@ struct SaleListItem: Codable, Identifiable, Equatable {
         try container.encode(customerId, forKey: .customerId)
         try container.encode(subtotal, forKey: .subtotal)
         try container.encode(taxRate, forKey: .taxRate)
+        try container.encodeIfPresent(fulfillment, forKey: .fulfillment)
         try container.encode(taxAmount, forKey: .taxAmount)
         try container.encode(total, forKey: .total)
         try container.encode(createdAt, forKey: .createdAt)
@@ -1880,6 +1903,7 @@ struct PostReturnInput: Codable, Equatable {
 struct Supplier: Codable, Identifiable, Equatable {
     struct Counts: Codable, Equatable {
         let containers: Int
+        var purchaseOrders: Int? = nil
     }
 
     let id: String
@@ -2198,6 +2222,8 @@ struct SupplierSummary: Codable, Equatable {
     let landedValue: Double
     let tiresReceived: Int
     let containerCount: Int
+    var purchaseOrderCount: Int? = nil
+    var unlinkedContainerCount: Int? = nil
     let openContainerCount: Int
     let receivedContainerCount: Int
     let firstOrderAt: String?
@@ -2237,6 +2263,8 @@ struct SupplierContainerRow: Codable, Identifiable, Equatable {
     let id: String
     let ref: String?
     let reference: String?
+    var purchaseOrderId: String? = nil
+    var purchaseOrder: PurchaseOrderReference? = nil
     let status: ContainerStatus
     let bolNumber: String?
     let location: String
@@ -2254,6 +2282,8 @@ struct SupplierContainerRow: Codable, Identifiable, Equatable {
         case id
         case ref
         case reference
+        case purchaseOrderId
+        case purchaseOrder
         case status
         case bolNumber
         case location
@@ -2530,6 +2560,8 @@ struct ContainerListItem: Codable, Identifiable, Equatable {
     let reference: String?
     let bolNumber: String?
     let supplier: SupplierInfo
+    var purchaseOrderId: String? = nil
+    var purchaseOrder: PurchaseOrderReference? = nil
     let status: ContainerStatus
     let isDDP: Bool
     let location: String
@@ -2550,6 +2582,8 @@ struct ContainerListItem: Codable, Identifiable, Equatable {
         case reference
         case bolNumber
         case supplier
+        case purchaseOrderId
+        case purchaseOrder
         case status
         case isDDP
         case location
@@ -2585,6 +2619,8 @@ struct Container: Codable, Identifiable, Equatable {
     let bolNumber: String?
     let supplierId: String?
     let supplier: SupplierInfo
+    var purchaseOrderId: String? = nil
+    var purchaseOrder: PurchaseOrderReference? = nil
     let status: ContainerStatus
     let isDDP: Bool
     let location: String
@@ -2610,6 +2646,8 @@ struct Container: Codable, Identifiable, Equatable {
         case bolNumber
         case supplierId
         case supplier
+        case purchaseOrderId
+        case purchaseOrder
         case status
         case isDDP
         case location
@@ -2651,6 +2689,7 @@ struct IncomingInventoryLine: Codable, Identifiable, Equatable {
         let etaAt: String?
         let location: String
         let supplier: Supplier
+        var purchaseOrder: PurchaseOrderReference? = nil
     }
 
     let id: String
@@ -2671,6 +2710,8 @@ struct IncomingInventoryCombined: Codable, Identifiable, Equatable {
     let sku: Sku
     let totalQty: Int
     let purchaseOrderCount: Int
+    var distinctPurchaseOrderCount: Int? = nil
+    var containerCount: Int? = nil
     let orderedQty: Int
     let inTransitQty: Int
     let arrivedQty: Int
@@ -2808,6 +2849,7 @@ struct PaymentApplicationOpenBill: Codable, Identifiable, Equatable {
     let description: String?
     let reference: String?
     let poReference: String?
+    var purchaseOrderRef: String? = nil
     let amount: Double
     let amountPaid: Double
     let committed: Double
@@ -2880,6 +2922,7 @@ struct PaymentApplicationLine: Codable, Identifiable, Equatable {
     let category: String
     let companyRef: String?
     let poReference: String?
+    var purchaseOrderRef: String? = nil
     let vendorRef: String?
     let description: String?
     let note: String?
@@ -2905,6 +2948,7 @@ struct PaymentApplicationAttachment: Codable, Identifiable, Equatable {
     let note: String?
     let supplierPaymentId: String?
     let sourceContainerAttachmentId: String?
+    var sourcePurchaseOrderAttachmentId: String? = nil
     let createdAt: String
 }
 
@@ -3333,6 +3377,7 @@ struct EodReport: Codable, Equatable {
             let customer: String
             let soldBy: String
             let status: String
+            var fulfillment: SaleFulfillment? = nil
             let subtotal: Double
             let tax: Double
             let total: Double
@@ -3839,6 +3884,7 @@ struct BrandInfo: Codable, Identifiable, Equatable {
 
 struct MonthlySalesRow: Codable, Identifiable, Equatable {
     let date: String
+    var fulfillment: SaleFulfillment? = nil
     let itemCode: String
     let productCode: String
     let invoiceNo: String

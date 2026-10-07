@@ -243,6 +243,7 @@ enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
     case itemCode = "itemCode"
     case productCode = "productCode"
     case invoiceNo = "invoiceNo"
+    case fulfillment = "fulfillment"
     case brand = "brand"
     case pattern = "pattern"
     case size = "size"
@@ -269,6 +270,7 @@ enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
         case .itemCode: return "Item"
         case .productCode: return "Product"
         case .invoiceNo: return "Invoice #"
+        case .fulfillment: return "Fulfillment"
         case .brand: return "Brand"
         case .pattern: return "Pattern"
         case .size: return "Size"
@@ -293,6 +295,7 @@ enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
         case .itemCode: return row.itemCode
         case .productCode: return row.productCode
         case .invoiceNo: return row.invoiceNo
+        case .fulfillment: return (row.fulfillment ?? .delivery).reportingLabel
         case .brand: return row.brand
         case .pattern: return row.pattern
         case .size: return row.size
@@ -312,7 +315,7 @@ enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
     }
 
     static var defaults: [MonthlySalesColumnKey] {
-        [.date, .invoiceNo, .brand, .size, .pattern, .amount, .paymentMethod]
+        [.date, .invoiceNo, .fulfillment, .brand, .size, .pattern, .amount, .paymentMethod]
     }
 
     private static func trimmedNum(_ value: Double) -> String {
@@ -321,6 +324,7 @@ enum MonthlySalesColumnKey: String, CaseIterable, Identifiable {
 }
 
 private struct MonthlySalesRowView: View {
+    @EnvironmentObject private var i18n: I18nStore
     let row: MonthlySalesRow
     let columns: [MonthlySalesColumnKey]
 
@@ -343,12 +347,16 @@ private struct MonthlySalesRowView: View {
             EvenColumnGrid(minimumColumnWidth: 110, horizontalSpacing: 8, verticalSpacing: 6) {
                 ForEach(columns) { column in
                     HStack(alignment: .top, spacing: 4) {
-                        Text(column.label)
+                        Text(column == .fulfillment ? i18n.t("accounting.monthlySales.fulfillment") : column.label)
                             .font(.caption2)
                             .foregroundStyle(Theme.muted)
-                        Text(column.value(row))
-                            .font(.caption)
-                            .foregroundStyle(Theme.text)
+                        if column == .fulfillment {
+                            SaleFulfillmentBadge(fulfillment: row.fulfillment)
+                        } else {
+                            Text(column.value(row))
+                                .font(.caption)
+                                .foregroundStyle(Theme.text)
+                        }
                     }
                 }
             }
@@ -359,6 +367,7 @@ private struct MonthlySalesRowView: View {
 }
 
 private struct MonthlySalesColumnsSheet: View {
+    @EnvironmentObject private var i18n: I18nStore
     @Binding var columns: [MonthlySalesColumnKey]
 
     @Environment(\.dismiss) private var dismiss
@@ -378,7 +387,7 @@ private struct MonthlySalesColumnsSheet: View {
                     HStack {
                         Image(systemName: "line.3.horizontal")
                             .foregroundStyle(Theme.muted)
-                        Text(column.label)
+                        Text(column == .fulfillment ? i18n.t("accounting.monthlySales.fulfillment") : column.label)
                         Spacer()
                         Button {
                             remove(column)
@@ -399,7 +408,7 @@ private struct MonthlySalesColumnsSheet: View {
                         Button {
                             columns.append(column)
                         } label: {
-                            Label(column.label, systemImage: "plus")
+                            Label(column == .fulfillment ? i18n.t("accounting.monthlySales.fulfillment") : column.label, systemImage: "plus")
                         }
                     }
                 }

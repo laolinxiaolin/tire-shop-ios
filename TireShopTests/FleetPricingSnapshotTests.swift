@@ -31,6 +31,11 @@ final class FleetPricingSnapshotTests: XCTestCase {
                 name: "fleet-editor-\(label)", language: language, scheme: scheme,
                 size: CGSize(width: 393, height: 852)
             )
+            try await capture(
+                NavigationStack { SkuFormNativeView(editing: nil) },
+                name: "sku-create-\(label)", language: language, scheme: scheme,
+                size: CGSize(width: 393, height: 852)
+            )
             FleetSnapshotProtocol.resetRequests()
             try await capture(
                 NavigationStack {
@@ -42,9 +47,9 @@ final class FleetPricingSnapshotTests: XCTestCase {
                     "/api/customers/visual-fleet-customer/users"
                 ]
             )
+            XCTAssertTrue(FleetSnapshotProtocol.unexpectedRequests.isEmpty,
+                          "Unexpected visual QA requests: \(FleetSnapshotProtocol.unexpectedRequests.joined(separator: ", "))")
         }
-        XCTAssertTrue(FleetSnapshotProtocol.unexpectedRequests.isEmpty,
-                      "Visual QA must use known, read-only fixture requests")
     }
 
     func testFleetEditorAndCustomerTabletAccessibilityLayouts() async throws {
@@ -74,7 +79,8 @@ final class FleetPricingSnapshotTests: XCTestCase {
                 "/api/customers/visual-fleet-customer/users"
             ]
         )
-        XCTAssertTrue(FleetSnapshotProtocol.unexpectedRequests.isEmpty)
+        XCTAssertTrue(FleetSnapshotProtocol.unexpectedRequests.isEmpty,
+                      "Unexpected visual QA requests: \(FleetSnapshotProtocol.unexpectedRequests.joined(separator: ", "))")
     }
 
     private func fixtureSku() throws -> TireSku {
@@ -261,6 +267,14 @@ private final class FleetSnapshotProtocol: URLProtocol {
             """
         case ("GET", "/api/customers/visual-fleet-customer/credit-balance"):
             json = "{\"balance\":0}"
+        case ("GET", "/api/customers/visual-fleet-customer/tax-rate"):
+            // The existing profile now displays the customer tax card. This
+            // fixture has no verified delivery address, so its saved rate uses
+            // the shop default rather than making an external address lookup.
+            json = """
+            {"rate":0.07,"source":"SHOP_DEFAULT","shopDefaultRate":0.07,
+             "automatic":{"status":"SHOP_DEFAULT","rate":0.07},"resolution":null,"override":null}
+            """
         case ("GET", "/api/customers/visual-fleet-customer/users"), ("GET", "/api/price-tiers"):
             json = "[]"
         default:

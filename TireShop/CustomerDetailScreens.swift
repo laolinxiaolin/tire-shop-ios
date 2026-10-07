@@ -222,7 +222,14 @@ struct CustomerDetailNativeView: View {
         }
         .sheet(item: $paymentContext) { context in
             PaymentSheetNativeView(invoiceId: context.invoice.id, balance: context.invoice.balance, customerId: context.customerId) {
-                Task { await loadAccount() }
+                let session = AppSessionIdentity(auth)
+                async let accountRequest = CustomersAPI().account(id: id)
+                async let creditRequest = CustomersAPI().creditBalance(id: id)
+                async let paymentsRequest = PaymentsAPI().invoicePayments(invoiceId: context.invoice.id)
+                let (loadedAccount, loadedCredit, _) = try await (accountRequest, creditRequest, paymentsRequest)
+                guard session.isCurrent(auth) else { throw CancellationError() }
+                account = loadedAccount
+                storeCreditBalance = loadedCredit.balance
             }
         }
         .sheet(item: $passwordResetTarget) { target in
@@ -371,6 +378,7 @@ struct CustomerDetailNativeView: View {
             priceLevelSection(customer)
             tagsSection
             taxSection
+            CustomerTaxRateCard(customer: customer, onChange: applyCustomer)
             documentsSection(customer)
 
             if canManageCustomers {

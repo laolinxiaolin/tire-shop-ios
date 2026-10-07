@@ -1,6 +1,24 @@
 import Foundation
 import SwiftUI
 
+struct AppSessionIdentity: Equatable, Hashable {
+    let revision: UUID
+    let userId: String?
+    let token: String?
+    let server: String
+
+    @MainActor init(_ auth: AuthStore) {
+        revision = auth.sessionRevision
+        userId = auth.user?.id
+        token = APIClient.shared.token
+        server = Server.baseURLString
+    }
+
+    @MainActor func isCurrent(_ auth: AuthStore) -> Bool {
+        self == AppSessionIdentity(auth)
+    }
+}
+
 @MainActor
 final class AuthStore: ObservableObject {
     enum SignInResult: Equatable {
@@ -11,7 +29,7 @@ final class AuthStore: ObservableObject {
     private let userKey = "ts_user"
     private let api: APIClient
     private let storage: SessionStorage
-    private var sessionRevision = UUID()
+    @Published private(set) var sessionRevision = UUID()
     private var installedToken: String?
     private var restoring = false
 

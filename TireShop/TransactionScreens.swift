@@ -290,25 +290,47 @@ struct NewQuoteNativeView: View {
 
     private func pricingMessage(_ error: Error) -> String {
         if let pricing = error as? QuotePricingError { return i18n.t(pricing.localizationKey) }
-        return (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
+        return i18n.t((error as? LocalizedError)?.errorDescription ?? "salePrice.resolveError")
     }
 
     private var fulfillmentSection: some View {
         Section(i18n.t("newQuote.fulfillment")) {
-            Picker(i18n.t("newQuote.fulfillment"), selection: Binding(
-                get: { quote.fulfillment },
-                set: { quote.setFulfillment($0) }
-            )) {
-                ForEach(SaleFulfillment.allCases) { fulfillment in
-                    Text(i18n.t(fulfillment == .delivery ? "newQuote.delivery" : "newQuote.pickup"))
-                        .tag(fulfillment)
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { fulfillmentButtons }
+                VStack(alignment: .leading, spacing: 12) { fulfillmentButtons }
             }
-            .pickerStyle(.segmented)
 
             Text(i18n.t(fulfillmentTaxHint))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
+        }
+    }
+
+    private var fulfillmentButtons: some View {
+        ForEach(SaleFulfillment.editableCases) { method in
+            Button {
+                quote.setFulfillment(method)
+            } label: {
+                HStack(spacing: 8) {
+                    SaleFulfillmentBadge(fulfillment: method)
+                    if quote.fulfillment == method {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(method.badgeForeground)
+                    }
+                }
+                .padding(8)
+                .background(quote.fulfillment == method ? method.badgeBackground : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(
+                    quote.fulfillment == method ? method.badgeForeground : Theme.border,
+                    lineWidth: quote.fulfillment == method ? 2 : 1
+                ))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(i18n.t(method.titleKey))
+            .accessibilityAddTraits(quote.fulfillment == method ? .isSelected : [])
         }
     }
 
@@ -717,14 +739,20 @@ struct NewQuoteNativeView: View {
 
     @MainActor
     private func submit() async {
+        guard !saving else { return }
+        let generation = quote.generation
+        let session = AppSessionIdentity(auth)
         saving = true
         errorMessage = nil
+        defer { saving = false }
 
         do {
             try await quote.loadPricingPolicy(force: true)
+            guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
             let input = try quote.saleInput()
             if let editingId = quote.editingSaleId {
                 _ = try await SalesAPI().update(id: editingId, body: input)
+                guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
                 BrowsingRecords.changed(.sale, id: editingId)
                 quote.clear()
                 dismiss()
@@ -732,14 +760,19 @@ struct NewQuoteNativeView: View {
                 let saleID: String
                 if let pendingID = quote.pendingConfirmationSaleId {
                     let pendingSale = try await SalesAPI().get(id: pendingID)
-                    if pendingSale.status == "INVOICED" {
+                    guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
+                    if ["CONFIRMED", "INVOICED", "PAID"].contains(pendingSale.status) {
+                        BrowsingRecords.changed(.sale, id: pendingID)
                         quote.clear()
                         applyDefaultWarehouse()
-                        saving = false
                         return
+                    }
+                    guard pendingSale.status == "DRAFT" else {
+                        throw APIError(status: 400, message: "This sale is no longer editable (\(pendingSale.status)).")
                     }
                     quote.adoptSavedPricing(from: pendingSale)
                     let updated = try await SalesAPI().update(id: pendingID, body: quote.saleInput())
+                    guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
                     quote.adoptSavedPricing(from: updated)
                     saleID = pendingID
                 } else {
@@ -750,6 +783,7 @@ struct NewQuoteNativeView: View {
                     do {
                         sale = try await SalesAPI().create(input, idempotencyKey: quote.pendingCreationIdempotencyKey)
                     } catch {
+                        guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
                         if let apiError = error as? APIError,
                            (400..<500).contains(apiError.status), apiError.status != 408 {
                             quote.pendingCreationInput = nil
@@ -757,6 +791,7 @@ struct NewQuoteNativeView: View {
                         }
                         throw error
                     }
+                    guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
                     quote.pendingConfirmationSaleId = sale.id
                     quote.pendingCreationInput = nil
                     quote.pendingCreationIdempotencyKey = nil
@@ -765,15 +800,15 @@ struct NewQuoteNativeView: View {
                 }
 
                 _ = try await SalesAPI().confirm(id: saleID)
+                guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
                 BrowsingRecords.changed(.sale, id: saleID)
                 quote.clear()
                 applyDefaultWarehouse()
             }
         } catch {
+            guard quote.isCurrent(generation), session.isCurrent(auth) else { return }
             errorMessage = pricingMessage(error)
         }
-
-        saving = false
     }
 
     private func availableQuantity(for line: QuoteLine) -> Int? {
@@ -977,6 +1012,8 @@ struct SaleItemHeaderLayout: Layout {
 struct EditSaleNativeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var quote: QuoteStore
+    @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
     let id: String
 
     @State private var loadedSale: Sale?
@@ -985,6 +1022,8 @@ struct EditSaleNativeView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var confirmingDraftReplacement = false
+    @State private var loadedGeneration: UUID?
+    @State private var loadedSession: AppSessionIdentity?
 
     var body: some View {
         Group {
@@ -1019,13 +1058,25 @@ struct EditSaleNativeView: View {
     @MainActor
     private func loadSale() async {
         guard !ready else { return }
+        let generation = quote.generation
+        let session = AppSessionIdentity(auth)
         loading = true
         errorMessage = nil
         defer { loading = false }
 
         do {
             let sale = try await SalesAPI().get(id: id)
+            guard !Task.isCancelled, quote.isCurrent(generation), session.isCurrent(auth) else { return }
+            guard sale.fulfillment != .freight else {
+                throw APIError(status: 400, message: "sales.freightEditInWeb")
+            }
+            guard sale.status == "DRAFT" else {
+                throw APIError(status: 400, message: "This sale is no longer editable (\(sale.status)).")
+            }
             let customer = try await CustomersAPI().get(id: sale.customerId)
+            guard !Task.isCancelled, quote.isCurrent(generation), session.isCurrent(auth) else { return }
+            loadedGeneration = generation
+            loadedSession = session
             loadedSale = sale
             loadedCustomer = QuoteCustomer(customer: customer)
 
@@ -1037,12 +1088,14 @@ struct EditSaleNativeView: View {
                 seedLoadedSale()
             }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the sale."
+            guard !Task.isCancelled, quote.isCurrent(generation), session.isCurrent(auth) else { return }
+            errorMessage = i18n.t((error as? LocalizedError)?.errorDescription ?? "Could not load the sale.")
         }
     }
 
     private func seedLoadedSale() {
-        guard let loadedSale, let loadedCustomer else { return }
+        guard let loadedSale, let loadedCustomer, let loadedGeneration, let loadedSession,
+              quote.isCurrent(loadedGeneration), loadedSession.isCurrent(auth) else { return }
         quote.seed(from: loadedSale, customer: loadedCustomer)
         ready = true
     }
@@ -1115,7 +1168,6 @@ struct SkuDetailNativeView: View {
                 RowLine(title: "Segment", trailing: sku.segment ?? "-")
                 RowLine(title: "Reorder point", trailing: "\(sku.reorderPoint)")
                 RowLine(title: "LI & SR", trailing: sku.loadIndex ?? "-")
-                RowLine(title: "Pattern", trailing: sku.pattern ?? "-")
                 RowLine(title: "Tread depth", trailing: sku.treadDepth32 ?? "-")
                 RowLine(title: "Max load", trailing: sku.maxLoadSingleLb.map(String.init) ?? "-")
                 RowLine(title: "Weight", trailing: sku.weightLb ?? "-")
@@ -1326,7 +1378,6 @@ struct SkuFormNativeView: View {
     @State private var position = ""
     @State private var segment = ""
     @State private var loadIndex = ""
-    @State private var pattern = ""
     @State private var treadDepth32 = ""
     @State private var maxLoadSingleLb = ""
     @State private var weightLb = ""
@@ -1343,9 +1394,15 @@ struct SkuFormNativeView: View {
     var body: some View {
         Form {
             Section("Tire") {
-                TextField("SKU", text: $sku)
+                if editing != nil {
+                    TextField(i18n.t("sku.fieldSku"), text: $sku)
+                } else {
+                    Text(i18n.t("sku.autoGenerated"))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                }
                 TextField("Brand", text: $brand)
-                TextField("Model", text: $model)
+                TextField(i18n.t("sku.fieldModel"), text: $model)
                 TextField("Size", text: $size)
                 TextField("Category", text: $category)
                 TextField("Position", text: $position)
@@ -1354,7 +1411,6 @@ struct SkuFormNativeView: View {
 
             Section("Specs") {
                 TextField("LI & SR", text: $loadIndex)
-                TextField("Pattern", text: $pattern)
                 TextField("Tread depth", text: $treadDepth32)
                     .keyboardType(.decimalPad)
                 TextField("Max load", text: $maxLoadSingleLb)
@@ -1423,7 +1479,9 @@ struct SkuFormNativeView: View {
     }
 
     private var isValid: Bool {
-        !sku.isEmpty && !brand.isEmpty && !model.isEmpty && !size.isEmpty && !category.isEmpty && !position.isEmpty
+        (editing == nil || sku.nilIfBlank != nil)
+            && brand.nilIfBlank != nil && model.nilIfBlank != nil && size.nilIfBlank != nil
+            && category.nilIfBlank != nil && position.nilIfBlank != nil
             && (!canManagePrices || validStandardPrices)
     }
 
@@ -1446,7 +1504,6 @@ struct SkuFormNativeView: View {
         position = editing.position
         segment = editing.segment ?? ""
         loadIndex = editing.loadIndex ?? ""
-        pattern = editing.pattern ?? ""
         treadDepth32 = editing.treadDepth32 ?? ""
         maxLoadSingleLb = editing.maxLoadSingleLb.map(String.init) ?? ""
         weightLb = editing.weightLb ?? ""
@@ -1476,15 +1533,14 @@ struct SkuFormNativeView: View {
         do {
             if let editing {
                 let updated = try await InventoryAPI().updateSku(id: editing.id, body: TireSkuPatchInput(
-                    sku: sku,
-                    brand: brand,
-                    model: model,
-                    size: size,
+                    sku: sku.trimmingCharacters(in: .whitespacesAndNewlines),
+                    brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
+                    model: model.trimmingCharacters(in: .whitespacesAndNewlines),
+                    size: size.trimmingCharacters(in: .whitespacesAndNewlines),
                     category: category,
                     position: position,
                     segment: segment.nilIfBlank,
                     loadIndex: loadIndex.nilIfBlank,
-                    pattern: pattern.nilIfBlank,
                     treadDepth32: Double(treadDepth32),
                     maxLoadSingleLb: Int(maxLoadSingleLb),
                     weightLb: Double(weightLb),
@@ -1501,15 +1557,13 @@ struct SkuFormNativeView: View {
                 BrowsingRecords.changed(.inventory, id: updated.id)
             } else {
                 let created = try await InventoryAPI().createSku(SkuInput(
-                    sku: sku,
-                    brand: brand,
-                    model: model,
-                    size: size,
+                    brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
+                    model: model.trimmingCharacters(in: .whitespacesAndNewlines),
+                    size: size.trimmingCharacters(in: .whitespacesAndNewlines),
                     category: category,
                     position: position,
                     segment: segment.nilIfBlank,
                     loadIndex: loadIndex.nilIfBlank,
-                    pattern: pattern.nilIfBlank,
                     treadDepth32: Double(treadDepth32),
                     maxLoadSingleLb: Int(maxLoadSingleLb),
                     weightLb: Double(weightLb),

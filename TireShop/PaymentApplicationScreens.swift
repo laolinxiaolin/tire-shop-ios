@@ -752,7 +752,7 @@ private struct PaymentApplicationBillDraftRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(bill.description?.nilIfBlank ?? paymentApplicationLabel(bill.category))
                         .font(.subheadline.weight(.semibold))
-                    Text([bill.poReference, bill.reference].compactMap { $0?.nilIfBlank }.joined(separator: " · "))
+                    Text([bill.purchaseOrderRef, bill.poReference, bill.reference].compactMap { $0?.nilIfBlank }.joined(separator: " · "))
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
                 }
@@ -817,6 +817,7 @@ struct PaymentApplicationDetailNativeView: View {
     @State private var confirmingDiscardAndLeave = false
     @State private var preview: PreviewFile?
     @State private var removeAttachmentTarget: PaymentApplicationAttachment?
+    @State private var relatedDocumentsPresented = false
     @State private var confirmingAction: String?
 
     private var canManage: Bool { auth.has("paymentapps.manage") }
@@ -888,6 +889,11 @@ struct PaymentApplicationDetailNativeView: View {
         }
         .sheet(item: $preview) { file in
             QuickLookSheet(url: file.url)
+        }
+        .sheet(isPresented: $relatedDocumentsPresented) {
+            PaymentApplicationRelatedDocumentsSheet(applicationId: id) {
+                await load()
+            }
         }
         .alert(i18n.t("documentUpload.leaveTitle"), isPresented: $confirmingDiscardAndLeave) {
             Button(i18n.t("common.cancel"), role: .cancel) {}
@@ -1164,6 +1170,13 @@ struct PaymentApplicationDetailNativeView: View {
                     )
                     .font(.subheadline.weight(.semibold))
                 }
+            }
+
+            if canChangeAttachments(application) {
+                Button(i18n.t("pa.fromPurchasing")) { relatedDocumentsPresented = true }
+                    .disabled(actionLoading || preparingAttachment || pendingAttachment != nil)
+                Text(i18n.t("pa.copyEvidenceNote"))
+                    .font(.caption).foregroundStyle(Theme.muted)
             }
 
             if let pendingAttachment {
@@ -1482,7 +1495,7 @@ private struct PaymentApplicationLineRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(line.description?.nilIfBlank ?? line.cost.description?.nilIfBlank ?? paymentApplicationLabel(line.category))
                         .font(.subheadline.weight(.semibold))
-                    Text([line.companyRef, line.poReference, line.vendorRef].compactMap { $0?.nilIfBlank }.joined(separator: " · "))
+                    Text([line.companyRef, line.purchaseOrderRef, line.poReference, line.vendorRef].compactMap { $0?.nilIfBlank }.joined(separator: " · "))
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
                 }

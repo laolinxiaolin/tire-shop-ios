@@ -78,6 +78,8 @@ struct CustomerAnalyticsHistoryCoverage: Decodable, Equatable {
 
 /// Values come from immutable recognized events, including returns and reversals.
 /// Missing or null profit evidence remains unavailable rather than becoming zero.
+/// Server gross profit uses booked COGS independently of actual-cost verification;
+/// a null actualCogs value must not hide grossProfit or gpPercent.
 struct CustomerAnalyticsMetrics: Decodable, Equatable {
     let sales: Double
     let tireRevenue: Double

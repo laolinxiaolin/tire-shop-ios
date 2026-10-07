@@ -91,6 +91,15 @@ struct ShopSettingsNativeView: View {
 
                     shopInfoSection
                     generalSection
+                    if auth.user?.isAdmin == true {
+                        Section {
+                            NavigationLink {
+                                TaxDataNativeView()
+                            } label: {
+                                Label(i18n.t("taxData.title"), systemImage: "checkmark.shield")
+                            }
+                        }
+                    }
                     tapToPaySection
                     mailSection
                     invoiceTemplateSection

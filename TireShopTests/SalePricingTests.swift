@@ -755,17 +755,245 @@ final class SalePricingTests: XCTestCase {
         }
     }
 
-    private func decodedSale(evidenceType: String? = nil) throws -> Sale {
-        let evidence = evidenceType.map { ",\"taxEvidence\":{\"type\":\"\($0)\"}" } ?? ""
+    @MainActor
+    func testExemptionsWithoutCertificateNumbersApplyBeforeAndAfterTaxLookup() async throws {
+        for number in [nil, "", "   "] as [String?] {
+            for expiry in [nil, "2099-01-01T00:00:00Z"] as [String?] {
+                let customer = try decodedCustomer(taxExempt: true, certificate: number, expiry: expiry)
+                let quote = QuoteStore { _, _, _ in
+                    CustomerTaxRateResponse(
+                        rate: 0, source: "EXEMPT", resolution: nil,
+                        automatic: .init(status: "RESOLVED", resolutionId: "location", rate: 0.08, code: nil)
+                    )
+                }
+                quote.setCustomer(QuoteCustomer(customer: customer))
+                quote.addLine(itemType: "SERVICE", itemId: "service", description: "Service", unitPrice: 100)
+                XCTAssertEqual(quote.effectiveTaxRate, 0)
+                XCTAssertEqual(quote.total, 100)
+                await quote.applyCustomerTaxRate()
+                XCTAssertEqual(quote.total, 100)
+                XCTAssertEqual(try quote.saleInput().taxRate, 0)
+
+                quote.seed(from: try decodedSale(), customer: QuoteCustomer(customer: customer))
+                XCTAssertFalse(quote.taxLookupInProgress)
+                XCTAssertEqual(quote.total, 100)
+                XCTAssertEqual(try quote.saleInput().taxRate, 0)
+                XCTAssertNil(try quote.saleInput().taxAmount)
+            }
+        }
+    }
+
+    @MainActor
+    func testExpiredExemptionWithoutCertificateNumberUsesResolvedRate() async throws {
+        let customer = try decodedCustomer(taxExempt: true, expiry: "2020-01-01T00:00:00Z")
+        let quote = QuoteStore { _, _, _ in self.taxResponse(rate: 0.08) }
+        quote.setCustomer(QuoteCustomer(customer: customer))
+        quote.addLine(itemType: "SERVICE", itemId: "service", description: "Service", unitPrice: 100)
+        await quote.applyCustomerTaxRate()
+        XCTAssertFalse(quote.customer?.taxExempt ?? true)
+        XCTAssertEqual(quote.total, 108)
+        XCTAssertEqual(try quote.saleInput().taxRate, 0.08)
+    }
+
+    @MainActor
+    func testAddresslessDeliveryDraftBlocksSavingUntilCurrentAutomaticTaxLoads() async throws {
+        for address in [nil, "", " \n "] as [String?] {
+            let sale = try decodedSale(taxRateSource: "LOCATION", fulfillment: "DELIVERY", taxResolutionId: "old-location")
+            let customer = try decodedCustomer(address: address)
+            var requestedFulfillment: SaleFulfillment?
+            var requestedLocation: String?
+            let quote = QuoteStore { _, fulfillment, location in
+                requestedFulfillment = fulfillment
+                requestedLocation = location
+                return self.shopDefaultTaxResponse(rate: 0.089)
+            }
+            let revision = quote.taxContextRevision
+            quote.seed(from: sale, customer: QuoteCustomer(customer: customer))
+            XCTAssertEqual(quote.customer?.address, address)
+            XCTAssertTrue(quote.taxLookupInProgress)
+            XCTAssertGreaterThan(quote.taxContextRevision, revision)
+            XCTAssertNil(quote.taxResolutionId)
+            XCTAssertThrowsError(try quote.saleInput())
+
+            await quote.applyCustomerTaxRate()
+            XCTAssertEqual(requestedFulfillment, .delivery)
+            XCTAssertNil(requestedLocation)
+            XCTAssertFalse(quote.taxLookupInProgress)
+            XCTAssertEqual(quote.total, 108.9, accuracy: 0.000001)
+            XCTAssertNil(quote.taxOverride)
+            XCTAssertNil(quote.taxResolutionId)
+            XCTAssertFalse(try quote.saleInput().overrideTaxRate)
+            XCTAssertEqual(try quote.saleInput().taxRate, 0.089)
+        }
+    }
+
+    @MainActor
+    func testSavedShopDefaultsRefreshForPickupAndDeliveryIncludingLegacyEvidence() async throws {
+        let cases: [(String?, String?, String)] = [
+            ("DEFAULT", nil, "PICKUP"),
+            ("DEFAULT", nil, "DELIVERY"),
+            (nil, "SHOP_DEFAULT_PICKUP", "PICKUP"),
+            (nil, "SHOP_DEFAULT_MISSING_CUSTOMER_ADDRESS", "DELIVERY")
+        ]
+        for (source, evidence, fulfillment) in cases {
+            let sale = try decodedSale(evidenceType: evidence, taxRateSource: source, fulfillment: fulfillment)
+            var requestedLocation: String?
+            let quote = QuoteStore { _, _, location in
+                requestedLocation = location
+                return self.shopDefaultTaxResponse(rate: 0.089)
+            }
+            quote.seed(from: sale, customer: QuoteCustomer(customer: try decodedCustomer()))
+            XCTAssertEqual(sale.taxRateSource, source)
+            XCTAssertTrue(quote.taxLookupInProgress)
+            await quote.applyCustomerTaxRate()
+            XCTAssertEqual(requestedLocation, fulfillment == "PICKUP" ? "MAIN" : nil)
+            XCTAssertEqual(quote.total, 108.9, accuracy: 0.000001)
+            XCTAssertNil(try quote.saleInput().taxResolutionId)
+        }
+    }
+
+    @MainActor
+    func testAddresslessDraftRefreshPreservesSaleOverrideAndUnaffectedLocationDrafts() throws {
+        let cases: [(String?, String?, String, String?)] = [
+            ("OVERRIDE", "SALE_RATE_OVERRIDE", "DELIVERY", nil),
+            ("DEFAULT", "SALE_RATE_OVERRIDE", "PICKUP", nil),
+            ("LOCATION", nil, "DELIVERY", "123 Main St"),
+            ("LOCATION", nil, "PICKUP", nil)
+        ]
+        for (source, evidence, fulfillment, address) in cases {
+            let sale = try decodedSale(evidenceType: evidence, taxRateSource: source, fulfillment: fulfillment)
+            let quote = QuoteStore()
+            quote.seed(from: sale, customer: QuoteCustomer(customer: try decodedCustomer(address: address)))
+            XCTAssertFalse(quote.taxLookupInProgress)
+            XCTAssertEqual(quote.overrideTaxRate, evidence == "SALE_RATE_OVERRIDE")
+            XCTAssertEqual(quote.total, 108.12)
+            XCTAssertEqual(try quote.saleInput().taxAmount, 8.12)
+        }
+    }
+
+    @MainActor
+    func testShopDefaultRefreshRetainsSavedRoundingOnlyWhenRateAndLinesRemainUnchanged() async throws {
+        for changedRate in [false, true] {
+            for changedQuantity in [false, true] {
+                let quote = QuoteStore { _, _, _ in
+                    self.shopDefaultTaxResponse(rate: changedRate ? 0.089 : 0.07)
+                }
+                let sale = try decodedSale(
+                    taxRateSource: "DEFAULT", fulfillment: "DELIVERY",
+                    subtotal: "121.50", taxRate: "0.07", taxAmount: "8.50"
+                )
+                quote.seed(from: sale, customer: QuoteCustomer(customer: try decodedCustomer(address: nil)))
+                if changedQuantity { quote.updateQty(quote.lines[0].id, qty: 2) }
+                await quote.applyCustomerTaxRate()
+                if changedRate || changedQuantity {
+                    XCTAssertNil(quote.taxOverride)
+                    XCTAssertNil(try quote.saleInput().taxAmount)
+                    let expectedTax = (quote.subtotal * (changedRate ? 0.089 : 0.07) * 100).rounded() / 100
+                    XCTAssertEqual(quote.taxAmount, expectedTax)
+                } else {
+                    XCTAssertEqual(quote.taxOverride, 8.50)
+                    XCTAssertEqual(quote.total, 130)
+                    XCTAssertEqual(try quote.saleInput().taxAmount, 8.50)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testFailedDraftTaxRefreshBlocksSavingAndCanRetry() async throws {
+        var fails = true
+        let quote = QuoteStore { _, _, _ in
+            if fails { throw APIError(status: 503, message: "Tax lookup unavailable") }
+            return self.shopDefaultTaxResponse(rate: 0.089)
+        }
+        quote.seed(
+            from: try decodedSale(taxRateSource: "DEFAULT"),
+            customer: QuoteCustomer(customer: try decodedCustomer(address: nil))
+        )
+        await quote.applyCustomerTaxRate()
+        XCTAssertFalse(quote.taxLookupInProgress)
+        XCTAssertEqual(quote.taxLookupError, "Tax lookup unavailable")
+        XCTAssertThrowsError(try quote.saleInput())
+        fails = false
+        await quote.applyCustomerTaxRate()
+        XCTAssertNil(quote.taxLookupError)
+        XCTAssertEqual(try quote.saleInput().taxRate, 0.089)
+    }
+
+    @MainActor
+    func testLateDraftRefreshCannotOverwriteNewManualOverride() async throws {
+        var finishLookup: CheckedContinuation<CustomerTaxRateResponse, Error>?
+        let started = expectation(description: "Draft tax refresh started")
+        let quote = QuoteStore { _, _, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                finishLookup = continuation
+                started.fulfill()
+            }
+        }
+        quote.seed(
+            from: try decodedSale(taxRateSource: "DEFAULT"),
+            customer: QuoteCustomer(customer: try decodedCustomer(address: nil))
+        )
+        let refresh = Task { await quote.applyCustomerTaxRate() }
+        await fulfillment(of: [started], timeout: 1)
+        quote.setTaxRate(5, isAdmin: true)
+        finishLookup?.resume(returning: shopDefaultTaxResponse(rate: 0.089))
+        await refresh.value
+        XCTAssertFalse(quote.taxLookupInProgress)
+        XCTAssertTrue(quote.overrideTaxRate)
+        XCTAssertEqual(quote.total, 105)
+        XCTAssertEqual(try quote.saleInput().taxRate, 0.05)
+    }
+
+    private func shopDefaultTaxResponse(rate: Double) -> CustomerTaxRateResponse {
+        CustomerTaxRateResponse(
+            rate: rate, source: "DEFAULT", resolution: nil,
+            automatic: .init(status: "SHOP_DEFAULT", resolutionId: nil, rate: rate, code: nil)
+        )
+    }
+
+    private func decodedCustomer(
+        address: String? = "123 Main St",
+        taxExempt: Bool = false,
+        certificate: String? = nil,
+        expiry: String? = nil
+    ) throws -> Customer {
+        var object: [String: Any] = [
+            "id": "customer", "name": "Customer", "taxExempt": taxExempt,
+            "accountEnabled": false, "createdAt": "2026-09-22T12:00:00Z",
+            "state": "GA", "city": "Macon", "postalCode": "31206"
+        ]
+        object["address"] = address
+        object["taxExemptNumber"] = certificate
+        object["taxExemptExpiresAt"] = expiry
+        return try JSONDecoder().decode(Customer.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    private func decodedSale(
+        evidenceType: String? = nil,
+        taxRateSource: String? = nil,
+        fulfillment: String? = nil,
+        taxResolutionId: String? = nil,
+        subtotal: String = "100.00",
+        taxRate: String = "0.081234",
+        taxAmount: String = "8.12"
+    ) throws -> Sale {
+        let additionalFields = [
+            evidenceType.map { ",\"taxEvidence\":{\"type\":\"\($0)\"}" },
+            taxRateSource.map { ",\"taxRateSource\":\"\($0)\"" },
+            fulfillment.map { ",\"fulfillment\":\"\($0)\"" },
+            taxResolutionId.map { ",\"taxResolutionId\":\"\($0)\"" }
+        ].compactMap { $0 }.joined()
         let json = """
         {
             "id": "sale-1", "status": "DRAFT", "location": "MAIN",
             "customer": {"id": "customer", "name": "Customer"}, "customerId": "customer",
-            "subtotal": "100.00", "taxRate": "0.081234", "taxAmount": "8.12", "total": "108.12",
+            "subtotal": "\(subtotal)", "taxRate": "\(taxRate)", "taxAmount": "\(taxAmount)",
+            "total": "\((Double(subtotal) ?? 0) + (Double(taxAmount) ?? 0))",
             "createdAt": "2026-09-21T12:00:00Z",
             "lines": [{"id": "line-1", "itemType": "SERVICE", "itemId": "service", "description": "Service",
-                       "qty": 1, "unitPrice": "100.00", "discount": "0", "lineTotal": "100.00"}]
-            \(evidence)
+                       "qty": 1, "unitPrice": "\(subtotal)", "discount": "0", "lineTotal": "\(subtotal)"}]
+            \(additionalFields)
         }
         """
         return try JSONDecoder().decode(Sale.self, from: Data(json.utf8))
