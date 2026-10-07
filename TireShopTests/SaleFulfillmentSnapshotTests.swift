@@ -74,6 +74,7 @@ private struct FulfillmentExamples: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(i18n.t("salesList.col.fulfillment"))
                     .font(.title2.bold())
+                row(ref: "INV-1026", customer: "Regional Freight Fleet", fulfillment: .freight, status: "INVOICED", methods: ["Check"])
                 row(ref: "INV-1024", customer: "North Coast Fleet", fulfillment: .pickup, status: "PAID", methods: ["Cash"])
                 row(ref: "INV-1025", customer: "Pacific Tire", fulfillment: .delivery, status: "INVOICED", methods: ["Card"])
             }
