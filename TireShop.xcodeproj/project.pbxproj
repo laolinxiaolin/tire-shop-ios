@@ -26,6 +26,9 @@
 		9F736308324BEE6C9F203639 /* CustomerAnalyticsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8764B0A3D03DE973F00D67 /* CustomerAnalyticsStore.swift */; };
 		1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */; };
 		47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */; };
+		2267C01EE8B45A96DABB2FBD /* CustomerTaxAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBE6F70E4242312B6B4577A9 /* CustomerTaxAPI.swift */; };
+		07E5FF5DFF6ACEDD876F76A4 /* CustomerTaxModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA45D4D5D3499822A8EE8D3 /* CustomerTaxModels.swift */; };
+		071ECC4DA0C6134C6D8F1DA4 /* CustomerTaxRateCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73906603B9A29EC95693AC3F /* CustomerTaxRateCard.swift */; };
 		3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EAC7CD9D797892BEB3CA375 /* Destinations.swift */; };
 		1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF94A64588D8A0810E39E6C /* DetailScreens.swift */; };
 		AE3E761B68DB2AD874E2CA90 /* EmployeeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */; };
@@ -40,15 +43,22 @@
 		68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88CA5A639740B9905E77B77 /* I18nStore.swift */; };
 		1F48DAF4B10E02E253827AD9 /* LayoutDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */; };
 		F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */; };
+		7E6C22B0D3D23148D81B4A27 /* ManualReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D98F39E5FD00B5DAE3096A /* ManualReceiptStore.swift */; };
 		C28E3B592A560C32484F497E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8 /* Models.swift */; };
 		5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4C2DA3A8199A94893222 /* NativeComponents.swift */; };
 		0EE179D1BF9A2F7F9492D53D /* OrderScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35308617946D20EF1B7BEF2F /* OrderScreens.swift */; };
+		8D3CF4D1C3033D6E66FEA7A2 /* PaymentApplicationRelatedDocumentsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64654F18EC6908F365928B6C /* PaymentApplicationRelatedDocumentsSheet.swift */; };
 		47C2233A77103DFFA2FAD67E /* PaymentApplicationScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF9AD69ADF0150C8F5A90A4 /* PaymentApplicationScreens.swift */; };
 		ADBB74DC4A2977B91478A152 /* PlaceholderModules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE733E38A18988BEF520070D /* PlaceholderModules.swift */; };
+		63A5222AD3197478F7A50DF6 /* PurchaseOrderAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E5F3074984F899FA615FF3 /* PurchaseOrderAPI.swift */; };
+		FBEFB71EBDDBA7AA2D6D0010 /* PurchaseOrderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB456944911E47C9A9F41A41 /* PurchaseOrderModels.swift */; };
+		4EA815FC88EA7746B73D9322 /* PurchaseOrderScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DDD23FF09422B8755F89D6 /* PurchaseOrderScreens.swift */; };
 		1BF6B5C1C5F3636EA3AA8E9F /* PurchaseSupplierCorrection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F18530102F96BE7D86F67C5 /* PurchaseSupplierCorrection.swift */; };
 		AB1BD885025C14A983045AC8 /* QuoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D72B874D73108C84EEA7FC /* QuoteStore.swift */; };
 		98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54402C1C6DDB15D78025760 /* RootViews.swift */; };
+		642F4CF09728D984F8757E83 /* SaleFulfillmentBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F386473682CC5E433105DF53 /* SaleFulfillmentBadge.swift */; };
 		DA2CAB89D93A492949D61FEF /* SalePriceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A2C561FAA11164DC7245F8 /* SalePriceHistory.swift */; };
+		C416FD7682D64F5B76ECEC71 /* SalesExportRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A3B4E7FD936E435BF6EDACB /* SalesExportRequest.swift */; };
 		67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1782DD0F092018F372E6865E /* Services.swift */; };
 		C3D4CD55072FBD511C927CE7 /* SessionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FA4AB024B3DF70120413E31 /* SessionStorage.swift */; };
 		54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867D8A179010B63034C1EDCF /* SharedViews.swift */; };
@@ -58,6 +68,9 @@
 		5FE390CA38D6D19EAF200B16 /* StockAdjustmentScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19CA6101C704157AE4FE3DE3 /* StockAdjustmentScreens.swift */; };
 		1DF4105730A1C5BBC916E85B /* StorefrontScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A66D58A6E6EC68FF2C8794E /* StorefrontScreens.swift */; };
 		A6E3F0E9CAFAC7832A7D35BE /* SupplierScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DB696565FF7E993CB5A8438 /* SupplierScreens.swift */; };
+		E9289C9C61782BB6EE19B636 /* TaxDataModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C66819E45E9D8B4606D0D2C /* TaxDataModels.swift */; };
+		8D51515527FCCF2BD437FDD9 /* TaxDataScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DADDAA4383B4A468062261 /* TaxDataScreens.swift */; };
+		35DE24B4A05E5955FBB092EB /* TaxDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66958AD83F023B57C0EE863E /* TaxDataStore.swift */; };
 		A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435F48F77A26D5E9323945F6 /* Theme.swift */; };
 		AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E48A97CA0BFC00EA327436 /* TireShopApp.swift */; };
 		E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */; };
@@ -79,18 +92,31 @@
 		30DF235BC1BE65A12C537D96 /* CustomerAnalyticsSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */; };
 		BAD7EEF2D21DF905E40A34DF /* CustomerAnalyticsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */; };
 		A36542384337308C690AB0D2 /* CustomerAnalyticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */; };
+		B5BA4B4377F7D0C7960C3954 /* CustomerTaxAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB4C8D9AC52F2FD0DF9AB8D /* CustomerTaxAPITests.swift */; };
+		29516F6E87DF795C0F12BE9A /* CustomerTaxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B7D47F4A9DEABEB510CFD5 /* CustomerTaxTests.swift */; };
 		51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */; };
 		0C18F19712ACA1E623C76D1C /* FleetPricingContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499515A57685AE8E442623E9 /* FleetPricingContractTests.swift */; };
 		6D4C1833AE0A1A29D0272B9E /* FleetPricingSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2768C5A7E338E5827682D073 /* FleetPricingSnapshotTests.swift */; };
 		CABDEEFE5324FBD7B69C9DA4 /* FleetQuotePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 934B6465E3526BC3EA87F16B /* FleetQuotePricingTests.swift */; };
 		2B50B3689FA74CF413D1D275 /* FleetSkuPriceInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE23A3EE9E9CBB72450453C9 /* FleetSkuPriceInputTests.swift */; };
 		9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */; };
+		F6F09C04298246E20BAA9CAA /* ManualReceiptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC7F22D54BB051999D881B73 /* ManualReceiptTests.swift */; };
 		A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */; };
 		07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D98F989BA35BDAA193F641 /* PayLinkTests.swift */; };
 		41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */; };
+		D21E7870A8C4672A559DC25B /* PurchaseOrderAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70ED2A24F5D4CD8E64AFB0D7 /* PurchaseOrderAPITests.swift */; };
+		5D8AB3614DD5B1D4FF81CCFA /* PurchaseOrderDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2113ADF74AF2E8547F239D39 /* PurchaseOrderDraftTests.swift */; };
+		8346B90E79D85159C4EE72AD /* PurchaseOrderSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFABC81F3EF641A2512574EC /* PurchaseOrderSnapshotTests.swift */; };
+		E3FE83032783F9EC17723397 /* PurchaseOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99904C94225080EF5C93310 /* PurchaseOrderTests.swift */; };
+		93DB248F4CD582073AAD7531 /* SaleFulfillmentSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381A5342A44BA08C463778AF /* SaleFulfillmentSnapshotTests.swift */; };
 		0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */; };
+		A7F9B1A0A2E7B5D2DD633F34 /* SalesReportingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56760E83945AF3A332DBAF6B /* SalesReportingTests.swift */; };
 		82AB75B15112E008D0AD4C1F /* SessionStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */; };
+		7A8A71655038A0BA39662110 /* SkuCreationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9032D253B3BA65B03B20C08D /* SkuCreationContractTests.swift */; };
 		0CEC6E0C266A079105949932 /* SupplierCorrectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2DAA9876D085B53C96C73B /* SupplierCorrectionTests.swift */; };
+		62CE823C7AB7349A978A55D5 /* TaxDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D1847B03F638177CE02D767 /* TaxDataStoreTests.swift */; };
+		569871637192BC1D21175778 /* TaxDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99295AA6DDC6AFA207FDE8DC /* TaxDataTests.swift */; };
+		E2827FCFB358C25118CD9340 /* UploadLimitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649A2F66108C71BF30BD5C94 /* UploadLimitTests.swift */; };
 		9EF30F5D48ACFBB6C1DAEDF5 /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 861E4BCC7361F5BA4FD4E259 /* StripeTerminal */; };
 		A6DA2354BC96D7241DD366C5 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = EE2423EE6B9A6599B9A70A15 /* StripePaymentSheet */; };
 		222F0DBFFE5EB23DCD3FD16F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */; };
@@ -118,6 +144,9 @@
 		CC8764B0A3D03DE973F00D67 /* CustomerAnalyticsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsStore.swift"; sourceTree = "<group>"; };
 		E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerDetailScreens.swift"; sourceTree = "<group>"; };
 		C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerRelationsScreens.swift"; sourceTree = "<group>"; };
+		DBE6F70E4242312B6B4577A9 /* CustomerTaxAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxAPI.swift"; sourceTree = "<group>"; };
+		6CA45D4D5D3499822A8EE8D3 /* CustomerTaxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxModels.swift"; sourceTree = "<group>"; };
+		73906603B9A29EC95693AC3F /* CustomerTaxRateCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxRateCard.swift"; sourceTree = "<group>"; };
 		6EAC7CD9D797892BEB3CA375 /* Destinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Destinations.swift"; sourceTree = "<group>"; };
 		EBF94A64588D8A0810E39E6C /* DetailScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetailScreens.swift"; sourceTree = "<group>"; };
 		3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EmployeeScreens.swift"; sourceTree = "<group>"; };
@@ -132,15 +161,22 @@
 		E88CA5A639740B9905E77B77 /* I18nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nStore.swift"; sourceTree = "<group>"; };
 		4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LayoutDiagnostics.swift"; sourceTree = "<group>"; };
 		64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView.swift"; sourceTree = "<group>"; };
+		40D98F39E5FD00B5DAE3096A /* ManualReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManualReceiptStore.swift"; sourceTree = "<group>"; };
 		78FD430803560F137BDECEE8 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>"; };
 		365A4C2DA3A8199A94893222 /* NativeComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeComponents.swift"; sourceTree = "<group>"; };
 		35308617946D20EF1B7BEF2F /* OrderScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrderScreens.swift"; sourceTree = "<group>"; };
+		64654F18EC6908F365928B6C /* PaymentApplicationRelatedDocumentsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentApplicationRelatedDocumentsSheet.swift"; sourceTree = "<group>"; };
 		3CF9AD69ADF0150C8F5A90A4 /* PaymentApplicationScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentApplicationScreens.swift"; sourceTree = "<group>"; };
 		DE733E38A18988BEF520070D /* PlaceholderModules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaceholderModules.swift"; sourceTree = "<group>"; };
+		F6E5F3074984F899FA615FF3 /* PurchaseOrderAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderAPI.swift"; sourceTree = "<group>"; };
+		BB456944911E47C9A9F41A41 /* PurchaseOrderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderModels.swift"; sourceTree = "<group>"; };
+		18DDD23FF09422B8755F89D6 /* PurchaseOrderScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderScreens.swift"; sourceTree = "<group>"; };
 		0F18530102F96BE7D86F67C5 /* PurchaseSupplierCorrection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseSupplierCorrection.swift"; sourceTree = "<group>"; };
 		B3D72B874D73108C84EEA7FC /* QuoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuoteStore.swift"; sourceTree = "<group>"; };
 		B54402C1C6DDB15D78025760 /* RootViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootViews.swift"; sourceTree = "<group>"; };
+		F386473682CC5E433105DF53 /* SaleFulfillmentBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleFulfillmentBadge.swift"; sourceTree = "<group>"; };
 		05A2C561FAA11164DC7245F8 /* SalePriceHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePriceHistory.swift"; sourceTree = "<group>"; };
+		5A3B4E7FD936E435BF6EDACB /* SalesExportRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalesExportRequest.swift"; sourceTree = "<group>"; };
 		1782DD0F092018F372E6865E /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services.swift"; sourceTree = "<group>"; };
 		7FA4AB024B3DF70120413E31 /* SessionStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionStorage.swift"; sourceTree = "<group>"; };
 		867D8A179010B63034C1EDCF /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedViews.swift"; sourceTree = "<group>"; };
@@ -150,6 +186,9 @@
 		19CA6101C704157AE4FE3DE3 /* StockAdjustmentScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StockAdjustmentScreens.swift"; sourceTree = "<group>"; };
 		3A66D58A6E6EC68FF2C8794E /* StorefrontScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StorefrontScreens.swift"; sourceTree = "<group>"; };
 		6DB696565FF7E993CB5A8438 /* SupplierScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SupplierScreens.swift"; sourceTree = "<group>"; };
+		9C66819E45E9D8B4606D0D2C /* TaxDataModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaxDataModels.swift"; sourceTree = "<group>"; };
+		37DADDAA4383B4A468062261 /* TaxDataScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaxDataScreens.swift"; sourceTree = "<group>"; };
+		66958AD83F023B57C0EE863E /* TaxDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaxDataStore.swift"; sourceTree = "<group>"; };
 		435F48F77A26D5E9323945F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
 		72E48A97CA0BFC00EA327436 /* TireShopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TireShopApp.swift"; sourceTree = "<group>"; };
 		A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TransactionScreens.swift"; sourceTree = "<group>"; };
@@ -171,18 +210,31 @@
 		949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsSnapshotTests.swift"; sourceTree = "<group>"; };
 		B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsStoreTests.swift"; sourceTree = "<group>"; };
 		600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsTests.swift"; sourceTree = "<group>"; };
+		2CB4C8D9AC52F2FD0DF9AB8D /* CustomerTaxAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxAPITests.swift"; sourceTree = "<group>"; };
+		B3B7D47F4A9DEABEB510CFD5 /* CustomerTaxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxTests.swift"; sourceTree = "<group>"; };
 		18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpenseReceiptSubmissionTests.swift"; sourceTree = "<group>"; };
 		499515A57685AE8E442623E9 /* FleetPricingContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetPricingContractTests.swift"; sourceTree = "<group>"; };
 		2768C5A7E338E5827682D073 /* FleetPricingSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetPricingSnapshotTests.swift"; sourceTree = "<group>"; };
 		934B6465E3526BC3EA87F16B /* FleetQuotePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetQuotePricingTests.swift"; sourceTree = "<group>"; };
 		FE23A3EE9E9CBB72450453C9 /* FleetSkuPriceInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetSkuPriceInputTests.swift"; sourceTree = "<group>"; };
 		9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryLookupTests.swift"; sourceTree = "<group>"; };
+		AC7F22D54BB051999D881B73 /* ManualReceiptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManualReceiptTests.swift"; sourceTree = "<group>"; };
 		5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrdersListStoreTests.swift"; sourceTree = "<group>"; };
 		02D98F989BA35BDAA193F641 /* PayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PayLinkTests.swift"; sourceTree = "<group>"; };
 		12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaymentMethodPatchInputTests.swift"; sourceTree = "<group>"; };
+		70ED2A24F5D4CD8E64AFB0D7 /* PurchaseOrderAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderAPITests.swift"; sourceTree = "<group>"; };
+		2113ADF74AF2E8547F239D39 /* PurchaseOrderDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderDraftTests.swift"; sourceTree = "<group>"; };
+		BFABC81F3EF641A2512574EC /* PurchaseOrderSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderSnapshotTests.swift"; sourceTree = "<group>"; };
+		C99904C94225080EF5C93310 /* PurchaseOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderTests.swift"; sourceTree = "<group>"; };
+		381A5342A44BA08C463778AF /* SaleFulfillmentSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleFulfillmentSnapshotTests.swift"; sourceTree = "<group>"; };
 		0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePricingTests.swift"; sourceTree = "<group>"; };
+		56760E83945AF3A332DBAF6B /* SalesReportingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalesReportingTests.swift"; sourceTree = "<group>"; };
 		B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionStorageTests.swift"; sourceTree = "<group>"; };
+		9032D253B3BA65B03B20C08D /* SkuCreationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkuCreationContractTests.swift"; sourceTree = "<group>"; };
 		0D2DAA9876D085B53C96C73B /* SupplierCorrectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SupplierCorrectionTests.swift"; sourceTree = "<group>"; };
+		9D1847B03F638177CE02D767 /* TaxDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaxDataStoreTests.swift"; sourceTree = "<group>"; };
+		99295AA6DDC6AFA207FDE8DC /* TaxDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaxDataTests.swift"; sourceTree = "<group>"; };
+		649A2F66108C71BF30BD5C94 /* UploadLimitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UploadLimitTests.swift"; sourceTree = "<group>"; };
 		38A007151ABE87CC01A5B6E9 /* TireShop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TireShop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F219C0274590DA45E4BEF1EA /* TireShopTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TireShopTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C36FFE920F24CEDB7CFDBFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -244,6 +296,9 @@
 				CC8764B0A3D03DE973F00D67 /* CustomerAnalyticsStore.swift */,
 				E74B5BCE02AAF8F232363560 /* CustomerDetailScreens.swift */,
 				C71A14B87B6C7416E4BA1751 /* CustomerRelationsScreens.swift */,
+				DBE6F70E4242312B6B4577A9 /* CustomerTaxAPI.swift */,
+				6CA45D4D5D3499822A8EE8D3 /* CustomerTaxModels.swift */,
+				73906603B9A29EC95693AC3F /* CustomerTaxRateCard.swift */,
 				6EAC7CD9D797892BEB3CA375 /* Destinations.swift */,
 				EBF94A64588D8A0810E39E6C /* DetailScreens.swift */,
 				3684D7B328D29AB6D4F91B19 /* EmployeeScreens.swift */,
@@ -258,15 +313,22 @@
 				E88CA5A639740B9905E77B77 /* I18nStore.swift */,
 				4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */,
 				64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */,
+				40D98F39E5FD00B5DAE3096A /* ManualReceiptStore.swift */,
 				78FD430803560F137BDECEE8 /* Models.swift */,
 				365A4C2DA3A8199A94893222 /* NativeComponents.swift */,
 				35308617946D20EF1B7BEF2F /* OrderScreens.swift */,
+				64654F18EC6908F365928B6C /* PaymentApplicationRelatedDocumentsSheet.swift */,
 				3CF9AD69ADF0150C8F5A90A4 /* PaymentApplicationScreens.swift */,
 				DE733E38A18988BEF520070D /* PlaceholderModules.swift */,
+				F6E5F3074984F899FA615FF3 /* PurchaseOrderAPI.swift */,
+				BB456944911E47C9A9F41A41 /* PurchaseOrderModels.swift */,
+				18DDD23FF09422B8755F89D6 /* PurchaseOrderScreens.swift */,
 				0F18530102F96BE7D86F67C5 /* PurchaseSupplierCorrection.swift */,
 				B3D72B874D73108C84EEA7FC /* QuoteStore.swift */,
 				B54402C1C6DDB15D78025760 /* RootViews.swift */,
+				F386473682CC5E433105DF53 /* SaleFulfillmentBadge.swift */,
 				05A2C561FAA11164DC7245F8 /* SalePriceHistory.swift */,
+				5A3B4E7FD936E435BF6EDACB /* SalesExportRequest.swift */,
 				1782DD0F092018F372E6865E /* Services.swift */,
 				7FA4AB024B3DF70120413E31 /* SessionStorage.swift */,
 				867D8A179010B63034C1EDCF /* SharedViews.swift */,
@@ -276,6 +338,9 @@
 				19CA6101C704157AE4FE3DE3 /* StockAdjustmentScreens.swift */,
 				3A66D58A6E6EC68FF2C8794E /* StorefrontScreens.swift */,
 				6DB696565FF7E993CB5A8438 /* SupplierScreens.swift */,
+				9C66819E45E9D8B4606D0D2C /* TaxDataModels.swift */,
+				37DADDAA4383B4A468062261 /* TaxDataScreens.swift */,
+				66958AD83F023B57C0EE863E /* TaxDataStore.swift */,
 				435F48F77A26D5E9323945F6 /* Theme.swift */,
 				72E48A97CA0BFC00EA327436 /* TireShopApp.swift */,
 				A9DC3E21E438C4D9FD9A61DD /* TransactionScreens.swift */,
@@ -310,18 +375,31 @@
 				949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */,
 				B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */,
 				600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */,
+				2CB4C8D9AC52F2FD0DF9AB8D /* CustomerTaxAPITests.swift */,
+				B3B7D47F4A9DEABEB510CFD5 /* CustomerTaxTests.swift */,
 				18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */,
 				499515A57685AE8E442623E9 /* FleetPricingContractTests.swift */,
 				2768C5A7E338E5827682D073 /* FleetPricingSnapshotTests.swift */,
 				934B6465E3526BC3EA87F16B /* FleetQuotePricingTests.swift */,
 				FE23A3EE9E9CBB72450453C9 /* FleetSkuPriceInputTests.swift */,
 				9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */,
+				AC7F22D54BB051999D881B73 /* ManualReceiptTests.swift */,
 				5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */,
 				02D98F989BA35BDAA193F641 /* PayLinkTests.swift */,
 				12750634BCEE1D0CD7075E9B /* PaymentMethodPatchInputTests.swift */,
+				70ED2A24F5D4CD8E64AFB0D7 /* PurchaseOrderAPITests.swift */,
+				2113ADF74AF2E8547F239D39 /* PurchaseOrderDraftTests.swift */,
+				BFABC81F3EF641A2512574EC /* PurchaseOrderSnapshotTests.swift */,
+				C99904C94225080EF5C93310 /* PurchaseOrderTests.swift */,
+				381A5342A44BA08C463778AF /* SaleFulfillmentSnapshotTests.swift */,
 				0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */,
+				56760E83945AF3A332DBAF6B /* SalesReportingTests.swift */,
 				B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */,
+				9032D253B3BA65B03B20C08D /* SkuCreationContractTests.swift */,
 				0D2DAA9876D085B53C96C73B /* SupplierCorrectionTests.swift */,
+				9D1847B03F638177CE02D767 /* TaxDataStoreTests.swift */,
+				99295AA6DDC6AFA207FDE8DC /* TaxDataTests.swift */,
+				649A2F66108C71BF30BD5C94 /* UploadLimitTests.swift */,
 			);
 			path = TireShopTests;
 			sourceTree = "<group>";
@@ -466,6 +544,9 @@
 				9F736308324BEE6C9F203639 /* CustomerAnalyticsStore.swift in Sources */,
 				1C954E33586111837627DEB0 /* CustomerDetailScreens.swift in Sources */,
 				47E52EBEF934E3A30C0C97E4 /* CustomerRelationsScreens.swift in Sources */,
+				2267C01EE8B45A96DABB2FBD /* CustomerTaxAPI.swift in Sources */,
+				07E5FF5DFF6ACEDD876F76A4 /* CustomerTaxModels.swift in Sources */,
+				071ECC4DA0C6134C6D8F1DA4 /* CustomerTaxRateCard.swift in Sources */,
 				3C0D14FEF2860A8C81CE3552 /* Destinations.swift in Sources */,
 				1A99A7BB564EFA423BB28DB7 /* DetailScreens.swift in Sources */,
 				AE3E761B68DB2AD874E2CA90 /* EmployeeScreens.swift in Sources */,
@@ -480,15 +561,22 @@
 				68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */,
 				1F48DAF4B10E02E253827AD9 /* LayoutDiagnostics.swift in Sources */,
 				F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */,
+				7E6C22B0D3D23148D81B4A27 /* ManualReceiptStore.swift in Sources */,
 				C28E3B592A560C32484F497E /* Models.swift in Sources */,
 				5AECDB5956DF2DC99306895D /* NativeComponents.swift in Sources */,
 				0EE179D1BF9A2F7F9492D53D /* OrderScreens.swift in Sources */,
+				8D3CF4D1C3033D6E66FEA7A2 /* PaymentApplicationRelatedDocumentsSheet.swift in Sources */,
 				47C2233A77103DFFA2FAD67E /* PaymentApplicationScreens.swift in Sources */,
 				ADBB74DC4A2977B91478A152 /* PlaceholderModules.swift in Sources */,
+				63A5222AD3197478F7A50DF6 /* PurchaseOrderAPI.swift in Sources */,
+				FBEFB71EBDDBA7AA2D6D0010 /* PurchaseOrderModels.swift in Sources */,
+				4EA815FC88EA7746B73D9322 /* PurchaseOrderScreens.swift in Sources */,
 				1BF6B5C1C5F3636EA3AA8E9F /* PurchaseSupplierCorrection.swift in Sources */,
 				AB1BD885025C14A983045AC8 /* QuoteStore.swift in Sources */,
 				98268B7AE53922E9B98E71A2 /* RootViews.swift in Sources */,
+				642F4CF09728D984F8757E83 /* SaleFulfillmentBadge.swift in Sources */,
 				DA2CAB89D93A492949D61FEF /* SalePriceHistory.swift in Sources */,
+				C416FD7682D64F5B76ECEC71 /* SalesExportRequest.swift in Sources */,
 				67DED845EB0AA5BBB0AE3A15 /* Services.swift in Sources */,
 				C3D4CD55072FBD511C927CE7 /* SessionStorage.swift in Sources */,
 				54868FD03BCB032E4C153D5F /* SharedViews.swift in Sources */,
@@ -498,6 +586,9 @@
 				5FE390CA38D6D19EAF200B16 /* StockAdjustmentScreens.swift in Sources */,
 				1DF4105730A1C5BBC916E85B /* StorefrontScreens.swift in Sources */,
 				A6E3F0E9CAFAC7832A7D35BE /* SupplierScreens.swift in Sources */,
+				E9289C9C61782BB6EE19B636 /* TaxDataModels.swift in Sources */,
+				8D51515527FCCF2BD437FDD9 /* TaxDataScreens.swift in Sources */,
+				35DE24B4A05E5955FBB092EB /* TaxDataStore.swift in Sources */,
 				A74D0AEC5B22145C18B557DE /* Theme.swift in Sources */,
 				AC117F58D42CBE0321982D0F /* TireShopApp.swift in Sources */,
 				E90208FF1F50080767EC7BB8 /* TransactionScreens.swift in Sources */,
@@ -526,18 +617,31 @@
 				30DF235BC1BE65A12C537D96 /* CustomerAnalyticsSnapshotTests.swift in Sources */,
 				BAD7EEF2D21DF905E40A34DF /* CustomerAnalyticsStoreTests.swift in Sources */,
 				A36542384337308C690AB0D2 /* CustomerAnalyticsTests.swift in Sources */,
+				B5BA4B4377F7D0C7960C3954 /* CustomerTaxAPITests.swift in Sources */,
+				29516F6E87DF795C0F12BE9A /* CustomerTaxTests.swift in Sources */,
 				51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */,
 				0C18F19712ACA1E623C76D1C /* FleetPricingContractTests.swift in Sources */,
 				6D4C1833AE0A1A29D0272B9E /* FleetPricingSnapshotTests.swift in Sources */,
 				CABDEEFE5324FBD7B69C9DA4 /* FleetQuotePricingTests.swift in Sources */,
 				2B50B3689FA74CF413D1D275 /* FleetSkuPriceInputTests.swift in Sources */,
 				9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */,
+				F6F09C04298246E20BAA9CAA /* ManualReceiptTests.swift in Sources */,
 				A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */,
 				07E9972C288DA8C98E2985A8 /* PayLinkTests.swift in Sources */,
 				41D3E6153956FC5A540F956D /* PaymentMethodPatchInputTests.swift in Sources */,
+				D21E7870A8C4672A559DC25B /* PurchaseOrderAPITests.swift in Sources */,
+				5D8AB3614DD5B1D4FF81CCFA /* PurchaseOrderDraftTests.swift in Sources */,
+				8346B90E79D85159C4EE72AD /* PurchaseOrderSnapshotTests.swift in Sources */,
+				E3FE83032783F9EC17723397 /* PurchaseOrderTests.swift in Sources */,
+				93DB248F4CD582073AAD7531 /* SaleFulfillmentSnapshotTests.swift in Sources */,
 				0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */,
+				A7F9B1A0A2E7B5D2DD633F34 /* SalesReportingTests.swift in Sources */,
 				82AB75B15112E008D0AD4C1F /* SessionStorageTests.swift in Sources */,
+				7A8A71655038A0BA39662110 /* SkuCreationContractTests.swift in Sources */,
 				0CEC6E0C266A079105949932 /* SupplierCorrectionTests.swift in Sources */,
+				62CE823C7AB7349A978A55D5 /* TaxDataStoreTests.swift in Sources */,
+				569871637192BC1D21175778 /* TaxDataTests.swift in Sources */,
+				E2827FCFB358C25118CD9340 /* UploadLimitTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -670,7 +774,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026100203;
+				CURRENT_PROJECT_VERSION = 2026100601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -682,7 +786,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.14;
+				MARKETING_VERSION = 1.0.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -699,7 +803,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026100203;
+				CURRENT_PROJECT_VERSION = 2026100601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -711,7 +815,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.14;
+				MARKETING_VERSION = 1.0.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -728,7 +832,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026100203;
+				CURRENT_PROJECT_VERSION = 2026100601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -737,7 +841,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.14;
+				MARKETING_VERSION = 1.0.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;
@@ -751,7 +855,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026100203;
+				CURRENT_PROJECT_VERSION = 2026100601;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -760,7 +864,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.14;
+				MARKETING_VERSION = 1.0.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;

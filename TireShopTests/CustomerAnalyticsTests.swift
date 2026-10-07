@@ -46,7 +46,7 @@ final class CustomerAnalyticsTests: XCTestCase {
         }
     }
 
-    func testRedactedProfitAndUnknownHistoricalCostStayUnavailable() throws {
+    func testRedactedAndLegacyProfitStayUnavailableWithoutInventingValues() throws {
         let restricted = try decode(CustomerAnalyticsRankings.self, CustomerAnalyticsFixtures.rankings)
         XCTAssertFalse(restricted.canViewProfit)
         XCTAssertEqual(restricted.historyCoverage.status, .partial)
@@ -61,6 +61,8 @@ final class CustomerAnalyticsTests: XCTestCase {
         XCTAssertNil(row.metrics.costCoverage)
         XCTAssertNil(row.metrics.unverifiedCostUnits)
 
+        // A legacy response can still omit booked profit. Do not reconstruct it
+        // from current catalog costs or treat missing server evidence as zero.
         var partial = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(CustomerAnalyticsFixtures.metrics.utf8)) as? [String: Any])
         partial["actualCogs"] = NSNull()
         partial["grossProfit"] = NSNull()
@@ -102,6 +104,48 @@ final class CustomerAnalyticsTests: XCTestCase {
             XCTAssertNil(event.bookedCogs)
             XCTAssertEqual(event.fulfillment, "FREIGHT")
             XCTAssertEqual(event.sales, -125.5)
+        }
+    }
+
+    func testBookedProfitRemainsAvailableWithUnverifiedActualCostsInRankingsAndSummaries() throws {
+        // Match the current API's booked-cost contract, including signed returns
+        // and a true loss. The client must retain the server's rounded values.
+        let cases: [(sales: Double, bookedCogs: Double, grossProfit: Double, gpPercent: Double?)] = [
+            (1020, 400, 620, 60.78),
+            (100, 125, -25, -25),
+            (-254.50, -100, -154.50, nil),
+            (0, 100, -100, nil)
+        ]
+        for value in cases {
+            var metrics = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(CustomerAnalyticsFixtures.metrics.utf8)) as? [String: Any])
+            metrics["sales"] = value.sales
+            metrics["actualCogs"] = NSNull()
+            metrics["bookedCogs"] = value.bookedCogs
+            metrics["grossProfit"] = value.grossProfit
+            metrics["gpPercent"] = value.gpPercent.map { $0 as Any } ?? NSNull()
+            metrics["costCoverage"] = 0.75
+            metrics["unverifiedCostUnits"] = 1
+
+            var rankingsBody = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(CustomerAnalyticsFixtures.rankings.utf8)) as? [String: Any])
+            let row = metrics.merging(["customerId": "customer-1", "customerName": "Historical customer"]) { _, new in new }
+            rankingsBody["items"] = [row]
+            rankingsBody["totals"] = metrics
+            rankingsBody["canViewProfit"] = true
+            let rankings = try JSONDecoder().decode(CustomerAnalyticsRankings.self, from: JSONSerialization.data(withJSONObject: rankingsBody))
+
+            var summaryBody = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(CustomerAnalyticsFixtures.summary.utf8)) as? [String: Any])
+            summaryBody["summary"] = metrics
+            summaryBody["lifetime"] = metrics
+            summaryBody["canViewProfit"] = true
+            let summary = try JSONDecoder().decode(CustomerAnalyticsSummary.self, from: JSONSerialization.data(withJSONObject: summaryBody))
+            for result in [try XCTUnwrap(rankings.items.first).metrics, rankings.totals, summary.summary, summary.lifetime] {
+                XCTAssertNil(result.actualCogs)
+                XCTAssertEqual(result.bookedCogs, value.bookedCogs)
+                XCTAssertEqual(result.grossProfit, value.grossProfit)
+                XCTAssertEqual(result.gpPercent, value.gpPercent)
+                XCTAssertEqual(result.costCoverage, 0.75)
+                XCTAssertEqual(result.unverifiedCostUnits, 1)
+            }
         }
     }
 

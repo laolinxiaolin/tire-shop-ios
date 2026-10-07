@@ -51,6 +51,11 @@ struct SaleDetailNativeView: View {
                 Section {
                     RowLine(title: sale.customer.name, subtitle: sale.ref ?? sale.id, trailing: AppFormat.money(sale.total))
                     RowLine(title: "Status", subtitle: sale.status)
+                    HStack {
+                        Text(i18n.t("saleForm.fulfillment"))
+                        Spacer()
+                        SaleFulfillmentBadge(fulfillment: sale.fulfillment)
+                    }
                     RowLine(title: i18n.t("customers.priceLevel"),
                             trailing: sale.priceLevelAtQuote.map { i18n.t($0.localizationKey) } ?? "—")
                     RowLine(title: "Warehouse", subtitle: sale.location)
@@ -158,8 +163,10 @@ struct SaleDetailNativeView: View {
                     }
 
                     if canSend {
-                        NavigationLink(value: AppRoute.editSale(sale.id)) {
-                            Text("Edit sale")
+                        if sale.fulfillment != .freight {
+                            NavigationLink(value: AppRoute.editSale(sale.id)) {
+                                Text("Edit sale")
+                            }
                         }
                         NavigationLink(value: AppRoute.startReturn(saleId: sale.id, saleRef: sale.ref)) {
                             Text("Return")
@@ -207,6 +214,11 @@ struct SaleDetailNativeView: View {
                 balance: max(0, (Double(context.invoice.amountDue) ?? 0) - (Double(context.invoice.paidTotal) ?? 0)),
                 customerId: context.customerId,
                 onPaid: {
+                    let session = AppSessionIdentity(auth)
+                    async let sale = SalesAPI().get(id: id)
+                    async let payments = PaymentsAPI().invoicePayments(invoiceId: context.invoice.id)
+                    _ = try await (sale, payments)
+                    guard session.isCurrent(auth) else { throw CancellationError() }
                     paymentContext = nil
                     reloadToken = UUID()
                     BrowsingRecords.changed(.sale, id: id)
@@ -1345,7 +1357,8 @@ struct ContainerDetailNativeView: View {
     }
 
     private var canChangeSupplier: Bool {
-        auth.has("purchasing.supplier.change") && container?.status != "CANCELLED"
+        guard auth.has("purchasing.supplier.change"), let container, container.status != "CANCELLED" else { return false }
+        return container.purchaseOrderId == nil || container.purchaseOrder?.count?.containers == 1
     }
 
     private var editable: Bool {
@@ -1529,6 +1542,15 @@ struct ContainerDetailNativeView: View {
                     RowLine(title: "Supplier country", subtitle: country)
                 }
                 RowLine(title: "Destination warehouse", trailing: container.location)
+                if let order = container.purchaseOrder {
+                    NavigationLink(value: AppRoute.purchaseOrderDetail(order.id)) {
+                        RowLine(title: i18n.t("purchasing.po.currentOrder"), subtitle: order.supplierReference, trailing: order.ref)
+                    }
+                } else if let orderId = container.purchaseOrderId {
+                    NavigationLink(value: AppRoute.purchaseOrderDetail(orderId)) {
+                        Text(i18n.t("purchasing.po.currentOrder"))
+                    }
+                }
                 StatusTimelineView(status: container.status)
             }
 
@@ -1541,6 +1563,11 @@ struct ContainerDetailNativeView: View {
             }
 
             Section("Actions") {
+                if auth.has("purchasing.supplier.change"), (container.purchaseOrder?.count?.containers ?? 0) > 1 {
+                    Text(i18n.t("purchaseOrders.groupedSupplierHelp"))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
                 if canChangeSupplier {
                     Button {
                         showingSupplierCorrection = true
@@ -2769,7 +2796,7 @@ private struct ContainerCostEditorView: View {
     }
 }
 
-private struct SkuSearchSheet: View {
+struct SkuSearchSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let onPick: (TireSku) -> Void

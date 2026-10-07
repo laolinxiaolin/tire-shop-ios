@@ -1999,8 +1999,11 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
     case week
     case month
     case year
+    case custom
 
     var id: String { rawValue }
+
+    var followsCalendarDay: Bool { self != .all && self != .custom }
 
     /// The quick time-range chips on the sales list, matching the mobile app's
     /// All / Today / 7 days / 30 days presets.
@@ -2015,6 +2018,7 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
         case .week: return "7 days"
         case .month: return "30 days"
         case .year: return "This year"
+        case .custom: return "Custom range"
         }
     }
 
@@ -2033,7 +2037,7 @@ private enum SalesDateRange: String, CaseIterable, Identifiable {
         }
 
         switch self {
-        case .all:
+        case .all, .custom:
             return (nil, nil)
         case .today:
             return (iso(startToday), iso(startTomorrow))
@@ -2125,7 +2129,7 @@ private enum SalesLabels {
     }
 }
 
-private struct SalesStatusBadge: View {
+struct SalesStatusBadge: View {
     let status: SaleStatus
 
     private var label: String {
@@ -2170,7 +2174,7 @@ private struct SalesStatusBadge: View {
     }
 }
 
-private struct SalesPaymentMethodBadge: View {
+struct SalesPaymentMethodBadge: View {
     let methods: [String]
 
     private var label: String? {
@@ -2793,6 +2797,17 @@ struct SalesListNativeView: View {
 
     @State private var q = ""
     @State private var status = ""
+    @State private var fulfillment: SaleFulfillment?
+    @State private var paymentMethods: [PaymentMethod] = []
+    @State private var paymentMethodIds = Set<String>()
+    @State private var paymentMethodsLoading = false
+    @State private var paymentMethodsError: String?
+    @State private var showingCustomDates = false
+    @State private var customFrom = ShopClock.monthStart()
+    @State private var customTo = Date()
+    @State private var exporting = false
+    @State private var exportError: String?
+    @State private var exportFile: InventoryExportFile?
     @State private var range: SalesDateRange = .all
     @State private var sortBy = ""
     @State private var sortOrder = "asc"
@@ -2820,6 +2835,7 @@ struct SalesListNativeView: View {
     @State private var hasLoaded = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadRequestID = UUID()
+    @State private var appendRequestID = UUID()
     @State private var scrollSaleID: String?
     @State private var saleDetailRevision = 0
 
@@ -2830,12 +2846,14 @@ struct SalesListNativeView: View {
     }
 
     private var hasActiveFilters: Bool {
-        !status.isEmpty || range != .all || !sortBy.isEmpty
+        !status.isEmpty || fulfillment != nil || !paymentMethodIds.isEmpty || range != .all || !sortBy.isEmpty
     }
 
     private var activeFilterCount: Int {
         [
             status.isEmpty ? nil : status,
+            fulfillment?.rawValue,
+            paymentMethodIds.isEmpty ? nil : "paymentMethods",
             range == .all ? nil : range.rawValue,
             sortBy.isEmpty ? nil : sortBy
         ].compactMap { $0 }.count
@@ -2844,9 +2862,24 @@ struct SalesListNativeView: View {
     private var activeSummary: String? {
         var parts: [String] = []
         if !status.isEmpty { parts.append(SalesLabels.status(status)) }
-        if range != .all { parts.append(range.label) }
+        if let fulfillment { parts.append(i18n.t("sales.fulfillment.\(fulfillment.rawValue)")) }
+        let selectedMethods = paymentMethods.filter { paymentMethodIds.contains($0.id) }.map(\.name)
+        if !selectedMethods.isEmpty { parts.append(selectedMethods.joined(separator: " + ")) }
+        if range == .custom {
+            parts.append("\(dateParams.from ?? "") – \(dateParams.to ?? "")")
+        } else if range != .all {
+            parts.append(range.label)
+        }
         if !sortBy.isEmpty { parts.append("\(SalesLabels.sort(sortBy)) \(sortOrder.uppercased())") }
         return parts.isEmpty ? nil : parts.joined(separator: " - ")
+    }
+
+    private var exportRequest: SalesExportRequest {
+        SalesExportRequest(
+            q: q.nilIfBlank, status: status.nilIfBlank, fulfillment: fulfillment,
+            paymentMethodIds: paymentMethodIds.sorted(), from: dateParams.from, to: dateParams.to,
+            sortBy: sortBy.nilIfBlank, sortOrder: sortBy.isEmpty ? nil : sortOrder
+        )
     }
 
     var body: some View {
@@ -2886,11 +2919,12 @@ struct SalesListNativeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background)
+        .task { await loadPaymentMethods() }
         .task(id: selectedView) {
             guard selectedView == .sales else { return }
             if items.isEmpty {
                 await load()
-            } else if range != .all,
+            } else if range.followsCalendarDay,
                       dateParamsDay != ShopClock.calendar.startOfDay(for: Date()) {
                 // The day rolled over while the tab was hidden or the view
                 // was dismissed; a mounted list must advance its rolling
@@ -2902,7 +2936,7 @@ struct SalesListNativeView: View {
             // Returning to the foreground after midnight must advance a
             // rolling range even when rows are already on screen (the
             // selected-view task does not re-fire for a mounted view).
-            if phase == .active, range != .all,
+            if phase == .active, range.followsCalendarDay,
                dateParamsDay != ShopClock.calendar.startOfDay(for: Date()) {
                 Task { await load() }
             }
@@ -2921,7 +2955,7 @@ struct SalesListNativeView: View {
                 let delay = max(nextMidnight.timeIntervalSince(now) + 1, 1)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 if Task.isCancelled { return }
-                if selectedView == .sales, range != .all,
+                if selectedView == .sales, range.followsCalendarDay,
                    dateParamsDay != calendar.startOfDay(for: Date()) {
                     await load()
                 }
@@ -2929,6 +2963,10 @@ struct SalesListNativeView: View {
         }
         .onDisappear {
             searchTask?.cancel()
+        }
+        .sheet(isPresented: $showingCustomDates) { customDatesSheet }
+        .sheet(item: $exportFile) { file in
+            InventoryExportShareSheet(url: file.url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .browsingRecordDidChange)) { note in
             guard let change = note.object as? BrowsingRecordChange, change.kind == .sale else { return }
@@ -3115,6 +3153,8 @@ struct SalesListNativeView: View {
                     .lineLimit(1)
                     .layoutPriority(1)
             }
+
+            SaleFulfillmentBadge(fulfillment: sale.fulfillment)
         }
         .padding(.vertical, Theme.Space.xs)
     }
@@ -3152,6 +3192,26 @@ struct SalesListNativeView: View {
             HStack(spacing: Theme.Space.sm) {
                 searchBar
                 filterMenu
+            }
+
+            HStack(spacing: Theme.Space.sm) {
+                fulfillmentChips
+                Button {
+                    Task { await exportSales() }
+                } label: {
+                    if exporting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                .frame(minWidth: 36, minHeight: 36)
+                .disabled(exporting || loading || !hasLoaded)
+                .accessibilityLabel(i18n.t("common.export"))
+            }
+
+            if let exportError {
+                Text(exportError).font(.caption).foregroundStyle(Theme.danger)
             }
 
             if let activeSummary {
@@ -3206,12 +3266,74 @@ struct SalesListNativeView: View {
         }
     }
 
+    private var fulfillmentChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.xs) {
+                ForEach([nil, SaleFulfillment.pickup, .delivery, .freight], id: \.self) { method in
+                    let active = fulfillment == method
+                    Button {
+                        updateFulfillment(method)
+                    } label: {
+                        Text(i18n.t("sales.fulfillment.\(method?.rawValue ?? "ALL")"))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, Theme.Space.md)
+                            .padding(.vertical, 6)
+                            .background(active ? (method?.badgeForeground ?? Theme.primary) : (method?.badgeBackground ?? Theme.card))
+                            .foregroundStyle(active ? (method == nil ? Theme.primaryText : Theme.card) : (method?.badgeForeground ?? Theme.text))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(active ? (method?.badgeForeground ?? Theme.primary) : (method?.badgeBorder ?? Theme.border)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(active ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var customDatesSheet: some View {
+        let window = SalesDateWindow(from: customFrom, to: customTo)
+        let invalid = !window.isValid
+        return NavigationStack {
+            Form {
+                DatePicker(i18n.t("salesList.from"), selection: $customFrom, displayedComponents: .date)
+                DatePicker(i18n.t("salesList.to"), selection: $customTo, displayedComponents: .date)
+                if invalid {
+                    Text(i18n.t("salesList.rangeInvalid"))
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.danger)
+                }
+            }
+            .environment(\.calendar, ShopClock.calendar)
+            .environment(\.timeZone, ShopClock.timeZone)
+            .navigationTitle(i18n.t("salesList.range.custom"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(i18n.t("common.cancel")) { showingCustomDates = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(i18n.t("common.done")) {
+                        guard !invalid else { return }
+                        range = .custom
+                        // Date-only values are inclusive shop-local days on the
+                        // server, including a range whose start and end match.
+                        dateParams = (window.from, window.to)
+                        showingCustomDates = false
+                        reloadForChangedFilters()
+                    }
+                    .disabled(invalid)
+                }
+            }
+        }
+    }
+
     private var searchBar: some View {
         HStack(spacing: Theme.Space.sm) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.muted)
 
-            TextField("Search customer or sale #...", text: $q)
+            TextField(i18n.t("salesList.search"), text: $q)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -3249,6 +3371,30 @@ struct SalesListNativeView: View {
 
     private var filterMenu: some View {
         Menu {
+            Menu(i18n.t("salesList.paymentMethods")) {
+                ForEach(paymentMethods) { method in
+                    Button {
+                        togglePaymentMethod(method.id)
+                    } label: {
+                        menuLabel(method.name, selected: paymentMethodIds.contains(method.id))
+                    }
+                }
+                if paymentMethodsLoading {
+                    Text(i18n.t("common.loading"))
+                } else if let paymentMethodsError {
+                    Text(paymentMethodsError)
+                    Button(i18n.t("common.retry")) { Task { await loadPaymentMethods() } }
+                } else if paymentMethods.isEmpty {
+                    Text(i18n.t("salesList.noPaymentMethods"))
+                }
+                if !paymentMethodIds.isEmpty {
+                    Button(i18n.t("common.clear")) {
+                        paymentMethodIds.removeAll()
+                        reloadForChangedFilters()
+                    }
+                }
+            }
+
             Section("Status") {
                 ForEach(SalesLabels.statusOptions, id: \.0) { option in
                     Button {
@@ -3389,14 +3535,31 @@ struct SalesListNativeView: View {
     private func updateStatus(_ value: String) {
         guard status != value else { return }
         status = value
-        Task { await load() }
+        reloadForChangedFilters()
+    }
+
+    private func updateFulfillment(_ value: SaleFulfillment?) {
+        guard fulfillment != value else { return }
+        fulfillment = value
+        reloadForChangedFilters()
+    }
+
+    private func togglePaymentMethod(_ id: String) {
+        if !paymentMethodIds.insert(id).inserted {
+            paymentMethodIds.remove(id)
+        }
+        reloadForChangedFilters()
     }
 
     private func updateRange(_ value: SalesDateRange) {
+        if value == .custom {
+            showingCustomDates = true
+            return
+        }
         guard range != value else { return }
         range = value
         dateParams = value.params()
-        Task { await load() }
+        reloadForChangedFilters()
     }
 
     private func updateSort(_ value: String) {
@@ -3405,13 +3568,13 @@ struct SalesListNativeView: View {
         if value.isEmpty {
             sortOrder = "asc"
         }
-        Task { await load() }
+        reloadForChangedFilters()
     }
 
     private func updateSortOrder(_ value: String) {
         guard sortOrder != value else { return }
         sortOrder = value
-        Task { await load() }
+        reloadForChangedFilters()
     }
 
     private func resetFilters(includeSearch: Bool) {
@@ -3419,19 +3582,80 @@ struct SalesListNativeView: View {
             q = ""
         }
         status = ""
+        fulfillment = nil
+        paymentMethodIds.removeAll()
         range = .all
         dateParams = (nil, nil)
         sortBy = ""
         sortOrder = "asc"
+        reloadForChangedFilters()
+    }
+
+    /// A different filter starts a new result set. Clear the old totals and
+    /// cursor immediately so a failed request cannot show unrelated sales or
+    /// append a page from the previously selected fulfillment/payment methods.
+    private func invalidateFilteredResults() {
+        loadRequestID = UUID()
+        appendRequestID = UUID()
+        loadingMore = false
+        items = []
+        summary = nil
+        nextCursor = nil
+        nextPage = 1
+        hasMore = false
+        errorMessage = nil
+        loadMoreError = nil
+        exportError = nil
+        hasLoaded = false
+    }
+
+    private func reloadForChangedFilters() {
+        searchTask?.cancel()
+        invalidateFilteredResults()
         Task { await load() }
     }
 
     private func scheduleSearch() {
         searchTask?.cancel()
+        invalidateFilteredResults()
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             await load()
+        }
+    }
+
+    @MainActor
+    private func loadPaymentMethods() async {
+        guard !paymentMethodsLoading else { return }
+        paymentMethodsLoading = true
+        paymentMethodsError = nil
+        defer { paymentMethodsLoading = false }
+        do {
+            // Inactive methods remain useful when filtering historical sales.
+            paymentMethods = try await CashAccountsAPI().methods()
+        } catch {
+            if !Task.isCancelled {
+                paymentMethodsError = (error as? LocalizedError)?.errorDescription ?? "Could not load payment methods."
+            }
+        }
+    }
+
+    @MainActor
+    private func exportSales() async {
+        guard !exporting else { return }
+        let requested = exportRequest
+        exporting = true
+        exportError = nil
+        defer { exporting = false }
+        do {
+            let url = try await SalesAPI().export(requested)
+            let file = InventoryExportFile(url: url)
+            guard requested == exportRequest, !Task.isCancelled else { return }
+            exportFile = file
+        } catch {
+            guard requested == exportRequest, !Task.isCancelled else { return }
+            exportError = (error as? LocalizedError)?.errorDescription ?? i18n.t("inventory.exportFailedBody")
         }
     }
 
@@ -3442,7 +3666,7 @@ struct SalesListNativeView: View {
         // A window picked before midnight must advance on the next load after
         // midnight ("Today" means the new day), while pages within one scroll
         // session keep the bounds they started with.
-        if range != .all {
+        if range.followsCalendarDay {
             let today = ShopClock.calendar.startOfDay(for: Date())
             if dateParamsDay != today {
                 dateParams = range.params()
@@ -3468,6 +3692,8 @@ struct SalesListNativeView: View {
             let response = try await SalesAPI().list(
                 q: query,
                 status: requestedStatus,
+                fulfillment: fulfillment,
+                paymentMethodIds: paymentMethodIds.sorted(),
                 from: dateParams.from,
                 to: dateParams.to,
                 sortBy: requestedSortBy,
@@ -3493,9 +3719,13 @@ struct SalesListNativeView: View {
         // A filter change mid-flight must invalidate the append: the response
         // belongs to the previous window and would pollute the new list.
         let requestID = loadRequestID
+        let appendID = UUID()
+        appendRequestID = appendID
         loadingMore = true
         loadMoreError = nil
-        defer { loadingMore = false }
+        defer {
+            if appendRequestID == appendID { loadingMore = false }
+        }
         let query = q.nilIfBlank
         let requestedStatus = status.nilIfBlank
         let requestedSortBy = sortBy.nilIfBlank
@@ -3514,6 +3744,8 @@ struct SalesListNativeView: View {
             let response = try await SalesAPI().list(
                 q: query,
                 status: requestedStatus,
+                fulfillment: fulfillment,
+                paymentMethodIds: paymentMethodIds.sorted(),
                 from: dateParams.from,
                 to: dateParams.to,
                 sortBy: continuation.sortBy,
@@ -4175,6 +4407,7 @@ struct InventoryCountsListNativeView: View {
 
 private enum PurchasingTab: String, CaseIterable, Identifiable {
     case purchaseOrders
+    case containers
     case incoming
     case suppliers
 
@@ -4233,6 +4466,8 @@ struct PurchasingNativeView: View {
 
             switch tab {
             case .purchaseOrders:
+                PurchaseOrdersListNativeView()
+            case .containers:
                 PurchasingContainersListView()
             case .incoming:
                 PurchasingIncomingInventoryView()
@@ -4246,6 +4481,7 @@ struct PurchasingNativeView: View {
     private func tabTitle(_ tab: PurchasingTab) -> String {
         switch tab {
         case .purchaseOrders: i18n.t("purchasing.purchaseOrders")
+        case .containers: i18n.t("purchasing.containers")
         case .incoming: i18n.t("purchasing.incoming")
         case .suppliers: i18n.t("purchasing.suppliers")
         }
@@ -4285,7 +4521,7 @@ private struct PurchasingIncomingInventoryView: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker(i18n.t("purchasing.incomingView"), selection: $mode) {
-                Text(i18n.t("purchasing.viewByPurchaseOrder")).tag(IncomingInventoryViewMode.purchaseOrder)
+                Text(i18n.t("purchasing.po.byContainer")).tag(IncomingInventoryViewMode.purchaseOrder)
                 Text(i18n.t("purchasing.viewCombined")).tag(IncomingInventoryViewMode.combined)
             }
             .pickerStyle(.segmented)
@@ -4343,6 +4579,12 @@ private struct PurchasingIncomingInventoryView: View {
                 .padding(.vertical, Theme.Space.xs)
             }
             .onAppear { loadMoreIfNeeded(currentId: item.id) }
+            if let order = item.container.purchaseOrder {
+                NavigationLink(value: AppRoute.purchaseOrderDetail(order.id)) {
+                    RowLine(title: i18n.t("purchasing.po.currentOrder"), trailing: order.ref)
+                }
+                .font(.caption)
+            }
         }
         .listStyle(.plain)
         .refreshable { await reload() }
@@ -4367,7 +4609,10 @@ private struct PurchasingIncomingInventoryView: View {
                         Text(i18n.t("purchasing.totalIncomingQty", ["n": item.totalQty]))
                             .font(.caption.weight(.bold))
                             .foregroundStyle(Theme.primary)
-                        Text(i18n.t("purchasing.purchaseOrderCount", ["n": item.purchaseOrderCount]))
+                        Text(i18n.t("purchasing.purchaseOrderCount", ["n": item.distinctPurchaseOrderCount.map(String.init) ?? "—"]))
+                            .font(.caption2)
+                            .foregroundStyle(Theme.muted)
+                        Text("\(i18n.t("purchasing.containers")): \(item.containerCount ?? item.purchaseOrderCount)")
                             .font(.caption2)
                             .foregroundStyle(Theme.muted)
                     }

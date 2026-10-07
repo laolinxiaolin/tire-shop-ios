@@ -204,6 +204,7 @@ private struct WarehouseEditorTarget: Identifiable {
 }
 
 private struct WarehouseRow: View {
+    @EnvironmentObject private var i18n: I18nStore
     let warehouse: Warehouse
     let working: Bool
 
@@ -232,6 +233,19 @@ private struct WarehouseRow: View {
                 Text(warehouse.name)
                     .font(.subheadline)
                     .foregroundStyle(Theme.text)
+
+                if let address = warehouse.address?.nilIfBlank {
+                    Text([address, warehouse.address2?.nilIfBlank,
+                          [warehouse.city, warehouse.state, warehouse.postalCode]
+                            .compactMap { $0?.nilIfBlank }.joined(separator: " ")]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                } else if !warehouse.isDefault {
+                    Text(i18n.t("warehouses.addressMissing"))
+                        .font(.caption)
+                        .foregroundStyle(Theme.danger)
+                }
 
                 if let notes = warehouse.notes?.nilIfBlank {
                     Text(notes)
@@ -265,9 +279,14 @@ private struct WarehouseEditorNativeView: View {
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var i18n: I18nStore
     @State private var code: String
     @State private var name: String
     @State private var notes: String
+    @State private var address: String
+    @State private var address2: String
+    @State private var city: String
+    @State private var postalCode: String
     @State private var saving = false
     @State private var errorMessage: String?
 
@@ -277,6 +296,10 @@ private struct WarehouseEditorNativeView: View {
         _code = State(initialValue: warehouse?.code ?? "")
         _name = State(initialValue: warehouse?.name ?? "")
         _notes = State(initialValue: warehouse?.notes ?? "")
+        _address = State(initialValue: warehouse?.address ?? "")
+        _address2 = State(initialValue: warehouse?.address2 ?? "")
+        _city = State(initialValue: warehouse?.city ?? "")
+        _postalCode = State(initialValue: warehouse?.postalCode ?? "")
     }
 
     private var editing: Bool { warehouse != nil }
@@ -287,7 +310,15 @@ private struct WarehouseEditorNativeView: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var canSave: Bool {
-        !cleanName.isEmpty && (editing || (2...16).contains(cleanCode.count))
+        !cleanName.isEmpty && cleanName.count <= 120 && (editing || (2...16).contains(cleanCode.count))
+            && address.count <= 200 && address2.count <= 100 && city.count <= 100 && validPostalCode
+    }
+    private var validPostalCode: Bool {
+        guard let value = postalCode.nilIfBlank else { return true }
+        return value.range(of: "^[0-9]{5}(-[0-9]{4})?$", options: .regularExpression) != nil
+    }
+    private var hasAddress: Bool {
+        [address, address2, city, postalCode].contains { $0.nilIfBlank != nil }
     }
 
     var body: some View {
@@ -316,6 +347,26 @@ private struct WarehouseEditorNativeView: View {
                          : "Use 2–16 letters, numbers, hyphens, or underscores. The code cannot be changed after creation.")
                 }
 
+                Section {
+                    TextField(i18n.t("warehouses.addressField"), text: $address)
+                        .textContentType(.streetAddressLine1)
+                    TextField(i18n.t("customers.address2Field"), text: $address2)
+                        .textContentType(.streetAddressLine2)
+                    TextField(i18n.t("warehouses.cityField"), text: $city)
+                        .textContentType(.addressCity)
+                    LabeledContent(i18n.t("customers.stateField"), value: "GA")
+                    TextField(i18n.t("warehouses.postalCodeField"), text: $postalCode)
+                        .textContentType(.postalCode)
+                        .keyboardType(.numbersAndPunctuation)
+                    if !validPostalCode {
+                        Text("Enter a 5-digit ZIP code or ZIP+4 (12345-6789).")
+                            .font(.caption)
+                            .foregroundStyle(Theme.danger)
+                    }
+                } header: {
+                    Text(i18n.t("warehouses.col.address"))
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -324,6 +375,7 @@ private struct WarehouseEditorNativeView: View {
                     }
                 }
             }
+            .disabled(saving)
             .navigationTitle(editing ? "Edit warehouse" : "New warehouse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -355,7 +407,13 @@ private struct WarehouseEditorNativeView: View {
                     body: WarehousePatchInput(
                         name: cleanName,
                         notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
-                        active: nil
+                        active: nil,
+                        address: address.nilIfBlank,
+                        address2: address2.nilIfBlank,
+                        city: city.nilIfBlank,
+                        state: hasAddress ? "GA" : nil,
+                        postalCode: postalCode.nilIfBlank,
+                        replaceAddress: true
                     )
                 )
             } else {
@@ -363,7 +421,12 @@ private struct WarehouseEditorNativeView: View {
                     WarehouseCreateInput(
                         code: cleanCode,
                         name: cleanName,
-                        notes: notes.nilIfBlank
+                        notes: notes.nilIfBlank,
+                        address: address.nilIfBlank,
+                        address2: address2.nilIfBlank,
+                        city: city.nilIfBlank,
+                        state: hasAddress ? "GA" : nil,
+                        postalCode: postalCode.nilIfBlank
                     )
                 )
             }

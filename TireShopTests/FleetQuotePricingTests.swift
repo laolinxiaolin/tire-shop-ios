@@ -3,6 +3,38 @@ import XCTest
 
 @MainActor
 final class FleetQuotePricingTests: XCTestCase {
+    func testQuoteReplacementInvalidatesPendingSubmissionButOrdinaryEditsKeepIt() throws {
+        let quote = makeStore(enabled: false) { _, _ in [] }
+        let initial = quote.generation
+        quote.addLine(itemType: "SERVICE", itemId: "service", description: "Mount", unitPrice: 10)
+        quote.updateQty(try XCTUnwrap(quote.lines.first?.id), qty: 2)
+        XCTAssertTrue(quote.isCurrent(initial))
+        quote.clear()
+        XCTAssertFalse(quote.isCurrent(initial))
+        XCTAssertTrue(quote.lines.isEmpty)
+        let replacement = quote.generation
+        quote.addLine(itemType: "SERVICE", itemId: "new-service", description: "New cart", unitPrice: 20)
+        XCTAssertTrue(quote.isCurrent(replacement))
+        XCTAssertFalse(quote.isCurrent(initial))
+    }
+
+    func testLatePricingPolicyCannotOverwriteReplacementQuote() async throws {
+        var release: CheckedContinuation<FleetPricingPolicy, Error>?
+        let quote = QuoteStore(pricingPolicyLoader: {
+            try await withCheckedThrowingContinuation { release = $0 }
+        })
+        let submittedGeneration = quote.generation
+        let pending = Task { try await quote.loadPricingPolicy() }
+        while release == nil { await Task.yield() }
+        quote.clear()
+        quote.addLine(itemType: "SERVICE", itemId: "new", description: "New cart", unitPrice: 25)
+        release?.resume(returning: FleetPricingPolicy(enabled: true))
+        _ = try? await pending.value
+        XCTAssertFalse(quote.isCurrent(submittedGeneration))
+        XCTAssertNil(quote.pricingEnabled)
+        XCTAssertEqual(quote.lines.first?.description, "New cart")
+    }
+
     func testDisabledPolicyKeepsLegacyCatalogChoiceWithoutCallingPreview() async throws {
         var previewCalls = 0
         let quote = makeStore(enabled: false) { _, _ in
@@ -465,7 +497,7 @@ final class FleetQuotePricingTests: XCTestCase {
 
     private func customer(_ id: String, level: PriceLevel) throws -> QuoteCustomer {
         let json = """
-        {"id":"\(id)","name":"\(id)","taxExempt":false,"accountEnabled":false,
+        {"id":"\(id)","name":"\(id)","taxExempt":false,"accountEnabled":false,"address":"123 Fleet Street",
          "priceLevel":"\(level.rawValue)","createdAt":"2026-10-02T12:00:00Z"}
         """
         return QuoteCustomer(customer: try JSONDecoder().decode(Customer.self, from: Data(json.utf8)))

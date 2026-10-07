@@ -251,8 +251,8 @@ private struct AnalyticsScreenFixtures {
             "restockingFees": 0, "tiresSold": sales > 0 ? 128 : -2, "orders": sales > 0 ? 16 : 0,
             "averageOrder": sales > 0 ? (sales / 16 * 100).rounded() / 100 : NSNull(),
             "lastOrder": sales > 0 ? "2026-09-28T02:00:00.000Z" : NSNull(), "bookedCogs": costs,
-            "actualCogs": verified ? costs : NSNull(), "grossProfit": verified ? sales - costs : NSNull(),
-            "gpPercent": verified && sales > 0 ? 30 : NSNull(),
+            "actualCogs": verified ? costs : NSNull(), "grossProfit": sales - costs,
+            "gpPercent": sales > 0 ? 30 : NSNull(),
             "costCoverage": verified ? 1 : 0.875, "unverifiedCostUnits": verified ? 0 : 16
         ]
     }

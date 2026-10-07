@@ -43,8 +43,8 @@ private struct TireShopSceneRoot: View {
             .background(SceneWindowReader(context: presentationContext))
             .debugLayoutProbe("SceneRoot")
             .debugKeyboardDiagnostics(context: presentationContext)
-            .onChange(of: auth.user?.id) { oldUserID, newUserID in
-                guard oldUserID != newUserID else { return }
+            .onChange(of: auth.sessionRevision) { _, _ in
+                quote.clear()
                 navigation.resetForSessionChange()
             }
     }

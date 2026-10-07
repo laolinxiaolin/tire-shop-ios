@@ -270,24 +270,37 @@ struct UploadPhotoFile: Transferable {
 final class APIClient {
     static let shared = APIClient()
 
+    typealias MultipartBodyPreparation = (URL, String, String, String, String, [String: String], Int) async throws -> URL
+
     /// Requests read the token from the cooperative pool while sign-in and
     /// sign-out write it from the main actor, so it is lock-guarded rather than
     /// a bare stored property.
-    private let tokenLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+    private struct TokenState {
+        var value: String?
+        var revision = UUID()
+    }
+    private let tokenLock = OSAllocatedUnfairLock(initialState: TokenState())
 
     var token: String? {
-        get { tokenLock.withLock { $0 } }
-        set { tokenLock.withLock { $0 = newValue } }
+        get { tokenLock.withLock { $0.value } }
+        set {
+            tokenLock.withLock {
+                $0.value = newValue
+                $0.revision = UUID()
+            }
+        }
     }
 
     var onUnauthorized: ((String) -> Void)?
 
     private let session: URLSession
+    private let multipartBodyPreparation: MultipartBodyPreparation
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, multipartBodyPreparation: MultipartBodyPreparation? = nil) {
         self.session = session
+        self.multipartBodyPreparation = multipartBodyPreparation ?? Self.makeMultipartBodyFile
         Task.detached(priority: .utility) {
             TemporaryDownloadStore.removeStaleFiles()
         }
@@ -352,24 +365,28 @@ final class APIClient {
         fieldName: String = "file",
         fileName: String,
         mimeType: String,
-        fields: [String: String] = [:]
+        fields: [String: String] = [:],
+        maximumFileBytes: Int = UploadFilePreparation.maximumBytes
     ) async throws -> T {
+        // File preparation can take seconds for a large tax import. Bind the
+        // destination and authorization before it yields to a session change.
+        let requestURL = try Self.endpointURL(for: path)
+        let requestServer = Server.baseURLString
+        let (requestToken, requestRevision) = tokenLock.withLock { ($0.value, $0.revision) }
         let boundary = "Boundary-\(UUID().uuidString)"
-        let multipartURL = try await Self.makeMultipartBodyFile(
-            sourceURL: fileURL,
-            boundary: boundary,
-            fieldName: fieldName,
-            fileName: fileName,
-            mimeType: mimeType,
-            fields: fields
+        let multipartURL = try await multipartBodyPreparation(
+            fileURL, boundary, fieldName, fileName, mimeType, fields, maximumFileBytes
         )
         defer { try? FileManager.default.removeItem(at: multipartURL) }
+        try Task.checkCancellation()
+        guard tokenLock.withLock({ $0.revision == requestRevision }), Server.baseURLString == requestServer else {
+            throw CancellationError()
+        }
 
-        var request = URLRequest(url: try Self.endpointURL(for: path))
+        var request = URLRequest(url: requestURL)
         request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let requestToken = token
         if let requestToken {
             request.setValue("Bearer \(requestToken)", forHTTPHeaderField: "Authorization")
         }
@@ -616,8 +633,9 @@ final class APIClient {
         // Check and clear under one lock so that concurrent 401s from the same
         // session tear it down — and notify — exactly once.
         let didInvalidate = tokenLock.withLock { current -> Bool in
-            guard current == requestToken else { return false }
-            current = nil
+            guard current.value == requestToken else { return false }
+            current.value = nil
+            current.revision = UUID()
             return true
         }
 
@@ -631,15 +649,16 @@ final class APIClient {
         fieldName: String,
         fileName: String,
         mimeType: String,
-        fields: [String: String]
+        fields: [String: String],
+        maximumFileBytes: Int
     ) async throws -> URL {
         let task = Task.detached(priority: .utility) {
             let values = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
             guard values.isRegularFile == true else {
                 throw APIError(status: 0, message: "The selected upload is not a regular file.")
             }
-            guard (values.fileSize ?? 0) <= UploadFilePreparation.maximumBytes else {
-                throw APIError(status: 0, message: "The selected file is larger than the 50 MB upload limit.")
+            guard maximumFileBytes > 0, (values.fileSize ?? 0) <= maximumFileBytes else {
+                throw APIError(status: 0, message: "The selected file exceeds the upload limit (\(maximumFileBytes / 1_024 / 1_024) MB).")
             }
 
             let directory = FileManager.default.temporaryDirectory
@@ -674,8 +693,13 @@ final class APIClient {
 
                 let input = try FileHandle(forReadingFrom: sourceURL)
                 defer { try? input.close() }
+                var copiedBytes = 0
                 while let chunk = try input.read(upToCount: 64 * 1_024), !chunk.isEmpty {
                     try Task.checkCancellation()
+                    copiedBytes += chunk.count
+                    guard copiedBytes <= maximumFileBytes else {
+                        throw APIError(status: 0, message: "The selected file exceeds the upload limit (\(maximumFileBytes / 1_024 / 1_024) MB).")
+                    }
                     try output.write(contentsOf: chunk)
                 }
                 try write("\r\n--\(boundary)--\r\n")

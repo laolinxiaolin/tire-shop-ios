@@ -280,6 +280,15 @@ struct AppRouteDestinationView: View {
             authorized(auth.has("purchasing.view")) {
                 ContainerDetailNativeView(id: id)
             }
+        case .purchaseOrderDetail(let id):
+            authorized(auth.has("purchasing.view")) {
+                PurchaseOrderDetailNativeView(id: id)
+            }
+        case .supplierPurchaseOrders(let id):
+            authorized(auth.has("purchasing.view")) {
+                PurchaseOrdersListNativeView(supplierId: id)
+                    .navigationTitle(i18n.t("purchasing.purchaseOrders"))
+            }
         case .supplierDetail(let id):
             authorized(auth.has("purchasing.view")) {
                 SupplierDetailNativeView(id: id)

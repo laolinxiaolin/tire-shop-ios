@@ -21,6 +21,8 @@ enum AppRoute: Hashable {
     case transferDetail(String)
     case newTransfer
     case containerDetail(String)
+    case purchaseOrderDetail(String)
+    case supplierPurchaseOrders(String)
     case supplierDetail(String)
     case vendorDetail(String)
     case paymentApplicationDetail(String)

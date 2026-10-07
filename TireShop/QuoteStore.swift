@@ -34,6 +34,8 @@ struct QuoteCustomer: Equatable {
     let company: String?
     let taxExempt: Bool
     let taxExemptExpiresAt: String?
+    let address: String?
+    private let addressIsKnown: Bool
     let priceLevel: PriceLevel?
     let state: String?
     let county: String?
@@ -46,6 +48,8 @@ struct QuoteCustomer: Equatable {
         company = customer.company
         taxExempt = customer.taxExempt
         taxExemptExpiresAt = customer.taxExemptExpiresAt
+        address = customer.address
+        addressIsKnown = true
         priceLevel = customer.priceLevel
         state = customer.state
         county = customer.county
@@ -59,6 +63,8 @@ struct QuoteCustomer: Equatable {
         company = summary.company
         self.taxExempt = taxExempt
         self.taxExemptExpiresAt = taxExemptExpiresAt
+        address = nil
+        addressIsKnown = false
         priceLevel = nil
         state = nil
         county = nil
@@ -72,6 +78,8 @@ struct QuoteCustomer: Equatable {
         company = customer.company
         self.taxExempt = taxExempt
         taxExemptExpiresAt = customer.taxExemptExpiresAt
+        address = customer.address
+        addressIsKnown = customer.addressIsKnown
         priceLevel = customer.priceLevel
         state = customer.state
         county = customer.county
@@ -87,6 +95,10 @@ struct QuoteCustomer: Equatable {
         guard taxExempt else { return false }
         guard let taxExemptExpiresAt else { return true }
         return AppFormat.date(taxExemptExpiresAt).map { $0 > Date() } ?? false
+    }
+
+    var hasKnownEmptyStreetAddress: Bool {
+        addressIsKnown && address?.nilIfBlank == nil
     }
 }
 
@@ -127,6 +139,12 @@ final class QuoteStore: ObservableObject {
     private var pricingContextGeneration = 0
     private var pricingPolicyRequestId = UUID()
     private var pricingPolicyTask: Task<FleetPricingPolicy, Error>?
+
+    @Published private(set) var generation = UUID()
+
+    func isCurrent(_ submittedGeneration: UUID) -> Bool {
+        generation == submittedGeneration
+    }
 
     @Published private(set) var pricingEnabled: Bool?
     @Published private(set) var pricingLoading = false
@@ -533,12 +551,18 @@ final class QuoteStore: ObservableObject {
                 return
             }
             taxRateIsExplicit = true
-            taxOverride = nil
-            taxRate = SaleTaxPercentage.fromFraction(rate)
+            let refreshedTaxRate = SaleTaxPercentage.fromFraction(rate)
+            let refreshedExemption = result.source == "EXEMPT"
+            // A shop-default refresh must retain the saved round-total amount
+            // when its rate is unchanged. Price/context edits already clear it.
+            if taxRate != refreshedTaxRate || customer.taxExempt != refreshedExemption {
+                taxOverride = nil
+            }
+            taxRate = refreshedTaxRate
             taxResolutionId = result.automatic?.status == "RESOLVED"
                 ? result.automatic?.resolutionId
                 : nil
-            self.customer = customer.withTaxExempt(result.source == "EXEMPT")
+            self.customer = customer.withTaxExempt(refreshedExemption)
             switch result.source {
             case "EXEMPT": taxLookupMessage = "newQuote.taxExemptionApplied"
             case "DEFAULT": taxLookupMessage = "newQuote.taxShopDefaultApplied"
@@ -630,6 +654,7 @@ final class QuoteStore: ObservableObject {
     }
 
     func seed(from sale: Sale, customer: QuoteCustomer) {
+        generation = UUID()
         pricingContextGeneration += 1
         priceLevelAtQuote = sale.priceLevelAtQuote
         taxLookupGeneration += 1
@@ -666,9 +691,26 @@ final class QuoteStore: ObservableObject {
         pendingCreationInput = nil
         location = sale.location
         fulfillment = sale.fulfillment ?? .delivery
+
+        let needsAutomaticRefresh = !overrideTaxRate && (
+            sale.taxRateSource == "DEFAULT"
+                || sale.taxEvidence?.type == "SHOP_DEFAULT_PICKUP"
+                || sale.taxEvidence?.type == "SHOP_DEFAULT_MISSING_CUSTOMER_ADDRESS"
+                || (fulfillment == .delivery && customer.hasKnownEmptyStreetAddress)
+        )
+        if needsAutomaticRefresh {
+            // Settings may have changed, or a previously verified delivery
+            // address may have been removed. Block saving until the view's tax
+            // task refreshes the rate; a manual sale override remains intact.
+            taxRateIsExplicit = false
+            taxLookupInProgress = true
+            taxResolutionId = nil
+            taxContextRevision += 1
+        }
     }
 
     func clear() {
+        generation = UUID()
         pricingContextGeneration += 1
         pricingPolicyTask?.cancel()
         pricingPolicyTask = nil
@@ -697,6 +739,9 @@ final class QuoteStore: ObservableObject {
     }
 
     func saleInput() throws -> SaleUpsertInput {
+        guard fulfillment != .freight else {
+            throw APIError(status: 400, message: "sales.freightEditInWeb")
+        }
         guard !hasUnconfirmedCreation else { throw QuotePricingError.unconfirmedCreation }
         guard let customer else {
             throw APIError(status: 0, message: "Pick a customer first.")

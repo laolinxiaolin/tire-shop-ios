@@ -116,6 +116,19 @@ struct SupplierDetailNativeView: View {
                     ("Tires received", "\(supplier.summary.tiresReceived)")
                 ])
 
+                NavigationLink(value: AppRoute.supplierPurchaseOrders(id)) {
+                    RowLine(
+                        title: i18n.t("purchasing.po.allForSupplier"),
+                        trailing: supplier.summary.purchaseOrderCount.map(String.init)
+                    )
+                }
+
+                if let unlinked = supplier.summary.unlinkedContainerCount, unlinked > 0 {
+                    Text(i18n.t("purchasing.po.unlinkedContainers", ["n": unlinked]))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
+
                 SupplierInfoSection(rows: [
                     ("Contact", supplier.contactName ?? "-"),
                     ("Phone", AppFormat.phone(supplier.phone).nilIfBlank ?? "-"),

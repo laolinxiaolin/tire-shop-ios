@@ -37,6 +37,18 @@ These workflows require the corresponding backend endpoints. Wholesale pricing r
 
 Regression tests live in `TireShopTests/`. Build and run the `TireShop` scheme's tests against an installed iOS simulator. Camera capture must also be checked on a physical iPhone; simulators offer Photos and Files.
 
+The October 6 parity update reviews the latest six merged PRs in the shared web/API repository through `8754546`:
+
+- [#494](https://github.com/laolinxiaolin/tire-shop/pull/494): Purchasing has a parent purchase-order register and detail, shared terms and documents, multi-container creation, packing-list copying, and reviewed membership changes with server versions. Goods remaining, supplier cash paid, bills due, and reversed/legacy settlement evidence stay separate. Containers retain their own receiving, inventory, and accounting workflows. Supplier and incoming views link to the parent and distinguish order/container counts.
+- [#492](https://github.com/laolinxiaolin/tire-shop/pull/492) and [#493](https://github.com/laolinxiaolin/tire-shop/pull/493): New SKUs use one Model / Pattern field and let the API generate the model-first code, including embedded-ply handling and collision suffixes. Existing labels remain editable; this app does not rename the catalog.
+- [#495](https://github.com/laolinxiaolin/tire-shop/pull/495): Customer analytics explains that GP comes from net sales minus booked COGS. Server profit values remain visible when verified Actual COGS is unavailable, subject to profit permissions; GP percentages remain unavailable on nonpositive net sales.
+- [#489](https://github.com/laolinxiaolin/tire-shop/pull/489): Manual split tenders use one atomic receipt with net amounts and per-check deposit dates. Fee previews use decimal half-up rounding. An uncertain collection or failed post-collection refresh retires the form until balance and payment history refresh successfully. Quote confirmation retains the saved sale identity, recognizes already-completed confirmations, and ignores callbacks for replaced carts or login sessions.
+- [#491](https://github.com/laolinxiaolin/tire-shop/pull/491): Fleet catalog pricing and customer price-level controls are already covered by the earlier native update and its regression tests.
+
+Purchase-order document imports save independent copies in payment applications, and their displayed order/container references use the backend's frozen approval snapshots. Deploy migration `20261005000000_multi_container_purchase_orders` and the corresponding API before using the order workflows. The atomic receipt behavior requires the backend from #489. Version `1.0.15`, build `2026100601`, packages these changes together with the tax-data, customer-tax and sales-reporting updates below. App Store archives use the verified stable Xcode 27.0 toolchain (`27A266a`).
+
+Focused regression coverage includes `PurchaseOrderTests`, `PurchaseOrderAPITests`, `PurchaseOrderDraftTests`, `ManualReceiptTests`, `SkuCreationContractTests`, and the analytics/Fleet tests. Localization and Xcode project files are regenerated from their checked-in sources.
+
 The October 2 customer analytics update follows backend/web PRs [#485](https://github.com/laolinxiaolin/tire-shop/pull/485) and [#486](https://github.com/laolinxiaolin/tire-shop/pull/486), verified against `aa712265`:
 
 - Open Customer Analytics from More/the sidebar, Customers, a customer profile, or Profile. Staff with only `customers.analytics.view` can use its standalone ranking and detail screens.
@@ -45,6 +57,16 @@ The October 2 customer analytics update follows backend/web PRs [#485](https://g
 - English/Chinese report notes explain the pretax recognition basis, return/reversal effects, differences from CRM, and incomplete historical coverage. Current customer level remains distinct from transaction-time level.
 
 Deploy the corresponding analytics API and migration `20260928050000_customer_analytics_events`, run the backend's documented historical backfill, and grant the intended roles analytics/profit permissions before using these reports. The app displays the server's coverage status; it does not reconstruct missing history or infer historical cost. This update adds analytics independently of the earlier pricing and Freight workflow changes.
+
+The September 27 update follows web/backend `c5d8147` (PRs #476 and #477):
+
+- Sales lists, details, EOD and monthly reports identify Delivery, Pickup and Freight. Their raspberry/teal labels match the web's flat accent-bar design and light/dark palettes, with icons and text as well as color. Older sales without a fulfillment snapshot display Delivery. Freight drafts remain editable in the web app because their delivery-address and manual-tax controls are not present in this native release.
+- Sales support fulfillment, multiple payment methods (including inactive historical methods), and custom date filters. Pagination, totals and Excel exports retain the same filters. Exported files and invoices use the backend's fulfillment formatting.
+- Automatic tax refreshes when reopening shop-default drafts or delivery drafts whose customer street address is now empty. Explicit sale overrides remain intact; unchanged automatic rates retain saved rounding.
+- Customer profiles show verified tax resolution, shop-default fallback and audited administrator overrides, including expiry dates and address review. Warehouses can save or clear their physical pickup address.
+- Shop Settings gives administrators access to tax datasets: source checks, PDF/JSON uploads, findings and rate previews, validated publication, and SST ZIP/CSV import progress and retries. Imports remain on disk and use the backend's endpoint-specific size limits.
+
+These screens require the corresponding deployed tax-data/customer-tax endpoints and migrations. Tests cover fulfillment/filter/export contracts, draft tax refresh, customer overrides, warehouse field clearing, tax imports and upload limits. `SaleFulfillmentSnapshotTests` captures English/Chinese labels in light/dark appearance and at accessibility text sizes.
 
 Login survives closing and reopening the app. The access token and its server URL are stored together in the device-only Keychain; passwords and user permissions are not cached. Each cold launch validates the token through `GET /api/auth/session` and loads current user permissions before opening the app. A network or server failure keeps the credential for Retry; an expired/revoked session or explicit sign-out removes it. Changing servers never sends the saved token to the new server.
 

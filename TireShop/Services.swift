@@ -8,7 +8,9 @@ private func query(_ params: [String: Any?]) -> String {
         guard !text.isEmpty else { return nil }
         return URLQueryItem(name: key, value: text)
     }
-    return components.percentEncodedQuery.map { "?\($0)" } ?? ""
+    // Form-style query parsers treat a literal plus as a space. URLComponents
+    // leaves it unescaped, so encode it after the other query escaping.
+    return components.percentEncodedQuery.map { "?\($0.replacingOccurrences(of: "+", with: "%2B"))" } ?? ""
 }
 
 private func unwrapOptional(_ value: Any?) -> Any? {
@@ -95,12 +97,43 @@ struct WarehouseCreateInput: Codable {
     let code: String
     let name: String
     let notes: String?
+    var address: String? = nil
+    var address2: String? = nil
+    var city: String? = nil
+    var state: String? = nil
+    var postalCode: String? = nil
 }
 
-struct WarehousePatchInput: Codable {
+struct WarehousePatchInput: Encodable {
     let name: String?
     let notes: String?
     let active: Bool?
+    var address: String? = nil
+    var address2: String? = nil
+    var city: String? = nil
+    var state: String? = nil
+    var postalCode: String? = nil
+    // Full address editors must send null to clear fields; unrelated patches omit them.
+    var replaceAddress = false
+
+    private enum CodingKeys: String, CodingKey {
+        case name, notes, active, address, address2, city, state, postalCode
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(notes, forKey: .notes)
+        try container.encodeIfPresent(active, forKey: .active)
+        for (key, value) in [(CodingKeys.address, address), (.address2, address2),
+                             (.city, city), (.state, state), (.postalCode, postalCode)] {
+            if let value {
+                try container.encode(value, forKey: key)
+            } else if replaceAddress {
+                try container.encodeNil(forKey: key)
+            }
+        }
+    }
 }
 
 struct StockTransferLineInput: Codable, Equatable {
@@ -1236,6 +1269,8 @@ struct SalesAPI {
     func list(
         q: String? = nil,
         status: SaleStatus? = nil,
+        fulfillment: SaleFulfillment? = nil,
+        paymentMethodIds: [String]? = nil,
         from: String? = nil,
         to: String? = nil,
         sortBy: String? = nil,
@@ -1249,6 +1284,8 @@ struct SalesAPI {
         let qs = query([
             "q": q,
             "status": status,
+            "fulfillment": fulfillment?.rawValue,
+            "paymentMethodIds": paymentMethodIds?.joined(separator: ","),
             "from": from,
             "to": to,
             "sortBy": sortBy,
@@ -2776,6 +2813,12 @@ struct InvoicesAPI {
 
 struct PaymentsAPI {
     var client = APIClient.shared
+
+    func recordReceipt(_ body: ManualReceiptInput) async throws -> ManualReceiptResult {
+        let result: ManualReceiptResult = try await client.request("/receipts", method: "POST", body: body)
+        await CheckRegisterEvents.changed()
+        return result
+    }
 
     func gatewayStatus() async throws -> GatewayStatus {
         try await client.request("/payments/gateway/status")

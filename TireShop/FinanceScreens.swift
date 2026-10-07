@@ -4033,6 +4033,7 @@ struct EodNativeView: View {
                             }
                             .font(.caption)
                             .foregroundStyle(Theme.muted)
+                            SaleFulfillmentBadge(fulfillment: sale.fulfillment)
                         }
                         .padding(.vertical, Theme.Space.xs)
                         Divider()
