@@ -8,6 +8,14 @@ final class UploadLimitTests: XCTestCase {
     }
 
     @MainActor
+    func testSignOutAndRestoringSameCredentialStillCancelsOldUpload() async throws {
+        try await assertUploadCancelledDuringPreparation { client, _ in
+            client.token = nil
+            client.token = "original-user"
+        }
+    }
+
+    @MainActor
     func testServerChangeDuringMultipartPreparationDoesNotSendUpload() async throws {
         let previousServer = Server.baseURLString
         defer { Server.setBaseURL(previousServer) }

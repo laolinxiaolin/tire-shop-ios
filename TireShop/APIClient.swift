@@ -275,11 +275,20 @@ final class APIClient {
     /// Requests read the token from the cooperative pool while sign-in and
     /// sign-out write it from the main actor, so it is lock-guarded rather than
     /// a bare stored property.
-    private let tokenLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+    private struct TokenState {
+        var value: String?
+        var revision = UUID()
+    }
+    private let tokenLock = OSAllocatedUnfairLock(initialState: TokenState())
 
     var token: String? {
-        get { tokenLock.withLock { $0 } }
-        set { tokenLock.withLock { $0 = newValue } }
+        get { tokenLock.withLock { $0.value } }
+        set {
+            tokenLock.withLock {
+                $0.value = newValue
+                $0.revision = UUID()
+            }
+        }
     }
 
     var onUnauthorized: ((String) -> Void)?
@@ -363,14 +372,14 @@ final class APIClient {
         // destination and authorization before it yields to a session change.
         let requestURL = try Self.endpointURL(for: path)
         let requestServer = Server.baseURLString
-        let requestToken = token
+        let (requestToken, requestRevision) = tokenLock.withLock { ($0.value, $0.revision) }
         let boundary = "Boundary-\(UUID().uuidString)"
         let multipartURL = try await multipartBodyPreparation(
             fileURL, boundary, fieldName, fileName, mimeType, fields, maximumFileBytes
         )
         defer { try? FileManager.default.removeItem(at: multipartURL) }
         try Task.checkCancellation()
-        guard token == requestToken, Server.baseURLString == requestServer else {
+        guard tokenLock.withLock({ $0.revision == requestRevision }), Server.baseURLString == requestServer else {
             throw CancellationError()
         }
 
@@ -624,8 +633,9 @@ final class APIClient {
         // Check and clear under one lock so that concurrent 401s from the same
         // session tear it down — and notify — exactly once.
         let didInvalidate = tokenLock.withLock { current -> Bool in
-            guard current == requestToken else { return false }
-            current = nil
+            guard current.value == requestToken else { return false }
+            current.value = nil
+            current.revision = UUID()
             return true
         }
 
