@@ -35,12 +35,6 @@ enum BrowsingWorkspaceLayout {
     }
 }
 
-enum SaleWorkspaceLayout {
-    static func showsCatalog(width: CGFloat, horizontalSizeClass: UserInterfaceSizeClass?) -> Bool {
-        horizontalSizeClass == .regular && width >= 760
-    }
-}
-
 /// The app shell already owns navigation. These panes share that stack so a
 /// second split-view toolbar doesn't consume another row above the filters.
 struct BrowsingWorkspaceColumns<ListPane: View, DetailPane: View>: View {

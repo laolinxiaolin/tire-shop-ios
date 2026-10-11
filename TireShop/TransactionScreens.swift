@@ -7,21 +7,21 @@ struct NewQuoteNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var quote: QuoteStore
     @EnvironmentObject private var i18n: I18nStore
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private enum PickerDestination: String, Identifiable {
+        case customer
+        case tire
+        case service
+
+        var id: String { rawValue }
+    }
 
     private enum FocusField: Hashable {
         case price(String)
         case roundTarget
         case taxRate
-    }
-
-    private enum CatalogKind: String, CaseIterable, Identifiable {
-        case tires
-        case services
-
-        var id: String { rawValue }
-        var title: String { self == .tires ? "Tires" : "Services" }
     }
 
     @State private var saving = false
@@ -38,11 +38,13 @@ struct NewQuoteNativeView: View {
     @State private var priceDrafts: [String: String] = [:]
     @StateObject private var priceHistory = SalePriceHistoryStore()
     @State private var catalogBySku: [String: TireSku] = [:]
-    @State private var catalogKind: CatalogKind = .tires
     @State private var pricingProposal: QuotePricingProposal?
     @State private var loadingPricePreview = false
     @State private var confirmingStartOver = false
+    @State private var pickerDestination: PickerDestination?
     @FocusState private var focusedField: FocusField?
+    @ScaledMetric(relativeTo: .body) private var minimumDetailsWidth: CGFloat = 260
+    @ScaledMetric(relativeTo: .body) private var minimumCartWidth: CGFloat = 420
     @ScaledMetric(relativeTo: .body) private var minimumItemDescriptionWidth: CGFloat = 160
     @ScaledMetric(relativeTo: .body) private var minimumItemPriceWidth: CGFloat = 120
 
@@ -60,22 +62,7 @@ struct NewQuoteNativeView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let showsCatalog = SaleWorkspaceLayout.showsCatalog(
-                width: proxy.size.width,
-                horizontalSizeClass: horizontalSizeClass
-            )
-
-            NewSaleWorkspaceLayout(showsCatalog: showsCatalog, spacing: Theme.Space.md) {
-                catalogPane
-                    .opacity(showsCatalog ? 1 : 0)
-                    .allowsHitTesting(showsCatalog && !saving)
-                    .accessibilityHidden(!showsCatalog)
-
-                cartForm(showsPickerLinks: !showsCatalog)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
+        checkout
         .disabled(saving)
         .navigationTitle(quote.editingSaleId == nil ? "New Sale" : "Edit sale")
         .scrollDismissesKeyboard(.interactively)
@@ -115,6 +102,29 @@ struct NewQuoteNativeView: View {
                     return false
                 }
             }
+        }
+        .sheet(item: $pickerDestination) { destination in
+            NavigationStack {
+                Group {
+                    switch destination {
+                    case .customer:
+                        CustomerPickerNativeView(selectForQuote: true)
+                    case .tire:
+                        InventoryListNativeView(selectForQuote: true)
+                            .navigationTitle("Add a tire")
+                    case .service:
+                        ServicePickerNativeView()
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { pickerDestination = nil }
+                    }
+                }
+            }
+            .tint(Theme.primary)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .alert(i18n.t("pricing.startOverTitle"), isPresented: $confirmingStartOver) {
             Button(i18n.t("common.cancel"), role: .cancel) {}
@@ -166,86 +176,82 @@ struct NewQuoteNativeView: View {
         }
     }
 
-    private func cartForm(showsPickerLinks: Bool) -> some View {
-        Form {
+    private var checkout: some View {
+        ScrollView {
             if !auth.has("sales.manage") {
-                Section {
-                    Text("You do not have permission to manage sales.")
-                        .foregroundStyle(Theme.muted)
-                }
+                Text("You do not have permission to manage sales.")
+                    .foregroundStyle(Theme.muted)
+                    .padding(Theme.Space.xl)
             } else {
-                customerSection
-                fulfillmentSection
-                warehouseSection
-                pricingSection
-                linesSection(showsPickerLinks: showsPickerLinks)
-                totalsSection
+                SaleCheckoutLayout(
+                    spacing: Theme.Space.xl,
+                    minimumDetailsWidth: minimumDetailsWidth,
+                    minimumCartWidth: minimumCartWidth,
+                    forceStack: dynamicTypeSize.isAccessibilitySize
+                ) {
+                    VStack(alignment: .leading, spacing: Theme.Space.xl) {
+                        customerSection
+                        SaleCheckoutSection("Fulfillment & warehouse") {
+                            fulfillmentSection
+                            Divider()
+                            warehouseSection
+                        }
+                        pricingSection
+                    }
 
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(Theme.danger)
+                    VStack(alignment: .leading, spacing: Theme.Space.xl) {
+                        linesSection
+                        totalsSection
                     }
                 }
-
-                Section {
-                    Button(buttonTitle) {
-                        Task { await submit() }
-                    }
-                    .disabled(!canSubmit)
-                }
+                .frame(maxWidth: 1040)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.vertical, Theme.Space.xl)
             }
-        }
-    }
-
-    private var catalogPane: some View {
-        VStack(spacing: 0) {
-            Picker("Catalog", selection: $catalogKind) {
-                ForEach(CatalogKind.allCases) { kind in
-                    Text(kind.title).tag(kind)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, Theme.Space.lg)
-            .padding(.vertical, Theme.Space.sm)
-
-            Group {
-                switch catalogKind {
-                case .tires:
-                    InventoryListNativeView(selectForQuote: true, dismissAfterSelection: false)
-                case .services:
-                    ServicePickerNativeView(dismissAfterSelection: false)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Theme.background)
-        .overlay(Rectangle().frame(width: 1).foregroundStyle(Theme.border), alignment: .trailing)
     }
 
     private var customerSection: some View {
-        Section("Customer") {
+        SaleCheckoutSection("Customer") {
             if let customer = quote.customer {
-                RowLine(
-                    title: customer.name,
-                    subtitle: customer.company,
-                    trailing: customer.taxExempt && !quote.overrideTaxRate ? "Tax exempt" : nil
-                )
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    Text(customer.name)
+                        .font(.headline)
+                        .foregroundStyle(Theme.text)
+                    if let company = customer.company?.nilIfBlank {
+                        Text(company)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.muted)
+                    }
+                    if customer.taxExempt && !quote.overrideTaxRate {
+                        Text("Tax exempt")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.muted)
+                    }
+                }
                 RowLine(title: i18n.t("customers.priceLevel"),
                         trailing: i18n.t((quote.priceLevelAtQuote ?? customer.priceLevel)?.localizationKey ?? "customers.level.unassigned"))
-            } else {
-                Text("No customer selected")
-                    .foregroundStyle(Theme.muted)
+                Divider()
             }
 
-            NavigationLink("Select customer") {
-                CustomerPickerNativeView(selectForQuote: true)
+            Button {
+                openPicker(.customer)
+            } label: {
+                HStack {
+                    Text("Select customer")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                }
+                .frame(minHeight: 44)
             }
         }
     }
 
     private var pricingSection: some View {
-        Section(i18n.t("pricing.title")) {
+        SaleCheckoutSection(i18n.t("pricing.title")) {
             if quote.hasUnconfirmedCreation {
                 Text(i18n.t("pricing.unconfirmedCreation")).foregroundStyle(Theme.danger)
                 if auth.has("sales.view") {
@@ -295,7 +301,7 @@ struct NewQuoteNativeView: View {
     }
 
     private var fulfillmentSection: some View {
-        Section(i18n.t("newQuote.fulfillment")) {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) { fulfillmentButtons }
                 VStack(alignment: .leading, spacing: 12) { fulfillmentButtons }
@@ -304,6 +310,7 @@ struct NewQuoteNativeView: View {
             Text(i18n.t(fulfillmentTaxHint))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -343,7 +350,10 @@ struct NewQuoteNativeView: View {
     }
 
     private var warehouseSection: some View {
-        Section("Warehouse") {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            Text("Warehouse")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.text)
             if loadingWarehouses {
                 HStack(spacing: Theme.Space.sm) {
                     ProgressView()
@@ -358,26 +368,33 @@ struct NewQuoteNativeView: View {
                     HStack(spacing: Theme.Space.sm) {
                         if quote.location.nilIfBlank != nil,
                            !warehouses.contains(where: { $0.code == quote.location }) {
-                            CompactFilterChip(
-                                title: quote.location,
-                                selected: true,
-                                invalid: true,
-                                accessibilityLabel: "\(quote.location) — inactive"
-                            )
+                            Text(quote.location)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.danger)
+                                .padding(Theme.Space.sm)
+                                .accessibilityLabel("\(quote.location) — inactive")
                         }
 
                         ForEach(warehouses) { warehouse in
-                            CompactFilterChip(
-                                title: warehouse.code,
-                                selected: quote.location == warehouse.code,
-                                accessibilityLabel: "\(warehouse.code) — \(warehouse.name)"
-                            ) {
+                            Button {
                                 quote.setLocation(warehouse.code)
+                            } label: {
+                                Text(warehouse.code)
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, Theme.Space.md)
+                                    .frame(minHeight: 44)
+                                    .background(
+                                        quote.location == warehouse.code ? Theme.primary : Theme.background,
+                                        in: RoundedRectangle(cornerRadius: Theme.Radius.md)
+                                    )
+                                    .foregroundStyle(quote.location == warehouse.code ? Theme.primaryText : Theme.text)
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(warehouse.code) — \(warehouse.name)")
+                            .accessibilityAddTraits(quote.location == warehouse.code ? .isSelected : [])
                         }
                     }
                 }
-                .frame(height: 32)
 
                 Text("Tire availability and stock relief use this warehouse.")
                     .font(.footnote)
@@ -397,8 +414,8 @@ struct NewQuoteNativeView: View {
         }
     }
 
-    private func linesSection(showsPickerLinks: Bool) -> some View {
-        Section("Items") {
+    private var linesSection: some View {
+        SaleCheckoutSection("Items") {
             if !priceRequest.skuIds.isEmpty {
                 SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
             }
@@ -528,24 +545,42 @@ struct NewQuoteNativeView: View {
 
                 }
                 .padding(.vertical, Theme.Space.xs)
+
+                Divider()
             }
 
-            if showsPickerLinks {
-                NavigationLink("Add tire") {
-                    InventoryListNativeView(selectForQuote: true)
-                        .navigationTitle("Add a tire")
+            pickerActionsLayout {
+                Button {
+                    openPicker(.tire)
+                } label: {
+                    Label("Add tire", systemImage: "plus")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
                 .disabled(quote.location.nilIfBlank == nil)
 
-                NavigationLink("Add service") {
-                    ServicePickerNativeView()
+                Button {
+                    openPicker(.service)
+                } label: {
+                    Label("Add service", systemImage: "plus")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
             }
         }
     }
 
+    private var pickerActionsLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Theme.Space.sm))
+            : AnyLayout(HStackLayout(spacing: Theme.Space.md))
+    }
+
+    private func openPicker(_ destination: PickerDestination) {
+        focusedField = nil
+        pickerDestination = destination
+    }
+
     private var totalsSection: some View {
-        Section("Totals") {
+        SaleCheckoutSection("Totals") {
             RowLine(title: "Subtotal", trailing: AppFormat.money(quote.subtotal))
 
             if quote.taxLookupInProgress {
@@ -611,7 +646,25 @@ struct NewQuoteNativeView: View {
                 trailing: AppFormat.money(quote.taxAmount)
             )
 
-            RowLine(title: "Total", trailing: AppFormat.money(quote.total))
+            Divider()
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Total").font(.headline)
+                    Spacer()
+                    Text(AppFormat.money(quote.total))
+                        .font(.title2.weight(.semibold))
+                        .monospacedDigit()
+                }
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    Text("Total").font(.headline)
+                    Text(AppFormat.money(quote.total))
+                        .font(.title2.weight(.semibold))
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(Theme.text)
+            .accessibilityElement(children: .combine)
 
             HStack {
                 TextField("Round total", text: $roundTarget)
@@ -630,6 +683,15 @@ struct NewQuoteNativeView: View {
                         || quote.taxLookupInProgress
                         || quote.taxLookupError != nil
                 )
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(Theme.danger)
+            }
+
+            PrimaryButton(title: buttonTitle, loading: saving, disabled: !canSubmit) {
+                Task { await submit() }
             }
         }
     }
@@ -900,46 +962,85 @@ struct NewQuoteNativeView: View {
     }
 }
 
-/// Keeps the catalog and cart mounted while the window changes size. Compact
-/// layouts give the full area to the cart and retain its push-based pickers;
-/// regular layouts expose two independently scrolling work areas.
-private struct NewSaleWorkspaceLayout: Layout {
-    let showsCatalog: Bool
+private struct SaleCheckoutSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            Text(LocalizedStringKey(title))
+                .font(.subheadline)
+                .foregroundStyle(Theme.muted)
+                .padding(.horizontal, Theme.Space.xs)
+                .accessibilityAddTraits(.isHeader)
+
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.lg)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.Radius.lg))
+            .buttonStyle(.borderless)
+        }
+    }
+}
+
+/// Keeps both checkout columns mounted while the available width changes.
+private struct SaleCheckoutLayout: Layout {
     let spacing: CGFloat
+    let minimumDetailsWidth: CGFloat
+    let minimumCartWidth: CGFloat
+    let forceStack: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let fallback = subviews.last?.sizeThatFits(proposal) ?? .zero
-        return CGSize(width: proposal.width ?? fallback.width, height: proposal.height ?? fallback.height)
+        guard subviews.count == 2 else { return .zero }
+        return measurements(proposal: proposal, subviews: subviews).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard subviews.count == 2 else { return }
+        let measured = measurements(proposal: ProposedViewSize(width: bounds.width, height: nil), subviews: subviews)
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: measured.details.width, height: nil)
+        )
+        subviews[1].place(
+            at: CGPoint(
+                x: measured.stacked ? bounds.minX : bounds.minX + measured.details.width + spacing,
+                y: measured.stacked ? bounds.minY + measured.details.height + spacing : bounds.minY
+            ),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: measured.cart.width, height: nil)
+        )
+    }
 
-        if showsCatalog {
-            let catalogWidth = min(max(340, bounds.width * 0.52), max(340, bounds.width - 360 - spacing))
-            let cartWidth = max(0, bounds.width - catalogWidth - spacing)
-            subviews[0].place(
-                at: bounds.origin,
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: catalogWidth, height: bounds.height)
-            )
-            subviews[1].place(
-                at: CGPoint(x: bounds.minX + catalogWidth + spacing, y: bounds.minY),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: cartWidth, height: bounds.height)
-            )
-        } else {
-            subviews[0].place(
-                at: bounds.origin,
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: 0, height: 0)
-            )
-            subviews[1].place(
-                at: bounds.origin,
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
-            )
-        }
+    private func measurements(
+        proposal: ProposedViewSize,
+        subviews: Subviews
+    ) -> (size: CGSize, details: CGSize, cart: CGSize, stacked: Bool) {
+        let splitWidth = max(760, minimumDetailsWidth + spacing + minimumCartWidth)
+        let availableWidth = max(0, proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? splitWidth)
+        let stacked = forceStack || availableWidth < splitWidth
+        let width = stacked ? min(availableWidth, 720) : availableWidth
+        let detailsWidth = stacked ? width : min(
+            max(minimumDetailsWidth, width * 0.31),
+            max(minimumDetailsWidth, 320)
+        )
+        let cartWidth = stacked ? width : max(0, width - detailsWidth - spacing)
+        let details = subviews[0].sizeThatFits(ProposedViewSize(width: detailsWidth, height: nil))
+        let cart = subviews[1].sizeThatFits(ProposedViewSize(width: cartWidth, height: nil))
+        return (
+            CGSize(width: width, height: stacked ? details.height + spacing + cart.height : max(details.height, cart.height)),
+            CGSize(width: detailsWidth, height: details.height),
+            CGSize(width: cartWidth, height: cart.height),
+            stacked
+        )
     }
 }
 

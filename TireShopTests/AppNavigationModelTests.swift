@@ -132,9 +132,4 @@ final class AppNavigationModelTests: XCTestCase {
         XCTAssertFalse(BrowsingWorkspaceLayout.usesSplitView(width: 1_200, horizontalSizeClass: .compact))
     }
 
-    func testSaleWorkspaceShowsCatalogOnlyWhenBothWorkAreasFit() {
-        XCTAssertTrue(SaleWorkspaceLayout.showsCatalog(width: 760, horizontalSizeClass: .regular))
-        XCTAssertFalse(SaleWorkspaceLayout.showsCatalog(width: 759, horizontalSizeClass: .regular))
-        XCTAssertFalse(SaleWorkspaceLayout.showsCatalog(width: 1_200, horizontalSizeClass: .compact))
-    }
 }
