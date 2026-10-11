@@ -1791,8 +1791,7 @@ struct MoneyAPI {
     }
 
     func payable(vendorKey: String) async throws -> PayableVendorDetail {
-        let encoded = vendorKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? vendorKey
-        return try await client.request("/payables/\(encoded)")
+        try await client.request("/payables", pathComponent: vendorKey)
     }
 
     func payPayables(

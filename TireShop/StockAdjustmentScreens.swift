@@ -19,15 +19,14 @@ private struct StockAdjustDraftLine: Identifiable {
     }
 
     func delta(mode: StockAdjustEntryMode, location: String) -> Int {
-        guard let number = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return 0
-        }
-        switch mode {
-        case .delta:
-            return number
-        case .counted:
-            return number - onHand(at: location)
-        }
+        (try? StockAdjustmentValue.delta(value, counted: mode == .counted, onHand: onHand(at: location))) ?? 0
+    }
+
+    func validationError(mode: StockAdjustEntryMode, location: String) -> String? {
+        do {
+            _ = try StockAdjustmentValue.delta(value, counted: mode == .counted, onHand: onHand(at: location))
+            return nil
+        } catch { return error.localizedDescription }
     }
 }
 
@@ -66,16 +65,26 @@ struct StockAdjustBatchNativeView: View {
         var changed: [(line: StockAdjustDraftLine, delta: Int)] = []
         var totalDelta = 0
         var shortLine: StockAdjustDraftLine?
+        var invalidLine: StockAdjustDraftLine?
     }
 
     private var batchSummary: BatchSummary {
         var summary = BatchSummary()
         for line in lines {
+            if line.validationError(mode: mode, location: location) != nil {
+                summary.invalidLine = summary.invalidLine ?? line
+                continue
+            }
             let delta = line.delta(mode: mode, location: location)
             guard delta != 0 else { continue }
 
             summary.changed.append((line, delta))
-            summary.totalDelta += delta
+            let total = summary.totalDelta.addingReportingOverflow(delta)
+            if total.overflow {
+                summary.invalidLine = summary.invalidLine ?? line
+                continue
+            }
+            summary.totalDelta = total.partialValue
             if summary.shortLine == nil, line.onHand(at: location) + delta < 0 {
                 summary.shortLine = line
             }
@@ -263,6 +272,7 @@ struct StockAdjustBatchNativeView: View {
                     saving
                         || summary.changed.isEmpty
                         || summary.shortLine != nil
+                        || summary.invalidLine != nil
                         || !warehouses.contains(where: { $0.code == location })
                 )
             }
@@ -408,7 +418,7 @@ struct StockAdjustBatchNativeView: View {
     @MainActor
     private func submit() async {
         let summary = batchSummary
-        guard !summary.changed.isEmpty, summary.shortLine == nil else { return }
+        guard !saving, !summary.changed.isEmpty, summary.shortLine == nil, summary.invalidLine == nil else { return }
         saving = true
         errorMessage = nil
         defer { saving = false }
@@ -508,10 +518,15 @@ private struct StockAdjustDraftLineEditor: View {
                 Text(i18n.t("stockAdjust.newQty"))
                     .foregroundStyle(Theme.muted)
                 Spacer()
-                Text(line.value.nilIfBlank == nil ? "—" : "\(resulting) (\(signed(delta)))")
+                Text(line.value.nilIfBlank == nil || line.validationError(mode: mode, location: location) != nil
+                     ? "—" : "\(resulting) (\(signed(delta)))")
                     .font(.subheadline.monospacedDigit())
                     .fontWeight(.semibold)
                     .foregroundStyle(resulting < 0 ? Theme.danger : Theme.text)
+            }
+
+            if let error = line.validationError(mode: mode, location: location) {
+                Text(error).font(.caption).foregroundStyle(Theme.danger)
             }
 
             TextField(

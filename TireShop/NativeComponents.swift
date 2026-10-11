@@ -301,9 +301,9 @@ struct PaymentSheetNativeView: View {
                 KeyedCardSplitSheet(
                     invoiceId: invoiceId,
                     balance: effectiveBalance,
-                    onPaid: {
+                    onPaid: { paymentIntentId in
                         guard let session = receiptSession, session.isCurrent(auth) else { return }
-                        receipt.requireReconciliation()
+                        receipt.requireCardReconciliation(paymentIntentId: paymentIntentId)
                         errorMessage = nil
                         showCardSheet = false
                         Task { await reconcileAndClose() }
@@ -512,7 +512,12 @@ struct PaymentSheetNativeView: View {
     @MainActor
     private func reconcileAndClose() async {
         guard let session = receiptSession, session.isCurrent(auth) else { dismiss(); return }
-        await receipt.reconcile(refresh: {
+        await receipt.reconcile(invoicePayments: {
+            guard session.isCurrent(auth) else { throw CancellationError() }
+            let payments = try await PaymentsAPI().invoicePayments(invoiceId: invoiceId)
+            guard session.isCurrent(auth) else { throw CancellationError() }
+            return payments
+        }, refresh: {
             guard session.isCurrent(auth) else { throw CancellationError() }
             try await onPaid()
             guard session.isCurrent(auth) else { throw CancellationError() }
@@ -583,12 +588,15 @@ enum KeyedCardChargePreparation {
     static func prepare(
         grossAmount: Double,
         gatewayStatus: () async throws -> GatewayStatus,
-        createIntent: (Double) async throws -> CardPaymentIntent
-    ) async throws -> (publishableKey: String, intent: CardPaymentIntent) {
+        createIntent: (Double) async throws -> CardPaymentIntent,
+        validateSession: () throws -> Void = {}
+    ) async throws -> (publishableKey: String, intent: CardPaymentIntent, paymentIntentId: String) {
         guard grossAmount.isFinite, grossAmount > 0 else {
             throw APIError(status: 0, message: "Check the charge amount again before charging.")
         }
+        try validateSession()
         let status = try await gatewayStatus()
+        try validateSession()
         guard status.enabled, status.provider.lowercased() == "stripe" else {
             throw APIError(status: 0, message: "Stripe payments are not enabled.")
         }
@@ -596,13 +604,18 @@ enum KeyedCardChargePreparation {
             throw APIError(status: 0, message: "Stripe publishable key is not configured.")
         }
         let intent = try await createIntent(grossAmount)
-        guard intent.clientSecret?.nilIfBlank != nil else {
+        try validateSession()
+        guard let clientSecret = intent.clientSecret?.nilIfBlank else {
             throw APIError(status: 0, message: "The server did not return a card payment client secret.")
+        }
+        let secretIntentId = clientSecret.range(of: "_secret_").map { String(clientSecret[..<$0.lowerBound]) }
+        guard let paymentIntentId = intent.paymentIntentId?.nilIfBlank ?? secretIntentId?.nilIfBlank else {
+            throw APIError(status: 0, message: "The server did not identify the card payment. Refresh before charging.")
         }
         if let amount = intent.amount, !amount.isFinite || abs(amount - grossAmount) >= 0.005 {
             throw APIError(status: 0, message: "The charge amount changed. Check the amount again before charging.")
         }
-        return (publishableKey, intent)
+        return (publishableKey, intent, paymentIntentId)
     }
 }
 
@@ -613,10 +626,11 @@ enum KeyedCardChargePreparation {
 private struct KeyedCardSplitSheet: View {
     let invoiceId: String
     let balance: Double
-    let onPaid: () -> Void
+    let onPaid: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var presentationContext: ScenePresentationContext
+    @EnvironmentObject private var auth: AuthStore
     @State private var amountText = ""
     @State private var preflight: ChargePreflight?
     /// The server's fee-inclusive full-balance total: both the default and the
@@ -789,12 +803,16 @@ private struct KeyedCardSplitSheet: View {
         charging = true
         errorMessage = nil
         defer { charging = false }
+        let session = AppSessionIdentity(auth)
         do {
             let prepared = try await KeyedCardChargePreparation.prepare(
                 grossAmount: confirmedQuote.amount,
                 gatewayStatus: { try await PaymentsAPI().gatewayStatus() },
                 createIntent: { gross in
                     try await PaymentsAPI().cardIntent(invoiceId: invoiceId, grossAmount: gross)
+                },
+                validateSession: {
+                    guard session.isCurrent(auth) else { throw CancellationError() }
                 }
             )
             let intent = prepared.intent
@@ -811,13 +829,13 @@ private struct KeyedCardSplitSheet: View {
                 configuration: configuration
             )
             let result = try await present(paymentSheet: paymentSheet)
+            guard session.isCurrent(auth) else { throw CancellationError() }
 
             switch result {
             case .completed:
-                if let paymentIntentId = intent.paymentIntentId?.nilIfBlank {
-                    _ = try? await PaymentsAPI().settleManual(paymentIntentId: paymentIntentId)
-                }
-                onPaid()
+                _ = try? await PaymentsAPI().settleManual(paymentIntentId: prepared.paymentIntentId)
+                guard session.isCurrent(auth) else { throw CancellationError() }
+                onPaid(prepared.paymentIntentId)
                 dismiss()
             case .canceled:
                 errorMessage = "Card entry canceled."

@@ -9,21 +9,7 @@ enum AppFormat {
         return formatter
     }()
 
-    private static func dateFormatter(timeZone: TimeZone = ShopClock.timeZone) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        formatter.timeZone = timeZone
-        return formatter
-    }
-
-    private static func dateTimeFormatter(timeZone: TimeZone = ShopClock.timeZone) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.timeZone = timeZone
-        return formatter
-    }
+    private static let dateDisplayFormatterCache = DateDisplayFormatterCache()
 
     // The NestJS backend serializes timestamps via Date.toISOString(), which
     // always includes milliseconds; ISO8601DateFormatter needs a separate
@@ -82,11 +68,15 @@ enum AppFormat {
 
     static func shortDate(_ value: String?) -> String {
         guard let date = parseDate(value) else { return "-" }
-        return dateFormatter().string(from: date)
+        return shortDate(date)
     }
 
     static func shortDate(_ date: Date) -> String {
-        dateFormatter().string(from: date)
+        shortDate(date, locale: .current, timeZone: ShopClock.timeZone)
+    }
+
+    static func shortDate(_ date: Date, locale: Locale, timeZone: TimeZone) -> String {
+        dateDisplayFormatterCache.string(from: date, locale: locale, timeZone: timeZone, includesTime: false)
     }
 
     /// Format a value that represents a calendar day rather than an instant
@@ -94,20 +84,28 @@ enum AppFormat {
     /// part so UTC-midnight timestamps like "2026-07-03T00:00:00.000Z" render
     /// as Jul 3 in every time zone instead of shifting a day.
     static func calendarDate(_ value: String?) -> String {
+        calendarDate(value, locale: .current, timeZone: ShopClock.timeZone)
+    }
+
+    static func calendarDate(_ value: String?, locale: Locale, timeZone: TimeZone) -> String {
         guard
             let value,
-            let date = ShopClock.date(fromDayString: String(value.prefix(10)))
+            let date = ShopClock.date(fromDayString: String(value.prefix(10)), in: timeZone)
         else { return "-" }
-        return dateFormatter().string(from: date)
+        return shortDate(date, locale: locale, timeZone: timeZone)
     }
 
     static func dateTime(_ value: String?) -> String {
         guard let date = parseDate(value) else { return "-" }
-        return dateTimeFormatter().string(from: date)
+        return dateTime(date)
     }
 
     static func dateTime(_ date: Date) -> String {
-        dateTimeFormatter().string(from: date)
+        dateTime(date, locale: .current, timeZone: ShopClock.timeZone)
+    }
+
+    static func dateTime(_ date: Date, locale: Locale, timeZone: TimeZone) -> String {
+        dateDisplayFormatterCache.string(from: date, locale: locale, timeZone: timeZone, includesTime: true)
     }
 
     static func date(_ value: String?) -> Date? {
@@ -143,6 +141,55 @@ enum AppFormat {
         return isoFractionalFormatter.date(from: value)
             ?? isoFormatter.date(from: value)
             ?? ShopClock.date(fromDayString: value)
+    }
+}
+
+/// Reuse display formatters while keeping region and shop time-zone changes live.
+private final class DateDisplayFormatterCache {
+    private struct Key: Hashable {
+        let locale: String
+        let timeZone: String
+        let includesTime: Bool
+    }
+
+    private let lock = NSLock()
+    private var formatters: [Key: DateFormatter] = [:]
+    private var localeObserver: NSObjectProtocol?
+
+    init() {
+        localeObserver = NotificationCenter.default.addObserver(
+            forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.clear()
+        }
+    }
+
+    deinit {
+        if let localeObserver { NotificationCenter.default.removeObserver(localeObserver) }
+    }
+
+    func string(from date: Date, locale: Locale, timeZone: TimeZone, includesTime: Bool) -> String {
+        let key = Key(locale: locale.identifier, timeZone: timeZone.identifier, includesTime: includesTime)
+        lock.lock()
+        defer { lock.unlock() }
+        let formatter: DateFormatter
+        if let cached = formatters[key] {
+            formatter = cached
+        } else {
+            formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.dateStyle = .medium
+            formatter.timeStyle = includesTime ? .short : .none
+            formatters[key] = formatter
+        }
+        return formatter.string(from: date)
+    }
+
+    private func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        formatters.removeAll()
     }
 }
 

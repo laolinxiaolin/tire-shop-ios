@@ -139,6 +139,47 @@ final class ManualReceiptTests: XCTestCase {
         XCTAssertTrue(store.completed)
     }
 
+    func testCardCompletionWaitsForMatchingPaymentAndFreshBalance() async {
+        var collections = 0
+        var refreshes = 0
+        let store = ManualReceiptStore { _ in
+            collections += 1
+            return self.result()
+        }
+        store.requireCardReconciliation(paymentIntentId: "pi_new")
+        let payment = InvoicePayment(id: "payment", externalId: "pi_new", amount: "40.00",
+            status: "POSTED", createdAt: nil, reference: nil, note: nil, processor: "stripe", paymentMethod: nil)
+        let olderPayment = InvoicePayment(id: "older", externalId: "pi_old", amount: "20.00",
+            status: "POSTED", createdAt: nil, reference: nil, note: nil, processor: "stripe", paymentMethod: nil)
+
+        await store.reconcile(invoicePayments: { [olderPayment] }) { refreshes += 1 }
+        XCTAssertFalse(store.completed)
+        XCTAssertTrue(store.needsReconciliation)
+        XCTAssertEqual(refreshes, 0, "A stale successful history response must not reopen collection")
+        await store.record(input()) {}
+        XCTAssertEqual(collections, 0)
+
+        await store.reconcile(invoicePayments: { throw URLError(.notConnectedToInternet) }) {}
+        XCTAssertFalse(store.completed)
+        await store.reconcile(invoicePayments: { [payment] }) {
+            throw APIError(status: 503, message: "Balance unavailable")
+        }
+        XCTAssertFalse(store.completed)
+        await store.reconcile(invoicePayments: { [payment] }) { refreshes += 1 }
+        XCTAssertTrue(store.completed)
+        XCTAssertNil(store.error)
+        XCTAssertEqual(refreshes, 1)
+    }
+
+    func testCardCompletionCannotBeReconciledWithoutCheckingHistory() async {
+        let store = ManualReceiptStore { _ in self.result() }
+        store.requireCardReconciliation(paymentIntentId: "pi_new")
+        var refreshed = false
+        await store.reconcile { refreshed = true }
+        XCTAssertFalse(refreshed)
+        XCTAssertFalse(store.completed)
+    }
+
     private func input() -> ManualReceiptInput {
         .init(customerId: "customer", lines: [.init(invoiceId: "invoice", paymentMethodId: "cash",
             amount: 100, reference: nil, plannedDepositDate: nil)])

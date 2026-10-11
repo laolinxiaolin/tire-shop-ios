@@ -43,12 +43,18 @@ private struct FinanceSubmissionIdentity {
     }
 }
 
+enum FinanceMoney {
+    static func excess(amount: Double, balance: Double) -> Double {
+        let difference = ((amount - balance) * 100).rounded() / 100
+        return difference > 0 ? difference : 0
+    }
+}
+
 enum ReceivableOverpaymentPolicy {
     static let storeCreditAccountCode = "2400"
 
     static func excess(received: Double, openBalance: Double) -> Double {
-        let difference = roundMoney(received - openBalance)
-        return difference > 0.01 ? difference : 0
+        FinanceMoney.excess(amount: received, balance: openBalance)
     }
 
     static func allowsStoreCredit(excess: Double, paymentMethodAccountCode: String?) -> Bool {
@@ -532,7 +538,7 @@ private struct CollectReceivableSheet: View {
                 state.totalApplied += amount
             }
 
-            if amount.isFinite, amount - invoice.balance > 0.01 {
+            if amount.isFinite, FinanceMoney.excess(amount: amount, balance: invoice.balance) > 0 {
                 state.overpaidRows.insert(invoice.id)
             }
 
@@ -1099,7 +1105,7 @@ private struct PayVendorSheet: View {
                 state.totalSelected += amount
             }
 
-            if amount - item.remaining > 0.01 {
+            if FinanceMoney.excess(amount: amount, balance: item.remaining) > 0 {
                 state.overpaidRows.insert(item.id)
             }
         }

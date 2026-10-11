@@ -54,6 +54,11 @@ struct NewQuoteNativeView: View {
         quote.pricingEnabled == false || (quote.pricingEnabled == true && auth.has("sales.price.override"))
     }
 
+    private var availabilityContext: SaleCartInventoryContext {
+        SaleCartInventoryContext(location: quote.location,
+            skuIds: Set(quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId)))
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let showsCatalog = SaleWorkspaceLayout.showsCatalog(
@@ -91,8 +96,8 @@ struct NewQuoteNativeView: View {
         .task {
             await loadWarehouses()
             await quote.restoreDefaultTaxRate()
-            await loadAvailability()
         }
+        .task(id: availabilityContext) { await loadAvailability() }
         .task(id: auth.user?.id) {
             guard auth.has("sales.manage") else { return }
             do { try await quote.loadPricingPolicy(force: true) }
@@ -140,7 +145,6 @@ struct NewQuoteNativeView: View {
         }
         .onChange(of: quote.location) { _, _ in
             taxRateDraft = nil
-            Task { await loadAvailability() }
         }
         .onChange(of: quote.fulfillment) { _, _ in
             taxRateDraft = nil
@@ -148,9 +152,6 @@ struct NewQuoteNativeView: View {
         .onChange(of: quote.editingSaleId) { _, _ in taxRateDraft = nil }
         .onChange(of: quote.overrideTaxRate) { _, overridden in
             if !overridden { taxRateDraft = nil }
-        }
-        .onChange(of: quote.lines.filter { $0.itemType == "SKU" }.map(\.itemId)) { _, _ in
-            Task { await loadAvailability() }
         }
         .onChange(of: focusedField) { oldField, newField in
             if oldField == .taxRate { taxRateDraft = nil }
@@ -881,23 +882,7 @@ struct NewQuoteNativeView: View {
         }
 
         do {
-            var pageNumber = 1
-            var matching: [String: TireSku] = [:]
-
-            while true {
-                let page = try await InventoryAPI().listSkus(
-                    page: pageNumber,
-                    pageSize: 1000
-                )
-                for sku in page.items where skuIds.contains(sku.id) {
-                    matching[sku.id] = sku
-                }
-                guard matching.count < skuIds.count,
-                      page.page * page.pageSize < page.total,
-                      !page.items.isEmpty else { break }
-                pageNumber = page.page + 1
-            }
-
+            let matching = try await SaleCartInventoryLoader().load(skuIds: skuIds)
             guard quote.location == location, availabilityRequestID == requestID else { return }
             catalogBySku = matching
             availabilityBySku = Dictionary(uniqueKeysWithValues: skuIds.map { id in
@@ -907,7 +892,7 @@ struct NewQuoteNativeView: View {
             })
             availabilityLocation = location
         } catch {
-            guard quote.location == location, availabilityRequestID == requestID else { return }
+            guard quote.location == location, availabilityRequestID == requestID, !Task.isCancelled else { return }
             availabilityBySku = [:]
             catalogBySku = [:]
             availabilityLocation = ""

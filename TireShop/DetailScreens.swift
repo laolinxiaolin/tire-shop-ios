@@ -10,6 +10,15 @@ struct SaleDetailNativeView: View {
     @Environment(\.dismiss) private var dismiss
 
     let id: String
+    var saleLoader: (String) async throws -> Sale = { try await SalesAPI().get(id: $0) }
+    var skuDetailsLoader: ([String]) async throws -> [String: TireSku] = {
+        try await SaleDetailSkuLoader().load(itemIDs: $0)
+    }
+    var salespersonLoader: () async throws -> [CustomerSalesperson] = {
+        try await EmployeesAPI().list(pageSize: 200).items.map {
+            CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status)
+        }
+    }
     @State private var paymentContext: PaymentContext?
     @State private var pdfPreview: PreviewFile?
     @State private var downloadingPDF = false
@@ -31,6 +40,8 @@ struct SaleDetailNativeView: View {
     @State private var savingSalesperson = false
     @State private var showPayLink = false
     @State private var payLinkContext: PayLinkContext?
+    @State private var skusByLineItemId: [String: TireSku] = [:]
+    @State private var skuDetailsRequestID = UUID()
 
     private var canSend: Bool {
         auth.has("sales.manage")
@@ -45,7 +56,7 @@ struct SaleDetailNativeView: View {
     }
 
     var body: some View {
-        AsyncContentView(load: loadDetail) { detail in
+        AsyncContentView(load: { SaleDetailSnapshot(sale: try await saleLoader(id)) }) { detail in
             let sale = detail.sale
             List {
                 Section {
@@ -61,13 +72,13 @@ struct SaleDetailNativeView: View {
                     RowLine(title: "Warehouse", subtitle: sale.location)
                     RowLine(title: "Tax", subtitle: AppFormat.money(sale.taxAmount), trailing: sale.taxRate)
                     if canAssignSalesperson || sale.salesperson != nil {
-                        salespersonRow(sale)
+                        salespersonRows(sale)
                     }
                 }
 
                 Section("Lines") {
                     ForEach(sale.lines) { line in
-                        SaleLineDetailRow(line: line, sku: detail.skusByLineItemId[line.itemId])
+                        SaleLineDetailRow(line: line, sku: skusByLineItemId[line.itemId])
                     }
                 }
 
@@ -205,6 +216,7 @@ struct SaleDetailNativeView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .task(id: detail.revision) { await loadSkuDetails(for: sale) }
         }
         .id(reloadToken)
         .navigationTitle("Sale")
@@ -310,27 +322,20 @@ struct SaleDetailNativeView: View {
     }
 
     @MainActor
-    private func loadDetail() async throws -> SaleDetailData {
-        let sale = try await SalesAPI().get(id: id)
-        var skusByLineItemId: [String: TireSku] = [:]
-        var seen = Set<String>()
-
-        let skuIds = sale.lines.compactMap { line -> String? in
-            guard line.itemType.uppercased() == "SKU",
-                  let skuId = line.itemId.nilIfBlank,
-                  seen.insert(skuId).inserted else {
-                return nil
-            }
-            return skuId
+    private func loadSkuDetails(for sale: Sale) async {
+        let session = AppSessionIdentity(auth)
+        let requestID = UUID()
+        skuDetailsRequestID = requestID
+        skusByLineItemId = [:]
+        let skuIds = sale.lines.filter { $0.itemType.uppercased() == "SKU" }.map(\.itemId)
+        do {
+            let details = try await skuDetailsLoader(skuIds)
+            guard !Task.isCancelled, session.isCurrent(auth), skuDetailsRequestID == requestID else { return }
+            skusByLineItemId = details
+        } catch {
+            // Historical line snapshots remain visible when current inventory
+            // details are missing or unavailable.
         }
-
-        for skuId in skuIds {
-            if let sku = try? await findSku(idOrSku: skuId) {
-                skusByLineItemId[skuId] = sku
-            }
-        }
-
-        return SaleDetailData(sale: sale, skusByLineItemId: skusByLineItemId)
     }
 
     /// Loads the salesperson picker options once, lazily, only when the row is
@@ -347,42 +352,41 @@ struct SaleDetailNativeView: View {
         guard !salespersonOptionsLoading, !salespersonOptionsLoaded else { return }
         salespersonOptionsLoading = true
         defer { salespersonOptionsLoading = false }
-        if let page = try? await EmployeesAPI().list(pageSize: 200) {
-            salespersonOptions = page.items
+        if let people = try? await salespersonLoader() {
+            salespersonOptions = people
                 .filter { $0.status != "TERMINATED" }
-                .map { CustomerSalesperson(id: $0.id, fullName: $0.fullName, status: $0.status) }
                 .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
             // Only mark loaded on success so a transient failure can be retried.
             salespersonOptionsLoaded = true
         }
     }
 
-    private func salespersonRow(_ sale: Sale) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            if canAssignSalesperson {
-                Picker("Salesperson", selection: $selectedSalespersonId) {
-                    Text("None").tag("")
-                    ForEach(salespersonOptions) { person in
-                        Text(person.fullName).tag(person.id)
-                    }
+    @ViewBuilder
+    private func salespersonRows(_ sale: Sale) -> some View {
+        if canAssignSalesperson {
+            Picker("Salesperson", selection: $selectedSalespersonId) {
+                Text("None").tag("")
+                ForEach(salespersonOptions) { person in
+                    Text(person.fullName).tag(person.id)
                 }
-                .disabled(savingSalesperson)
-                .task { await loadSalespersonOptionsIfNeeded(sale: sale) }
-
-                Button {
-                    Task { await saveSalesperson(for: sale) }
-                } label: {
-                    Label(savingSalesperson ? "Saving..." : "Save salesperson", systemImage: "person.crop.circle")
-                }
-                .disabled(savingSalesperson || salespersonOptionsLoading || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
-            } else if let salesperson = sale.salesperson {
-                RowLine(title: "Salesperson", subtitle: salesperson.fullName)
             }
+            .disabled(savingSalesperson)
+            .task { await loadSalespersonOptionsIfNeeded(sale: sale) }
 
-            Text("Commissions are attributed to the assigned salesperson. Leave empty to attribute the sale's credit to the store.")
-                .font(.caption)
-                .foregroundStyle(Theme.muted)
+            Button {
+                Task { await saveSalesperson(for: sale) }
+            } label: {
+                Label(savingSalesperson ? "Saving..." : "Save salesperson", systemImage: "person.crop.circle")
+            }
+            .buttonStyle(.borderless)
+            .disabled(savingSalesperson || salespersonOptionsLoading || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
+        } else if let salesperson = sale.salesperson {
+            RowLine(title: "Salesperson", subtitle: salesperson.fullName)
         }
+
+        Text("Commissions are attributed to the assigned salesperson. Leave empty to attribute the sale's credit to the store.")
+            .font(.caption)
+            .foregroundStyle(Theme.muted)
     }
 
     @MainActor
@@ -401,21 +405,6 @@ struct SaleDetailNativeView: View {
             actionError = (error as? LocalizedError)?.errorDescription ?? "Could not save the salesperson."
         }
         savingSalesperson = false
-    }
-
-    private func findSku(idOrSku: String) async throws -> TireSku {
-        if let sku = try? await InventoryAPI().getSku(id: idOrSku) {
-            return sku
-        }
-
-        let page = try await InventoryAPI().listSkus(q: idOrSku, pageSize: 50)
-        if let exact = page.items.first(where: { $0.id == idOrSku || $0.sku == idOrSku }) {
-            return exact
-        }
-        guard let first = page.items.first else {
-            throw APIError(status: 404, message: "Tire not found.")
-        }
-        return first
     }
 
     private func fetchPDF(invoice: SaleInvoice, number: String) async throws -> URL {
@@ -473,10 +462,11 @@ struct SaleDetailNativeView: View {
         var id: String { invoice.id }
     }
 
-    private struct SaleDetailData {
+    private struct SaleDetailSnapshot {
         let sale: Sale
-        let skusByLineItemId: [String: TireSku]
+        let revision = UUID()
     }
+
 }
 
 private struct SaleLineDetailRow: View {

@@ -573,7 +573,7 @@ private struct InventoryExportSheet: View {
     }
 }
 
-private struct InventoryListRequest {
+private struct InventoryListRequest: Equatable {
     let q: String?
     let category: String?
     let position: String?
@@ -620,6 +620,8 @@ struct InventoryListNativeView: View {
     @State private var total = 0
     @State private var inventoryTotals: InventoryTotals?
     @State private var loadedPage = 0
+    @State private var moreInventoryAvailable = false
+    @State private var loadedInventoryRequest: InventoryListRequest?
     @State private var hasLoaded = false
     @State private var loading = false
     @State private var loadingMore = false
@@ -640,10 +642,11 @@ struct InventoryListNativeView: View {
     }
 
     private var hasMorePages: Bool {
-        hasLoaded && items.count < total
+        hasLoaded && moreInventoryAvailable
     }
 
     private var totalQuantity: Int {
+        if let inventoryTotals { return selectForQuote ? inventoryTotals.available : inventoryTotals.units }
         let location = selectedLocation.nilIfBlank
         return items.reduce(0) { result, sku in
             result + (selectForQuote
@@ -896,7 +899,7 @@ struct InventoryListNativeView: View {
 
                     let quantity = totalQuantity
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Available inventory")
+                        Text(inventoryTotals == nil && hasMorePages ? "Available in loaded items" : "Available inventory")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.muted)
 
@@ -907,13 +910,17 @@ struct InventoryListNativeView: View {
 
                     Spacer(minLength: Theme.Space.sm)
 
-                    Text("\(items.count.formatted()) \(items.count == 1 ? "SKU" : "SKUs")")
+                    Text("\(total.formatted()) \(total == 1 ? "SKU" : "SKUs")")
                         .font(.caption.weight(.semibold).monospacedDigit())
                         .foregroundStyle(Theme.muted)
                 }
             } else {
                 let totals = displayedInventoryTotals
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                    if inventoryTotals == nil && hasMorePages {
+                        Text("Totals for loaded items")
+                            .font(.caption).foregroundStyle(Theme.muted)
+                    }
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text((totals.location ?? i18n.t("inventory.allWarehouses")).uppercased())
@@ -978,6 +985,13 @@ struct InventoryListNativeView: View {
 
     private func inventoryList(usesSplitView: Bool) -> some View {
         List {
+            if let errorMessage {
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    Text(errorMessage).font(.caption).foregroundStyle(Theme.danger)
+                    Button("Retry refresh") { Task { await reload() } }
+                        .buttonStyle(.borderless)
+                }
+            }
             if selectForQuote {
                 SalePriceHistoryStatusView(history: priceHistory, request: priceRequest)
                 if let salePriceError {
@@ -1173,7 +1187,7 @@ struct InventoryListNativeView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Theme.Space.sm)
             }
-        } else if hasMorePages {
+        } else if hasMorePages && errorMessage == nil {
             HStack(spacing: Theme.Space.sm) {
                 Spacer()
                 ProgressView()
@@ -1587,57 +1601,24 @@ struct InventoryListNativeView: View {
 
     @MainActor
     private func reload() async {
-        let requestID = UUID()
-        loadRequestID = requestID
         let request = currentRequest
-        loading = true
+        if loadedInventoryRequest != request {
+            selectedSkuIDs = PagedSelection.reconciled(selectedSkuIDs, loadedIDs: [], complete: false, scopeChanged: true)
+            items = []
+            total = 0
+            inventoryTotals = nil
+            loadedPage = 0
+            moreInventoryAvailable = false
+            hasLoaded = false
+        }
+        loadedInventoryRequest = request
         loadingMore = false
-        errorMessage = nil
-        loadMoreError = nil
-        defer {
-            if loadRequestID == requestID {
-                loading = false
-            }
-        }
-
-        do {
-            var page = 1
-            var allItems: [TireSku] = []
-            var expectedTotal = 0
-            var loadedTotals: InventoryTotals?
-            var lastLoadedPage = 0
-
-            while true {
-                let pageData = try await requestInventoryPage(page, request: request)
-                guard loadRequestID == requestID else { return }
-                expectedTotal = pageData.total
-                loadedTotals = pageData.totals ?? loadedTotals
-                lastLoadedPage = pageData.page
-
-                let existingIds = Set(allItems.map(\.id))
-                allItems.append(contentsOf: pageData.items.filter { !existingIds.contains($0.id) })
-
-                guard allItems.count < pageData.total, !pageData.items.isEmpty else { break }
-                page = pageData.page + 1
-            }
-
-            items = allItems
-            total = expectedTotal
-            inventoryTotals = loadedTotals
-            loadedPage = lastLoadedPage
-            selectedSkuIDs.formIntersection(Set(allItems.map(\.id)))
-            hasLoaded = true
-        } catch {
-            guard loadRequestID == requestID, !isCancellation(error) else { return }
-
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
-            hasLoaded = !items.isEmpty
-        }
+        await loadPage(1, reset: true)
     }
 
     @MainActor
     private func loadMoreIfNeeded() async {
-        guard hasMorePages, !loading, !loadingMore else { return }
+        guard hasMorePages, !loading, !loadingMore, errorMessage == nil else { return }
         await loadPage(loadedPage + 1, reset: false)
     }
 
@@ -1666,20 +1647,22 @@ struct InventoryListNativeView: View {
 
         do {
             let pageData = try await requestInventoryPage(page, request: request)
-            guard loadRequestID == requestID else { return }
+            guard loadRequestID == requestID, !Task.isCancelled else { return }
 
             total = pageData.total
-            inventoryTotals = pageData.totals ?? inventoryTotals
+            inventoryTotals = reset ? pageData.totals : (pageData.totals ?? inventoryTotals)
             loadedPage = pageData.page
+            moreInventoryAvailable = !pageData.items.isEmpty
+                && pageData.page * max(1, pageData.pageSize) < pageData.total
             hasLoaded = true
 
             if reset {
                 items = pageData.items
             } else {
-                let existingIds = Set(items.map(\.id))
-                items.append(contentsOf: pageData.items.filter { !existingIds.contains($0.id) })
+                var existingIds = Set(items.map(\.id))
+                items.append(contentsOf: pageData.items.filter { existingIds.insert($0.id).inserted })
             }
-            selectedSkuIDs.formIntersection(Set(items.map(\.id)))
+            selectedSkuIDs = PagedSelection.reconciled(selectedSkuIDs, loadedIDs: Set(items.map(\.id)), complete: !moreInventoryAvailable)
         } catch {
             guard loadRequestID == requestID, !isCancellation(error) else { return }
 
@@ -3782,11 +3765,14 @@ struct CustomersListNativeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var q = ""
-    @State private var customers: [Customer] = []
-    @State private var loading = false
-    @State private var errorMessage: String?
-    @State private var loadRequestID = UUID()
+    @StateObject private var customerPages = PagedListStore<Customer, String> { query, page, size in
+        try await CustomersAPI().list(q: query.nilIfBlank, page: page, pageSize: size)
+    }
     @State private var scrollCustomerID: String?
+
+    private var customers: [Customer] { customerPages.items }
+    private var loading: Bool { customerPages.loading }
+    private var errorMessage: String? { customerPages.errorMessage }
 
     private var canManageCustomers: Bool {
         auth.has("customers.manage")
@@ -3830,11 +3816,7 @@ struct CustomersListNativeView: View {
             }
         }
         .task(id: q) {
-            if !q.isEmpty {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                if Task.isCancelled { return }
-            }
-            await load()
+            await customerPages.reload(scope: q.trimmingCharacters(in: .whitespacesAndNewlines), debounce: !q.isEmpty)
         }
         .onReceive(NotificationCenter.default.publisher(for: .browsingRecordDidChange)) { note in
             guard let change = note.object as? BrowsingRecordChange, change.kind == .customer else { return }
@@ -3860,26 +3842,29 @@ struct CustomersListNativeView: View {
                 } else if customers.isEmpty {
                     customerEmptyState
                 } else {
-                    List(customers) { customer in
-                        if usesSplitView {
-                            Button {
-                                navigation.rememberCustomer(customer.id)
-                            } label: {
-                                customerRow(customer)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .listRowBackground(
-                                navigation.selectedCustomerID == customer.id
-                                    ? Theme.primary.opacity(0.12)
-                                    : Theme.background
-                            )
-                            .accessibilityAddTraits(navigation.selectedCustomerID == customer.id ? .isSelected : [])
-                        } else {
-                            NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
-                                customerRow(customer)
+                    List {
+                        ForEach(customers) { customer in
+                            if usesSplitView {
+                                Button {
+                                    navigation.rememberCustomer(customer.id)
+                                } label: {
+                                    customerRow(customer)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(
+                                    navigation.selectedCustomerID == customer.id
+                                        ? Theme.primary.opacity(0.12)
+                                        : Theme.background
+                                )
+                                .accessibilityAddTraits(navigation.selectedCustomerID == customer.id ? .isSelected : [])
+                            } else {
+                                NavigationLink(value: AppRoute.customerDetail(id: customer.id, name: customer.name)) {
+                                    customerRow(customer)
+                                }
                             }
                         }
+                        PagedListFooter(store: customerPages)
                     }
                     .listStyle(.plain)
                     .scrollPosition(id: $scrollCustomerID)
@@ -3984,24 +3969,7 @@ struct CustomersListNativeView: View {
 
     @MainActor
     private func load() async {
-        let requestID = UUID()
-        loadRequestID = requestID
-        let query = q.nilIfBlank
-        loading = true
-        errorMessage = nil
-        defer {
-            if loadRequestID == requestID {
-                loading = false
-            }
-        }
-        do {
-            let response = try await CustomersAPI().list(q: query, pageSize: 50)
-            guard loadRequestID == requestID else { return }
-            customers = response.items
-        } catch {
-            guard loadRequestID == requestID, !Task.isCancelled else { return }
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load customers."
-        }
+        await customerPages.reload(scope: q.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
@@ -4121,33 +4089,34 @@ private enum ReturnLabels {
 }
 
 struct ReturnsListNativeView: View {
-    private let pageSize = 50
-
     @State private var status = ""
-    @State private var page: Paged<ReturnRecord>?
-    @State private var loading = false
-    @State private var errorMessage: String?
+    @StateObject private var returnPages = PagedListStore<ReturnRecord, String> { status, page, size in
+        try await ReturnsAPI().list(status: status.nilIfBlank, page: page, pageSize: size)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             statusFilter
 
             Group {
-                if loading && page == nil {
+                if returnPages.loading && returnPages.items.isEmpty {
                     LoadingView(label: "Loading...")
-                } else if let errorMessage, page == nil {
+                } else if let errorMessage = returnPages.errorMessage, returnPages.items.isEmpty {
                     RetryView(message: errorMessage) { Task { await load() } }
-                } else if let page, page.items.isEmpty {
+                } else if returnPages.loaded && returnPages.items.isEmpty {
                     EmptyStateView(text: status.isEmpty ? "No returns found." : "No returns match this status.")
-                } else if let page {
-                    List(page.items) { record in
-                        NavigationLink(value: AppRoute.returnDetail(record.id)) {
-                            RowLine(
-                                title: "\(record.ref ?? "Return") - \(ReturnLabels.type(record.type))",
-                                subtitle: returnSubtitle(record),
-                                trailing: AppFormat.money(record.refundTotal)
-                            )
+                } else if returnPages.loaded {
+                    List {
+                        ForEach(returnPages.items) { record in
+                            NavigationLink(value: AppRoute.returnDetail(record.id)) {
+                                RowLine(
+                                    title: "\(record.ref ?? "Return") - \(ReturnLabels.type(record.type))",
+                                    subtitle: returnSubtitle(record),
+                                    trailing: AppFormat.money(record.refundTotal)
+                                )
+                            }
                         }
+                        PagedListFooter(store: returnPages)
                     }
                     .listStyle(.plain)
                     .refreshable { await load() }
@@ -4202,15 +4171,7 @@ struct ReturnsListNativeView: View {
 
     @MainActor
     private func load() async {
-        loading = true
-        errorMessage = nil
-        do {
-            page = try await ReturnsAPI().list(status: status.nilIfBlank, pageSize: pageSize)
-        } catch {
-            page = nil
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load returns."
-        }
-        loading = false
+        await returnPages.reload(scope: status)
     }
 }
 

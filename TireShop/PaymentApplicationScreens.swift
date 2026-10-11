@@ -137,13 +137,11 @@ struct PaymentApplicationsNativeView: View {
     @State private var scope: Scope = .mine
     @State private var status = ""
     @State private var q = ""
-    @State private var page = 1
-    @State private var data: Paged<PaymentApplicationRow>?
-    @State private var loading = false
-    @State private var errorMessage: String?
-    @State private var requestID = 0
+    @StateObject private var store = PaymentApplicationsListStore()
 
-    private let pageSize = 30
+    private var data: Paged<PaymentApplicationRow>? { store.data }
+    private var loading: Bool { store.loading }
+    private var errorMessage: String? { store.errorMessage }
 
     private var totalPages: Int {
         guard let data, data.pageSize > 0 else { return 1 }
@@ -186,7 +184,7 @@ struct PaymentApplicationsNativeView: View {
                     LoadingView(label: "Loading payment applications...")
                 } else if let errorMessage, data == nil {
                     RetryView(message: errorMessage) { Task { await load() } }
-                } else if let data, data.items.isEmpty {
+                } else if let data, data.items.isEmpty, errorMessage == nil {
                     EmptyStateView(text: "No payment applications match these filters.")
                 } else if let data {
                     List {
@@ -194,6 +192,8 @@ struct PaymentApplicationsNativeView: View {
                             Text(errorMessage)
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.danger)
+                            Button("Retry") { Task { await store.retry() } }
+                                .disabled(loading)
                         }
 
                         ForEach(data.items) { application in
@@ -205,20 +205,18 @@ struct PaymentApplicationsNativeView: View {
                         if data.total > data.pageSize {
                             HStack {
                                 Button("Previous") {
-                                    page = max(1, page - 1)
-                                    Task { await load() }
+                                    Task { await load(page: max(1, data.page - 1)) }
                                 }
-                                .disabled(page <= 1 || loading)
+                                .disabled(data.page <= 1 || loading)
                                 Spacer()
                                 Text("Page \(data.page) of \(totalPages)")
                                     .font(.caption)
                                     .foregroundStyle(Theme.muted)
                                 Spacer()
                                 Button("Next") {
-                                    page = min(totalPages, page + 1)
-                                    Task { await load() }
+                                    Task { await load(page: min(totalPages, data.page + 1)) }
                                 }
-                                .disabled(page >= totalPages || loading)
+                                .disabled(data.page >= totalPages || loading)
                             }
                         }
                     }
@@ -232,44 +230,25 @@ struct PaymentApplicationsNativeView: View {
         .searchable(text: $q, prompt: "Reference or payee")
         .task { if data == nil { await load() } }
         .onSubmit(of: .search) {
-            page = 1
-            Task { await load() }
+            Task { await load(page: 1) }
         }
         .onChange(of: scope) { _, _ in
-            page = 1
-            Task { await load() }
+            Task { await load(page: 1) }
         }
         .onChange(of: status) { _, _ in
-            page = 1
-            Task { await load() }
+            Task { await load(page: 1) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .paymentApplicationsChanged)) { _ in
             Task { await load() }
         }
+        .onDisappear { store.invalidate() }
     }
 
     @MainActor
-    private func load() async {
-        requestID += 1
-        let currentRequest = requestID
-        loading = true
-        do {
-            let result = try await PaymentApplicationsAPI().list(
-                view: scope.rawValue.lowercased(),
-                q: q.nilIfBlank,
-                status: status.nilIfBlank,
-                page: page,
-                pageSize: pageSize
-            )
-            guard currentRequest == requestID else { return }
-            data = result
-            errorMessage = nil
-        } catch {
-            guard currentRequest == requestID else { return }
-            errorMessage = (error as? LocalizedError)?.errorDescription
-                ?? "Could not load payment applications."
-        }
-        if currentRequest == requestID { loading = false }
+    private func load(page: Int? = nil) async {
+        await store.load(filter: PaymentApplicationListFilter(
+            view: scope.rawValue.lowercased(), query: q.nilIfBlank, status: status.nilIfBlank
+        ), page: page ?? store.page)
     }
 }
 
@@ -403,6 +382,7 @@ private struct PaymentApplicationListRow: View {
 
 struct PaymentApplicationEditorNativeView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
 
     let id: String?
     let presetVendorId: String?
@@ -410,29 +390,23 @@ struct PaymentApplicationEditorNativeView: View {
     @State private var vendorOptions: [PaymentApplicationOpenBillVendor] = []
     @State private var vendorId: String
     @State private var vendorName = ""
-    @State private var bills: [PaymentApplicationOpenBill] = []
-    @State private var bankOptions: [PaymentApplicationBankOption] = []
-    @State private var bankAccountId = ""
+    @StateObject private var resources = PaymentApplicationResourcesStore()
     @State private var currency = "USD"
     @State private var purpose = "GOODS"
     @State private var requestedAt = Date()
     @State private var plannedPayAt = Date()
     @State private var hasPlannedPayAt = false
     @State private var note = ""
-    @State private var selectedBillIDs = Set<String>()
-    @State private var amounts: [String: String] = [:]
-    @State private var lineNotes: [String: String] = [:]
     @State private var loading = true
     @State private var saving = false
     @State private var errorMessage: String?
-    @State private var bankRequestID = 0
-    @State private var billRequestID = 0
+    @State private var visible = true
 
     private var isEditing: Bool { id != nil }
 
     private var total: Double {
-        selectedBillIDs.reduce(0) { result, billID in
-            result + (AppFormat.parseAmount(amounts[billID] ?? "") ?? 0)
+        resources.selectedBillIDs.reduce(0) { result, billID in
+            result + (AppFormat.parseAmount(resources.amounts[billID] ?? "") ?? 0)
         }
     }
 
@@ -452,7 +426,13 @@ struct PaymentApplicationEditorNativeView: View {
                         if isEditing {
                             LabeledContent("Payee", value: vendorName)
                         } else {
-                            Picker("Payee", selection: $vendorId) {
+                            Picker("Payee", selection: Binding(
+                                get: { vendorId },
+                                set: { value in
+                                    vendorId = value
+                                    reloadResources()
+                                }
+                            )) {
                                 Text("Select payee").tag("")
                                 ForEach(vendorOptions) { option in
                                     Text("\(option.vendor ?? option.vendorId) · \(paymentApplicationMoney(option.applicable, currency: currency))")
@@ -467,12 +447,16 @@ struct PaymentApplicationEditorNativeView: View {
                             }
                         }
 
-                        TextField("Currency", text: $currency)
-                            .textInputAutocapitalization(.characters)
-                            .onChange(of: currency) { _, value in
+                        TextField("Currency", text: Binding(
+                            get: { currency },
+                            set: { value in
                                 let normalized = String(value.uppercased().prefix(8))
-                                if normalized != value { currency = normalized }
+                                guard normalized != currency else { return }
+                                currency = normalized
+                                reloadResources()
                             }
+                        ))
+                        .textInputAutocapitalization(.characters)
 
                         DatePicker("Request date", selection: $requestedAt, displayedComponents: .date)
                         Toggle("Plan a payment date", isOn: $hasPlannedPayAt)
@@ -480,43 +464,47 @@ struct PaymentApplicationEditorNativeView: View {
                             DatePicker("Planned payment", selection: $plannedPayAt, displayedComponents: .date)
                         }
 
-                        Picker("Pay to", selection: $bankAccountId) {
-                            Text(bankOptions.isEmpty ? "No active account" : "Select account").tag("")
-                            ForEach(bankOptions) { account in
+                        Picker("Pay to", selection: $resources.bankAccountId) {
+                            Text(resources.banksLoading ? "Loading accounts..." : resources.bankOptions.isEmpty ? "No active account" : "Select account").tag("")
+                            ForEach(resources.bankOptions) { account in
                                 Text("\(account.label?.nilIfBlank ?? account.bankName) · \(account.accountMasked)")
                                     .tag(account.id)
                             }
                         }
+                        .disabled(!resources.canSelectBank(vendorId: vendorId, currency: currency))
                     }
 
                     Section("Bills") {
                         if vendorId.isEmpty {
                             Text("Choose a payee to see open bills.")
                                 .foregroundStyle(Theme.muted)
-                        } else if bills.isEmpty {
+                        } else if resources.billsLoading {
+                            ProgressView("Loading open bills...")
+                        } else if resources.bills.isEmpty {
                             Text("This payee has no applicable open bills.")
                                 .foregroundStyle(Theme.muted)
                         }
 
-                        ForEach(bills) { bill in
+                        ForEach(resources.bills) { bill in
                             PaymentApplicationBillDraftRow(
                                 bill: bill,
                                 currency: currency,
                                 selected: Binding(
-                                    get: { selectedBillIDs.contains(bill.id) },
-                                    set: { selected in toggle(bill, selected: selected) }
+                                    get: { resources.selectedBillIDs.contains(bill.id) },
+                                    set: { selected in resources.toggle(bill, selected: selected) }
                                 ),
                                 amount: Binding(
-                                    get: { amounts[bill.id] ?? "" },
-                                    set: { amounts[bill.id] = $0 }
+                                    get: { resources.amounts[bill.id] ?? "" },
+                                    set: { resources.amounts[bill.id] = $0 }
                                 ),
                                 note: Binding(
-                                    get: { lineNotes[bill.id] ?? "" },
-                                    set: { lineNotes[bill.id] = $0 }
+                                    get: { resources.lineNotes[bill.id] ?? "" },
+                                    set: { resources.lineNotes[bill.id] = $0 }
                                 )
                             )
                         }
                     }
+                    .disabled(!resources.canSelectBills(vendorId: vendorId))
 
                     Section("Summary") {
                         LabeledContent("Requested total", value: paymentApplicationMoney(total, currency: currency))
@@ -524,14 +512,20 @@ struct PaymentApplicationEditorNativeView: View {
                             .lineLimit(2...6)
                     }
 
-                    if let errorMessage {
+                    if let message = errorMessage ?? resources.errorMessage {
                         Section {
-                            Text(errorMessage)
+                            Text(message)
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.danger)
+                            if resources.errorMessage != nil {
+                                Button("Retry bills and bank accounts") { reloadResources() }
+                            } else if !resources.canSelectBills(vendorId: vendorId) {
+                                Button("Retry") { Task { await initialLoad() } }
+                            }
                         }
                     }
                 }
+                .disabled(saving || !auth.has("paymentapps.manage"))
             }
         }
         .navigationTitle(isEditing ? "Edit application" : "New application")
@@ -539,32 +533,27 @@ struct PaymentApplicationEditorNativeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(saving ? "Saving..." : "Save") { Task { await save() } }
-                    .disabled(saving || loading)
+                    .disabled(saving || loading || !auth.has("paymentapps.manage")
+                        || !resources.ownsSelections(vendorId: vendorId, currency: currency))
             }
         }
         .task { await initialLoad() }
-        .onChange(of: vendorId) { oldValue, newValue in
-            guard oldValue != newValue, !loading else { return }
-            selectedBillIDs = []
-            amounts = [:]
-            lineNotes = [:]
-            Task { await loadVendorResources() }
-        }
-        .onChange(of: currency) { oldValue, newValue in
-            guard oldValue != newValue, !loading, !vendorId.isEmpty else { return }
-            Task { await loadBanks() }
-        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false; resources.invalidate() }
     }
 
     @MainActor
     private func initialLoad() async {
+        let session = AppSessionIdentity(auth)
         loading = true
         errorMessage = nil
+        defer { loading = false }
         do {
             async let vendorsTask = PaymentApplicationsAPI().openBillVendors()
             if let id {
                 async let draftTask = PaymentApplicationsAPI().get(id: id)
                 let (loadedVendors, draft) = try await (vendorsTask, draftTask)
+                guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
                 vendorOptions = loadedVendors
                 vendorId = draft.vendor.id
                 vendorName = draft.vendor.name
@@ -576,14 +565,16 @@ struct PaymentApplicationEditorNativeView: View {
                     hasPlannedPayAt = true
                 }
                 note = draft.note ?? ""
-                selectedBillIDs = Set(draft.lines.map(\.containerCostId))
-                amounts = Dictionary(uniqueKeysWithValues: draft.lines.map {
+                let amounts = Dictionary(uniqueKeysWithValues: draft.lines.map {
                     ($0.containerCostId, String(format: "%.2f", $0.amount))
                 })
-                lineNotes = Dictionary(uniqueKeysWithValues: draft.lines.map {
+                let lineNotes = Dictionary(uniqueKeysWithValues: draft.lines.map {
                     ($0.containerCostId, $0.note ?? "")
                 })
-                let open = try await PaymentApplicationsAPI().openBills(vendorId: draft.vendor.id)
+                async let openTask = PaymentApplicationsAPI().openBills(vendorId: draft.vendor.id)
+                async let banksTask = PaymentApplicationsAPI().bankOptions(vendorId: draft.vendor.id, currency: draft.currency)
+                let (open, banks) = try await (openTask, banksTask)
+                guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
                 var known = Dictionary(uniqueKeysWithValues: open.map { ($0.id, $0) })
                 for line in draft.lines where known[line.containerCostId] == nil {
                     known[line.containerCostId] = PaymentApplicationOpenBill(
@@ -603,113 +594,67 @@ struct PaymentApplicationEditorNativeView: View {
                         createdAt: draft.requestedAt
                     )
                 }
-                bills = known.values.sorted { $0.occurredAt < $1.occurredAt }
-                bankOptions = try await PaymentApplicationsAPI().bankOptions(
-                    vendorId: draft.vendor.id,
-                    currency: draft.currency
-                )
-                bankAccountId = draft.bank.accountId ?? bankOptions.first(where: \.isDefault)?.id ?? bankOptions.first?.id ?? ""
+                resources.seed(vendorId: draft.vendor.id, currency: draft.currency,
+                    bills: known.values.sorted { $0.occurredAt < $1.occurredAt }, bankOptions: banks,
+                    preferredBankId: draft.bank.accountId, selectedBillIDs: Set(draft.lines.map(\.containerCostId)),
+                    amounts: amounts, lineNotes: lineNotes)
             } else {
-                vendorOptions = try await vendorsTask
-                if !vendorId.isEmpty { await loadVendorResources() }
+                let vendors = try await vendorsTask
+                guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
+                vendorOptions = vendors
+                let request = resources.prepare(vendorId: vendorId, currency: currency)
+                await resources.load(request)
             }
         } catch {
+            guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "Could not prepare the application."
         }
-        loading = false
     }
 
     @MainActor
-    private func loadVendorResources() async {
-        guard !vendorId.isEmpty else {
-            bills = []
-            bankOptions = []
-            bankAccountId = ""
-            return
-        }
-        async let billsTask: Void = loadBills()
-        async let banksTask: Void = loadBanks()
-        _ = await (billsTask, banksTask)
-    }
-
-    @MainActor
-    private func loadBills() async {
-        billRequestID += 1
-        let current = billRequestID
-        do {
-            let result = try await PaymentApplicationsAPI().openBills(vendorId: vendorId)
-            guard current == billRequestID else { return }
-            bills = result
-            errorMessage = nil
-        } catch {
-            guard current == billRequestID else { return }
-            bills = []
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load open bills."
-        }
-    }
-
-    @MainActor
-    private func loadBanks() async {
-        bankRequestID += 1
-        let current = bankRequestID
-        do {
-            let result = try await PaymentApplicationsAPI().bankOptions(vendorId: vendorId, currency: currency)
-            guard current == bankRequestID else { return }
-            bankOptions = result
-            if !result.contains(where: { $0.id == bankAccountId }) {
-                bankAccountId = result.first(where: \.isDefault)?.id ?? result.first?.id ?? ""
-            }
-        } catch {
-            guard current == bankRequestID else { return }
-            bankOptions = []
-            bankAccountId = ""
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load bank accounts."
-        }
-    }
-
-    private func toggle(_ bill: PaymentApplicationOpenBill, selected: Bool) {
-        if selected {
-            selectedBillIDs.insert(bill.id)
-            if amounts[bill.id]?.nilIfBlank == nil {
-                amounts[bill.id] = String(format: "%.2f", bill.applicable)
-            }
-        } else {
-            selectedBillIDs.remove(bill.id)
-        }
+    private func reloadResources() {
+        errorMessage = nil
+        let request = resources.prepare(vendorId: vendorId, currency: currency)
+        Task { await resources.load(request) }
     }
 
     @MainActor
     private func save() async {
+        guard !saving, !loading, auth.has("paymentapps.manage") else { return }
         guard !vendorId.isEmpty else { errorMessage = "Select a payee."; return }
-        guard !bankAccountId.isEmpty else { errorMessage = "Add or select an active bank account."; return }
-        guard !selectedBillIDs.isEmpty else { errorMessage = "Select at least one bill."; return }
+        guard resources.ownsSelections(vendorId: vendorId, currency: currency) else {
+            errorMessage = "Wait for this payee's bills and bank accounts, then select an active account and at least one bill."
+            return
+        }
+        let session = AppSessionIdentity(auth)
 
         var lines: [PaymentApplicationLineInput] = []
-        for billID in selectedBillIDs.sorted() {
-            guard let amount = AppFormat.parseAmount(amounts[billID] ?? ""), amount > 0 else {
+        for billID in resources.selectedBillIDs.sorted() {
+            guard let amount = AppFormat.parseAmount(resources.amounts[billID] ?? ""), amount.isFinite, amount > 0 else {
                 errorMessage = "Every selected bill needs a positive amount."
                 return
             }
-            if let bill = bills.first(where: { $0.id == billID }), amount > bill.applicable + 0.005, !isEditing {
+            if let bill = resources.bills.first(where: { $0.id == billID }), amount > bill.applicable + 0.005, !isEditing {
                 errorMessage = "An amount exceeds the bill's applicable balance."
                 return
             }
             lines.append(PaymentApplicationLineInput(
                 containerCostId: billID,
                 amount: amount,
-                note: lineNotes[billID]?.nilIfBlank
+                note: resources.lineNotes[billID]?.nilIfBlank
             ))
         }
 
         saving = true
         errorMessage = nil
+        defer { saving = false }
         do {
             if let id {
                 _ = try await PaymentApplicationsAPI().update(
                     id: id,
                     body: PaymentApplicationUpdateInput(
-                        bankAccountId: bankAccountId,
+                        bankAccountId: resources.bankAccountId,
                         currency: currency,
                         purpose: purpose,
                         requestedAt: ShopClock.dayString(from: requestedAt),
@@ -721,7 +666,7 @@ struct PaymentApplicationEditorNativeView: View {
             } else {
                 _ = try await PaymentApplicationsAPI().create(PaymentApplicationCreateInput(
                     vendorId: vendorId,
-                    bankAccountId: bankAccountId,
+                    bankAccountId: resources.bankAccountId,
                     currency: currency,
                     purpose: purpose,
                     requestedAt: ShopClock.dayString(from: requestedAt),
@@ -730,12 +675,13 @@ struct PaymentApplicationEditorNativeView: View {
                     lines: lines
                 ))
             }
+            guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
             NotificationCenter.default.post(name: .paymentApplicationsChanged, object: nil)
             dismiss()
         } catch {
+            guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not save the application."
         }
-        saving = false
     }
 }
 
