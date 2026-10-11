@@ -1778,6 +1778,26 @@ struct MoneyAPI {
         return result
     }
 
+    /// A receipt read can fail after collection has committed. Keep that
+    /// successful result and leave credit unknown, so callers never retry a
+    /// payment merely because confirmation details could not be loaded.
+    func payReceivablesWithCreditConfirmation(
+        _ body: ReceivablesPayInput,
+        idempotencyKey: String? = nil
+    ) async throws -> ReceivablePaymentConfirmation {
+        let result = try await payReceivables(body, idempotencyKey: idempotencyKey)
+        let createdStoreCredit: Double?
+        if let receiptId = result.receiptId, let ref = result.ref,
+           let receipt = try? await receipt(id: receiptId),
+           receipt.id == receiptId, receipt.ref == ref,
+           receipt.customer?.id == body.customerId {
+            createdStoreCredit = receipt.createdStoreCredit
+        } else {
+            createdStoreCredit = nil
+        }
+        return ReceivablePaymentConfirmation(result: result, createdStoreCredit: createdStoreCredit)
+    }
+
     func downloadStatement(customerId: String) async throws -> URL {
         try await client.download("/receivables/\(customerId)/statement.pdf", fileName: "statement-\(customerId).pdf")
     }
@@ -1791,8 +1811,7 @@ struct MoneyAPI {
     }
 
     func payable(vendorKey: String) async throws -> PayableVendorDetail {
-        let encoded = vendorKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? vendorKey
-        return try await client.request("/payables/\(encoded)")
+        try await client.request("/payables", pathComponent: vendorKey)
     }
 
     func payPayables(

@@ -14,7 +14,8 @@ struct ManualReceiptInput: Encodable, Equatable {
     let customerId: String?
     let lines: [Line]
 
-    static func make(invoiceId: String, customerId: String?, rows: [PaymentRow], methods: [PaymentMethod]) throws -> Self {
+    static func make(invoiceId: String, customerId: String?, rows: [PaymentRow], methods: [PaymentMethod],
+                     balance: Double? = nil) throws -> Self {
         var lines: [Line] = []
         for row in rows {
             if row.amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
@@ -37,6 +38,11 @@ struct ManualReceiptInput: Encodable, Equatable {
         guard !lines.isEmpty else {
             throw APIError(status: 400, message: "payment.addOne")
         }
+        if let balance, ManualPaymentCreditCompatibility.hasUnsupportedCredit(
+            amounts: lines.map(\.amount), balance: balance
+        ) {
+            throw APIError(status: 400, message: "payment.oneCentOverpaymentUnsupported")
+        }
         return Self(customerId: customerId?.nilIfBlank, lines: lines)
     }
 
@@ -46,6 +52,21 @@ struct ManualReceiptInput: Encodable, Equatable {
               let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")),
               decimal >= 0, decimal <= Decimal(999_999_999_999) / 100 else { return nil }
         return NSDecimalNumber(decimal: decimal).doubleValue
+    }
+}
+
+enum ManualPaymentCreditCompatibility {
+    /// Receipts book split tenders sequentially. Even a supported total excess
+    /// can include a one-cent excess on an earlier or later individual tender.
+    static func hasUnsupportedCredit(amounts: [Double], balance: Double) -> Bool {
+        var remaining = max(0, (balance * 100).rounded() / 100)
+        for amount in amounts {
+            if FinanceMoney.isUnsupportedCredit(FinanceMoney.excess(amount: amount, balance: remaining)) {
+                return true
+            }
+            remaining = max(0, ((remaining - min(amount, remaining)) * 100).rounded() / 100)
+        }
+        return false
     }
 }
 
@@ -78,6 +99,7 @@ final class ManualReceiptStore: ObservableObject {
     @Published private(set) var needsReconciliation = false
     @Published private(set) var completed = false
     @Published private(set) var error: String?
+    private var pendingCardPaymentID: String?
     private let collect: (ManualReceiptInput) async throws -> ManualReceiptResult
 
     init(collect: @escaping (ManualReceiptInput) async throws -> ManualReceiptResult = {
@@ -92,6 +114,12 @@ final class ManualReceiptStore: ObservableObject {
         guard !completed else { return }
         needsReconciliation = true
         error = nil
+    }
+
+    func requireCardReconciliation(paymentIntentId: String) {
+        guard !completed else { return }
+        requireReconciliation()
+        pendingCardPaymentID = paymentIntentId
     }
 
     func record(_ input: ManualReceiptInput, refresh: () async throws -> Void) async {
@@ -116,13 +144,23 @@ final class ManualReceiptStore: ObservableObject {
         await reconcile(refresh: refresh)
     }
 
-    func reconcile(refresh: () async throws -> Void) async {
+    func reconcile(
+        invoicePayments: (() async throws -> [InvoicePayment])? = nil,
+        refresh: () async throws -> Void
+    ) async {
         guard needsReconciliation, !reconciling, !completed else { return }
         reconciling = true
         defer { reconciling = false }
         do {
+            if let pendingCardPaymentID {
+                guard let invoicePayments,
+                      try await invoicePayments().contains(where: { $0.externalId == pendingCardPaymentID }) else {
+                    throw APIError(status: 0, message: "The previous card payment is still being recorded. Refresh again before collecting the remaining balance.")
+                }
+            }
             try await refresh()
             completed = true
+            pendingCardPaymentID = nil
             error = nil
         } catch {
             self.error = error.localizedDescription

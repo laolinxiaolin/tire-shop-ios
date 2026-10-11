@@ -2050,6 +2050,7 @@ struct CustomerReceiptDetail: Codable, Identifiable, Equatable {
         let amount: Double
         let surchargeAmount: Double
         var plannedDepositDate: String? = nil
+        var overpaymentAmount: Double? = nil
     }
 
     let id: String
@@ -2062,6 +2063,18 @@ struct CustomerReceiptDetail: Codable, Identifiable, Equatable {
     let note: String?
     let reversedAt: String?
     let lines: [Line]
+
+    /// Only report credit confirmed by the posted receipt's payment rows.
+    /// Older servers can omit the field; missing data must remain unknown.
+    var createdStoreCredit: Double? {
+        guard status == "POSTED", !lines.isEmpty else { return nil }
+        var total = 0.0
+        for line in lines {
+            guard let amount = line.overpaymentAmount, amount.isFinite, amount >= 0 else { return nil }
+            total += amount
+        }
+        return (total * 100).rounded() / 100
+    }
 }
 
 struct SupplierPayment: Codable, Identifiable, Equatable {
@@ -2120,6 +2133,12 @@ struct SupplierPaymentDetail: Codable, Identifiable, Equatable {
 struct SettlementResult: Codable, Equatable {
     let ref: String?
     let approvalRequest: ApprovalRequestRef?
+    var receiptId: String? = nil
+}
+
+struct ReceivablePaymentConfirmation: Equatable {
+    let result: SettlementResult
+    let createdStoreCredit: Double?
 }
 
 struct VendorCounts: Codable, Equatable {

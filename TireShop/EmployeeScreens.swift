@@ -32,31 +32,13 @@ private enum EmployeeLabels {
 }
 
 private enum EmployeeDate {
-    static let inputFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
-    static let isoFormatter = ISO8601DateFormatter()
-
     static func input(_ value: String?) -> String {
         guard let value, !value.isEmpty else { return "" }
         return String(value.prefix(10))
     }
 
     static func serverValue(_ value: String, label: String) throws -> String? {
-        guard let trimmed = value.nilIfBlank else { return nil }
-        if trimmed.contains("T") {
-            return trimmed
-        }
-        guard let date = inputFormatter.date(from: trimmed) else {
-            throw APIError(status: 0, message: "\(label) must use YYYY-MM-DD.")
-        }
-        return isoFormatter.string(from: date)
+        try CalendarDateInput.serverValue(value, label: label)
     }
 }
 

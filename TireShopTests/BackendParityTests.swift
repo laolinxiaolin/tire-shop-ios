@@ -161,7 +161,7 @@ final class BackendParityTests: XCTestCase {
         ))
     }
 
-    func testReceivableQuickSplitCarriesExcessIntoReceiptSubmission() {
+    func testReceivableQuickSplitCarriesExcessIntoReceiptSubmission() throws {
         let visibleApplications = [
             ReceivableApplication(invoiceId: "invoice_1", amount: 4_032),
             ReceivableApplication(invoiceId: "invoice_2", amount: 5_040),
@@ -171,7 +171,7 @@ final class BackendParityTests: XCTestCase {
             received: 10_000,
             openBalance: 9_072
         )
-        let submittedApplications = ReceivableOverpaymentPolicy.applicationsForSubmission(
+        let submittedApplications = try ReceivableOverpaymentPolicy.applicationsForSubmission(
             visibleApplications,
             excess: excess
         )

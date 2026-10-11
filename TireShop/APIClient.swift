@@ -306,14 +306,15 @@ final class APIClient {
         }
     }
 
-    func login(email: String, password: String) async throws -> LoginResult {
+    func login(email: String, password: String, expectedServerURL: String? = nil) async throws -> LoginResult {
         let body = ["email": email, "password": password]
         let envelope: LoginResultEnvelope = try await request(
             "/auth/login",
             method: "POST",
             body: body,
             noAuthBounce: true,
-            includeAuth: false
+            includeAuth: false,
+            expectedServerURL: expectedServerURL
         )
 
         if envelope.mfaRequired == true {
@@ -343,13 +344,14 @@ final class APIClient {
         )
     }
 
-    func verifyMFA(challengeToken: String, code: String) async throws -> LoginSession {
+    func verifyMFA(challengeToken: String, code: String, expectedServerURL: String? = nil) async throws -> LoginSession {
         try await request(
             "/auth/mfa/verify",
             method: "POST",
             body: ["challengeToken": challengeToken, "code": code],
             noAuthBounce: true,
-            includeAuth: false
+            includeAuth: false,
+            expectedServerURL: expectedServerURL
         )
     }
 
@@ -494,6 +496,7 @@ final class APIClient {
 
     func request<T: Decodable>(
         _ path: String,
+        pathComponent: String? = nil,
         method: String = "GET",
         noAuthBounce: Bool = false,
         includeAuth: Bool = true,
@@ -502,6 +505,7 @@ final class APIClient {
     ) async throws -> T {
         try await performRequest(
             path,
+            pathComponent: pathComponent,
             method: method,
             bodyData: nil,
             noAuthBounce: noAuthBounce,
@@ -517,7 +521,8 @@ final class APIClient {
         body: Body,
         noAuthBounce: Bool = false,
         includeAuth: Bool = true,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        expectedServerURL: String? = nil
     ) async throws -> T {
         let bodyData = try encoder.encode(body)
         return try await performRequest(
@@ -526,20 +531,30 @@ final class APIClient {
             bodyData: bodyData,
             noAuthBounce: noAuthBounce,
             includeAuth: includeAuth,
-            idempotencyKey: idempotencyKey
+            idempotencyKey: idempotencyKey,
+            expectedServerURL: expectedServerURL
         )
     }
 
     private func performRequest<T: Decodable>(
         _ path: String,
+        pathComponent: String? = nil,
         method: String,
         bodyData: Data?,
         noAuthBounce: Bool,
         includeAuth: Bool,
         idempotencyKey: String?,
-        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
+        expectedServerURL: String? = nil
     ) async throws -> T {
-        var request = URLRequest(url: try Self.endpointURL(for: path), cachePolicy: cachePolicy)
+        let requestServer = Server.baseURL
+        guard expectedServerURL == nil || expectedServerURL == requestServer.absoluteString else {
+            throw CancellationError()
+        }
+        var request = URLRequest(
+            url: try Self.endpointURL(for: path, pathComponent: pathComponent, server: requestServer),
+            cachePolicy: cachePolicy
+        )
         request.setValue(UserDefaults.standard.string(forKey: "ts_lang") == "zh" ? "zh" : "en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -612,10 +627,19 @@ final class APIClient {
 
     /// Build the absolute URL for an API path, keeping any query string the
     /// caller already percent-encoded into `path`.
-    private static func endpointURL(for path: String) throws -> URL {
-        var components = URLComponents(url: Server.baseURL, resolvingAgainstBaseURL: false)
+    private static func endpointURL(for path: String, pathComponent: String? = nil, server: URL = Server.baseURL) throws -> URL {
+        var components = URLComponents(url: server, resolvingAgainstBaseURL: false)
         let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
         components?.path = "/api\(pieces.first.map(String.init) ?? path)"
+        if let pathComponent {
+            // Encode this value as one segment after the route has been escaped.
+            // Raw slashes, percent signs, and colons must never alter the route.
+            let unreserved = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+            guard let encoded = pathComponent.addingPercentEncoding(withAllowedCharacters: unreserved) else {
+                throw APIError(status: 0, message: "The request path component is invalid.")
+            }
+            components?.percentEncodedPath += "/\(encoded)"
+        }
         if pieces.count > 1 {
             components?.percentEncodedQuery = String(pieces[1])
         }

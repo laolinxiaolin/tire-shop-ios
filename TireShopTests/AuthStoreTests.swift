@@ -84,6 +84,123 @@ final class AuthStoreTests: XCTestCase {
         XCTAssertTrue(auth.has("payments.collect"))
     }
 
+    func testMFAChallengeForPreviousServerIsRejectedWithoutSendingCode() async throws {
+        let previousServer = UserDefaults.standard.object(forKey: "ts_server_url")
+        defer { UserDefaults.standard.set(previousServer, forKey: "ts_server_url") }
+        XCTAssertTrue(Server.setBaseURL("https://mfa-origin.invalid"))
+        let (api, stub) = sessionClient([.http(200, """
+        {"mfaRequired":true,"method":"TOTP","challengeToken":"origin-challenge"}
+        """)])
+        let storage = MemorySessionStorage()
+        let auth = AuthStore(api: api, storage: storage)
+        _ = try await auth.signIn(email: "mfa@example.com", password: "test-password")
+
+        // Another login window can change the global server while this form
+        // still displays the first server's challenge.
+        XCTAssertTrue(Server.setBaseURL("https://other-server.invalid"))
+        do {
+            _ = try await auth.completeMFA(challengeToken: "origin-challenge", code: "123456")
+            XCTFail("A challenge must remain bound to its issuing server")
+        } catch is CancellationError {
+        }
+
+        XCTAssertEqual(stub.requests.count, 1, "No verification request may send the code to the new server")
+        XCTAssertEqual(stub.requests.first?.url?.host, "mfa-origin.invalid")
+        XCTAssertNil(api.token)
+        XCTAssertNil(auth.user)
+        XCTAssertNil(storage.session)
+    }
+
+    func testIndependentLoginWindowsCanCompleteTheirOwnMFAChallenge() async throws {
+        let serverURL = Server.baseURL.absoluteString
+        let (api, stub) = sessionClient([
+            .http(200, """
+            {"mfaRequired":true,"method":"TOTP","challengeToken":"first-window-challenge"}
+            """),
+            .http(200, """
+            {"mfaRequired":true,"method":"TOTP","challengeToken":"second-window-challenge"}
+            """),
+            .http(200, LoginStubProtocol.sessionJSON)
+        ])
+        let storage = MemorySessionStorage()
+        let auth = AuthStore(api: api, storage: storage)
+
+        let first = try await auth.signIn(email: "first@example.com", password: "test-password")
+        let second = try await auth.signIn(email: "second@example.com", password: "test-password")
+        XCTAssertEqual(first, .mfa(method: "TOTP", challengeToken: "first-window-challenge"))
+        XCTAssertEqual(second, .mfa(method: "TOTP", challengeToken: "second-window-challenge"))
+
+        _ = try await auth.completeMFA(challengeToken: "first-window-challenge", code: "123456")
+        XCTAssertEqual(stub.requests.count, 3)
+        XCTAssertEqual(stub.requests.last?.url?.path, "/api/auth/mfa/verify")
+        XCTAssertEqual(stub.requests.last?.url?.host, URL(string: serverURL)?.host)
+        XCTAssertEqual(api.token, "test-session-token")
+        XCTAssertEqual(storage.session?.serverURL, serverURL)
+
+        // Completing one window installs the app-wide session and invalidates
+        // the other windows' pending challenges.
+        do {
+            _ = try await auth.completeMFA(challengeToken: "second-window-challenge", code: "123456")
+            XCTFail("A completed login must invalidate every other pending challenge")
+        } catch is CancellationError {
+        }
+        XCTAssertEqual(stub.requests.count, 3)
+    }
+
+    func testPasswordLoginOriginGuardRejectsBeforeSendingCredentials() async throws {
+        let previousServer = UserDefaults.standard.object(forKey: "ts_server_url")
+        defer { UserDefaults.standard.set(previousServer, forKey: "ts_server_url") }
+        XCTAssertTrue(Server.setBaseURL("https://password-login-origin.invalid"))
+        let expectedServerURL = Server.baseURL.absoluteString
+        XCTAssertTrue(Server.setBaseURL("https://password-login-other-origin.invalid"))
+        let (api, stub) = sessionClient([])
+
+        do {
+            _ = try await api.login(
+                email: "staff@example.com", password: "test-password",
+                expectedServerURL: expectedServerURL
+            )
+            XCTFail("An origin change before login request construction must be rejected")
+        } catch is CancellationError {
+        }
+        XCTAssertTrue(stub.requests.isEmpty, "No login request may send a password to the new server")
+    }
+
+    func testDelayedLoginTaskRetainsSubmittingWindowsServer() async throws {
+        let previousServer = UserDefaults.standard.object(forKey: "ts_server_url")
+        defer { UserDefaults.standard.set(previousServer, forKey: "ts_server_url") }
+        XCTAssertTrue(Server.setBaseURL("https://first-login-window.invalid"))
+        let submittedServer = Server.baseURL.absoluteString
+        let (api, stub) = sessionClient([])
+        let auth = AuthStore(api: api, storage: MemorySessionStorage())
+
+        // Another scene selects its server before the first scene's task enters
+        // AuthStore. The first form must not adopt that replacement origin.
+        XCTAssertTrue(Server.setBaseURL("https://second-login-window.invalid"))
+        do {
+            _ = try await auth.signIn(email: "first@example.com", password: "test-password",
+                                      expectedServerURL: submittedServer)
+            XCTFail("A delayed login must retain the submitting form's server")
+        } catch is CancellationError {
+        }
+        XCTAssertTrue(stub.requests.isEmpty)
+        XCTAssertNil(api.token)
+        XCTAssertNil(auth.user)
+    }
+
+    func testMFARequestOriginGuardRejectsBeforeSending() async throws {
+        let (api, stub) = sessionClient([])
+        do {
+            _ = try await api.verifyMFA(
+                challengeToken: "origin-challenge", code: "123456",
+                expectedServerURL: "https://different-origin.invalid"
+            )
+            XCTFail("An origin change before API request construction must be rejected")
+        } catch is CancellationError {
+        }
+        XCTAssertTrue(stub.requests.isEmpty)
+    }
+
     func testInvalidPasswordDoesNotCreateSession() async throws {
         let api = loginClient()
         let storage = MemorySessionStorage()
@@ -251,6 +368,7 @@ final class AuthStoreTests: XCTestCase {
 
             do {
                 if useMFA {
+                    _ = try await auth.signIn(email: "mfa@example.com", password: "test-password")
                     _ = try await auth.completeMFA(challengeToken: "test-challenge", code: "123456")
                 } else {
                     _ = try await auth.signIn(email: "password@example.com", password: "test-password")

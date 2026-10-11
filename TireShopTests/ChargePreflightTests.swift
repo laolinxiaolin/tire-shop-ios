@@ -79,6 +79,56 @@ final class ChargePreflightTests: XCTestCase {
         XCTAssertEqual(result.intent.clientSecret, "secret")
     }
 
+    func testKeyedCardPreparationRetainsLegacyIntentIdentityFromClientSecret() async throws {
+        let result = try await KeyedCardChargePreparation.prepare(
+            grossAmount: 100,
+            gatewayStatus: { GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test") },
+            createIntent: { _ in
+                CardPaymentIntent(paymentIntentId: nil, clientSecret: "pi_legacy_secret_fixture",
+                    balance: 100, surcharge: 0, amount: 100)
+            }
+        )
+        XCTAssertEqual(result.paymentIntentId, "pi_legacy")
+    }
+
+    func testKeyedCardPreparationRejectsUnidentifiableChargeBeforePresentation() async {
+        do {
+            _ = try await KeyedCardChargePreparation.prepare(
+                grossAmount: 100,
+                gatewayStatus: { GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test") },
+                createIntent: { _ in
+                    CardPaymentIntent(paymentIntentId: nil, clientSecret: "unknown",
+                        balance: 100, surcharge: 0, amount: 100)
+                }
+            )
+            XCTFail("Cannot reconcile a charge without its identity")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("identify"))
+        }
+    }
+
+    func testSessionReplacementDuringGatewayLookupCannotCreateACharge() async {
+        var currentSession = true
+        var intents = 0
+        do {
+            _ = try await KeyedCardChargePreparation.prepare(
+                grossAmount: 100,
+                gatewayStatus: {
+                    currentSession = false
+                    return GatewayStatus(enabled: true, provider: "stripe", publishableKey: "pk_test")
+                },
+                createIntent: { _ in
+                    intents += 1
+                    return CardPaymentIntent(paymentIntentId: "pi", clientSecret: "secret",
+                        balance: 100, surcharge: 0, amount: 100)
+                },
+                validateSession: { if !currentSession { throw CancellationError() } }
+            )
+            XCTFail("The previous login must not create intents with the replacement session")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(intents, 0)
+    }
+
     private func decode(_ json: String) throws -> ChargePreflight {
         try JSONDecoder().decode(ChargePreflight.self, from: XCTUnwrap(json.data(using: .utf8)))
     }

@@ -102,6 +102,12 @@ struct CustomerRelationsNativeView: View {
     }
 }
 
+private struct FollowUpRequest: Equatable {
+    let status: FollowUpStatus?
+    let assignedToId: String?
+    let overdue: Bool?
+}
+
 private struct CrmFollowUpsView: View {
     @EnvironmentObject private var auth: AuthStore
 
@@ -109,10 +115,14 @@ private struct CrmFollowUpsView: View {
 
     @State private var filter: FollowUpFilter = .open
     @State private var mine = false
-    @State private var items: [CustomerFollowUp] = []
-    @State private var loading = false
+    @StateObject private var followUpPages = PagedListStore<CustomerFollowUp, FollowUpRequest> { request, page, size in
+        try await CrmAPI().followUps(status: request.status, assignedToId: request.assignedToId,
+                                    overdue: request.overdue, page: page, pageSize: size)
+    }
     @State private var errorMessage: String?
-    @State private var loadRequestID = UUID()
+
+    private var items: [CustomerFollowUp] { followUpPages.items }
+    private var loading: Bool { followUpPages.loading }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,7 +131,7 @@ private struct CrmFollowUpsView: View {
             Group {
                 if loading && items.isEmpty {
                     LoadingView(label: "Loading...")
-                } else if let errorMessage, items.isEmpty {
+                } else if let errorMessage = followUpPages.errorMessage ?? errorMessage, items.isEmpty {
                     RetryView(message: errorMessage) { Task { await load() } }
                 } else if items.isEmpty {
                     EmptyStateView(text: "No follow-ups found.")
@@ -133,6 +143,10 @@ private struct CrmFollowUpsView: View {
                                     Task { await setStatus(followUp.id, status: status) }
                                 }
                             }
+                            if let errorMessage {
+                                Text(errorMessage).font(.caption).foregroundStyle(Theme.danger)
+                            }
+                            PagedListFooter(store: followUpPages)
                         }
                         .padding(Theme.Space.lg)
                     }
@@ -188,31 +202,12 @@ private struct CrmFollowUpsView: View {
 
     @MainActor
     private func load() async {
-        let requestID = UUID()
-        loadRequestID = requestID
-        let requestedFilter = filter
-        let requestedAssigneeID = mine ? auth.user?.id : nil
-        loading = true
         errorMessage = nil
-        defer {
-            if loadRequestID == requestID {
-                loading = false
-            }
-        }
-        do {
-            let status: FollowUpStatus? = requestedFilter == .done ? "DONE" : (requestedFilter == .open ? "OPEN" : nil)
-            let page = try await CrmAPI().followUps(
-                status: status,
-                assignedToId: requestedAssigneeID,
-                overdue: requestedFilter == .overdue ? true : nil,
-                pageSize: 50
-            )
-            guard loadRequestID == requestID else { return }
-            items = page.items
-        } catch {
-            guard loadRequestID == requestID, !Task.isCancelled else { return }
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load follow-ups."
-        }
+        await followUpPages.reload(scope: FollowUpRequest(
+            status: filter == .done ? "DONE" : (filter == .open ? "OPEN" : nil),
+            assignedToId: mine ? auth.user?.id : nil,
+            overdue: filter == .overdue ? true : nil
+        ))
     }
 
     @MainActor

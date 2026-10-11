@@ -1506,15 +1506,7 @@ struct CustomerDetailNativeView: View {
     }
 
     private func taxExpiresIso() throws -> String? {
-        guard let raw = taxExpires.nilIfBlank else { return nil }
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard formatter.date(from: raw) != nil else {
-            throw APIError(status: 0, message: "Expiration must use YYYY-MM-DD.")
-        }
-        return "\(raw)T00:00:00.000Z"
+        try CalendarDateInput.serverValue(taxExpires, label: "Expiration")
     }
 
     private func priceTierOptions(for customer: Customer) -> [PriceTier] {

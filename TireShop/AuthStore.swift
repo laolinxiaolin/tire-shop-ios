@@ -32,6 +32,7 @@ final class AuthStore: ObservableObject {
     @Published private(set) var sessionRevision = UUID()
     private var installedToken: String?
     private var restoring = false
+    private var pendingMFA: [String: (serverURL: String, revision: UUID)] = [:]
 
     @Published var ready = false
     @Published private(set) var restoreError: String?
@@ -114,15 +115,19 @@ final class AuthStore: ObservableObject {
         }
     }
 
-    func signIn(email: String, password: String) async throws -> SignInResult {
+    func signIn(email: String, password: String, expectedServerURL: String? = nil) async throws -> SignInResult {
         let revision = sessionRevision
-        let serverURL = Server.baseURL.absoluteString
-        let result = try await api.login(email: email, password: password)
+        let serverURL = expectedServerURL ?? Server.baseURL.absoluteString
+        guard serverURL == Server.baseURL.absoluteString else { throw CancellationError() }
+        let result = try await api.login(email: email, password: password, expectedServerURL: serverURL)
         guard sessionRevision == revision, Server.baseURL.absoluteString == serverURL else {
             throw CancellationError()
         }
         switch result {
         case .mfa(let challenge):
+            // Login forms in separate scenes can each hold a valid challenge.
+            // Bind every token to its own origin until one installs a session.
+            pendingMFA[challenge.challengeToken] = (serverURL, revision)
             return .mfa(method: challenge.method, challengeToken: challenge.challengeToken)
         case .session(let session):
             try persist(token: session.accessToken, user: session.user, serverURL: serverURL)
@@ -131,9 +136,14 @@ final class AuthStore: ObservableObject {
     }
 
     func completeMFA(challengeToken: String, code: String) async throws -> LoginSession {
+        guard let challenge = pendingMFA[challengeToken],
+              challenge.revision == sessionRevision,
+              challenge.serverURL == Server.baseURL.absoluteString else {
+            throw CancellationError()
+        }
         let revision = sessionRevision
-        let serverURL = Server.baseURL.absoluteString
-        let session = try await api.verifyMFA(challengeToken: challengeToken, code: code)
+        let serverURL = challenge.serverURL
+        let session = try await api.verifyMFA(challengeToken: challengeToken, code: code, expectedServerURL: serverURL)
         guard sessionRevision == revision, Server.baseURL.absoluteString == serverURL else {
             throw CancellationError()
         }
@@ -143,6 +153,7 @@ final class AuthStore: ObservableObject {
 
     func signOut() {
         sessionRevision = UUID()
+        pendingMFA.removeAll()
         api.token = nil
         installedToken = nil
         user = nil
@@ -179,6 +190,7 @@ final class AuthStore: ObservableObject {
     private func persist(token: String, user: SessionUser, serverURL: String) throws {
         try storage.save(SavedSession(token: token, serverURL: serverURL))
         sessionRevision = UUID()
+        pendingMFA.removeAll()
         installedToken = token
         api.token = token
         self.user = user

@@ -39,11 +39,33 @@ final class ManualReceiptTests: XCTestCase {
         XCTAssertEqual(ManualReceiptInput.money("9999999999.99"), 9999999999.99)
     }
 
-    func testOneCentExcessIsPreservedAsCustomerCredit() {
+    func testOneCentExcessIsDetectedWithoutDroppingTheTender() {
         XCTAssertTrue(ManualPaymentOverpaymentPolicy.isOverpayment(totalApplied: 100.01, balance: 100))
         XCTAssertEqual(ManualPaymentOverpaymentPolicy.amount(totalApplied: 100.01, balance: 100), 0.01)
         XCTAssertEqual(ManualPaymentOverpaymentPolicy.appliedToInvoice(totalApplied: 100.01, balance: 100), 100)
         XCTAssertFalse(ManualPaymentOverpaymentPolicy.isOverpayment(totalApplied: 100, balance: 100))
+        let row = PaymentRow(paymentMethodId: "cash", amount: "100.01", reference: "")
+        XCTAssertThrowsError(try ManualReceiptInput.make(invoiceId: "invoice", customerId: "customer",
+            rows: [row], methods: methods(), balance: 100))
+        XCTAssertEqual(row.amount, "100.01")
+    }
+
+    func testSplitReceiptRejectsOneCentExcessOnAnySequentialTender() {
+        for amounts in [["100.01", "0.01"], ["100.00", "0.01"], ["99.99", "0.02"], ["100.02", "0.01"]] {
+            let rows = amounts.map { PaymentRow(paymentMethodId: "cash", amount: $0, reference: "") }
+            XCTAssertThrowsError(try ManualReceiptInput.make(invoiceId: "invoice", customerId: "customer",
+                rows: rows, methods: methods(), balance: 100), amounts.joined(separator: ", "))
+            XCTAssertEqual(rows.map(\.amount), amounts)
+        }
+    }
+
+    func testExactAndSupportedSplitReceiptTotalsRemainUnchanged() throws {
+        for amounts in [["100.00"], ["60", "40.02"], ["100.00", "0.02"], ["100.02", "0.02"]] {
+            let rows = amounts.map { PaymentRow(paymentMethodId: "cash", amount: $0, reference: "") }
+            let input = try ManualReceiptInput.make(invoiceId: "invoice", customerId: "customer",
+                rows: rows, methods: methods(), balance: 100)
+            XCTAssertEqual(input.lines.map(\.amount), amounts.compactMap(ManualReceiptInput.money))
+        }
     }
 
     func testFeesRoundHalfCentsLikeTheServerAndRemainPerTender() {
@@ -137,6 +159,47 @@ final class ManualReceiptTests: XCTestCase {
         release?.resume(returning: result())
         await first.value
         XCTAssertTrue(store.completed)
+    }
+
+    func testCardCompletionWaitsForMatchingPaymentAndFreshBalance() async {
+        var collections = 0
+        var refreshes = 0
+        let store = ManualReceiptStore { _ in
+            collections += 1
+            return self.result()
+        }
+        store.requireCardReconciliation(paymentIntentId: "pi_new")
+        let payment = InvoicePayment(id: "payment", externalId: "pi_new", amount: "40.00",
+            status: "POSTED", createdAt: nil, reference: nil, note: nil, processor: "stripe", paymentMethod: nil)
+        let olderPayment = InvoicePayment(id: "older", externalId: "pi_old", amount: "20.00",
+            status: "POSTED", createdAt: nil, reference: nil, note: nil, processor: "stripe", paymentMethod: nil)
+
+        await store.reconcile(invoicePayments: { [olderPayment] }) { refreshes += 1 }
+        XCTAssertFalse(store.completed)
+        XCTAssertTrue(store.needsReconciliation)
+        XCTAssertEqual(refreshes, 0, "A stale successful history response must not reopen collection")
+        await store.record(input()) {}
+        XCTAssertEqual(collections, 0)
+
+        await store.reconcile(invoicePayments: { throw URLError(.notConnectedToInternet) }) {}
+        XCTAssertFalse(store.completed)
+        await store.reconcile(invoicePayments: { [payment] }) {
+            throw APIError(status: 503, message: "Balance unavailable")
+        }
+        XCTAssertFalse(store.completed)
+        await store.reconcile(invoicePayments: { [payment] }) { refreshes += 1 }
+        XCTAssertTrue(store.completed)
+        XCTAssertNil(store.error)
+        XCTAssertEqual(refreshes, 1)
+    }
+
+    func testCardCompletionCannotBeReconciledWithoutCheckingHistory() async {
+        let store = ManualReceiptStore { _ in self.result() }
+        store.requireCardReconciliation(paymentIntentId: "pi_new")
+        var refreshed = false
+        await store.reconcile { refreshed = true }
+        XCTAssertFalse(refreshed)
+        XCTAssertFalse(store.completed)
     }
 
     private func input() -> ManualReceiptInput {
