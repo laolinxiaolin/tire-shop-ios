@@ -92,7 +92,7 @@ final class PaymentApplicationStoreTests: XCTestCase {
         store.toggle(bill("b"), selected: true)
         XCTAssertTrue(store.ownsSelections(vendorId: "b", currency: "USD"))
         XCTAssertFalse(store.ownsSelections(vendorId: "a", currency: "USD"))
-        store.bankAccountId = "bank-a-USD"
+        store.selectBankAccount("bank-a-USD")
         XCTAssertFalse(store.ownsSelections(vendorId: "b", currency: "USD"))
     }
 
@@ -212,6 +212,139 @@ final class PaymentApplicationStoreTests: XCTestCase {
         XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: "USD"))
     }
 
+    func testCurrencyWhitespaceLoadsCanonicalBankOptions() async {
+        var requestedCurrencies: [String] = []
+        let store = PaymentApplicationResourcesStore(
+            billsLoader: { [self] vendor in [bill(vendor)] },
+            banksLoader: { [self] vendor, currency in
+                requestedCurrencies.append(currency)
+                return [bank(vendor, currency: "USD")]
+            })
+        let request = store.prepare(vendorId: "a", currency: " \n usd \t")
+        XCTAssertEqual(request.banks?.currency, "USD")
+        await store.load(request)
+        store.toggle(bill("a"), selected: true)
+
+        XCTAssertEqual(requestedCurrencies, ["USD"])
+        XCTAssertEqual(store.bankOptions.map(\.id), ["bank-a-USD"])
+        XCTAssertEqual(store.bankAccountId, "bank-a-USD")
+        XCTAssertTrue(store.canSelectBank(vendorId: "a", currency: " usd "))
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: " \tUSD\n"))
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testSeededCurrencyWhitespacePreservesBankAndEquivalentContext() async {
+        var billLoads = 0
+        var bankLoads = 0
+        let preferred = bank("preferred", isDefault: false)
+        let defaultBank = bank("default")
+        let store = PaymentApplicationResourcesStore(
+            billsLoader: { [self] vendor in
+                billLoads += 1
+                return [bill(vendor)]
+            }, banksLoader: { _, _ in
+                bankLoads += 1
+                return [defaultBank, preferred]
+            })
+        store.seed(vendorId: "a", currency: " \n usd \t", bills: [bill("a")],
+            bankOptions: [defaultBank, preferred], preferredBankId: preferred.id,
+            selectedBillIDs: ["bill-a"], amounts: ["bill-a": "100.00"], lineNotes: [:])
+
+        XCTAssertEqual(store.bankAccountId, preferred.id)
+        XCTAssertNil(store.bankSelectionError)
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: "USD"))
+        let request = store.prepare(vendorId: "a", currency: " \tUsD\n ")
+        XCTAssertNil(request.bills)
+        XCTAssertNil(request.banks)
+        await store.load(request)
+
+        XCTAssertEqual(billLoads, 0)
+        XCTAssertEqual(bankLoads, 0)
+        XCTAssertEqual(store.bankAccountId, preferred.id)
+        XCTAssertEqual(store.selectedBillIDs, ["bill-a"])
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: " usd "))
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testUnavailableSavedBankRequiresExplicitSelectionAcrossReloads() async {
+        let replacement = bank("replacement")
+        let store = PaymentApplicationResourcesStore(
+            billsLoader: { [self] vendor in [bill(vendor)] },
+            banksLoader: { _, _ in [replacement] })
+        store.seed(vendorId: "a", currency: "USD", bills: [bill("a")], bankOptions: [replacement],
+            preferredBankId: "deactivated-account", selectedBillIDs: ["bill-a"],
+            amounts: ["bill-a": "100.00"], lineNotes: [:])
+
+        XCTAssertTrue(store.bankAccountId.isEmpty)
+        XCTAssertNotNil(store.bankSelectionError)
+        XCTAssertTrue(store.errorMessage?.contains("previously selected") == true)
+        XCTAssertFalse(store.ownsSelections(vendorId: "a", currency: "USD"))
+        store.selectBankAccount("")
+        XCTAssertNotNil(store.bankSelectionError)
+        store.selectBankAccount("unknown-account")
+        XCTAssertNotNil(store.bankSelectionError)
+        XCTAssertFalse(store.ownsSelections(vendorId: "a", currency: "USD"))
+
+        store.invalidate()
+        await store.load(store.prepare(vendorId: "a", currency: "USD"))
+        XCTAssertTrue(store.bankAccountId.isEmpty)
+        XCTAssertNotNil(store.bankSelectionError)
+        XCTAssertFalse(store.ownsSelections(vendorId: "a", currency: "USD"))
+
+        store.selectBankAccount(replacement.id)
+        XCTAssertNil(store.bankSelectionError)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: "USD"))
+    }
+
+    func testSameContextReloadPreservesSelectedActiveBank() async {
+        let preferred = bank("preferred", isDefault: false)
+        let defaultBank = bank("default")
+        let store = PaymentApplicationResourcesStore(
+            billsLoader: { [self] vendor in [bill(vendor)] },
+            banksLoader: { _, _ in [defaultBank, preferred] })
+        store.seed(vendorId: "a", currency: "USD", bills: [bill("a")], bankOptions: [defaultBank, preferred],
+            preferredBankId: preferred.id, selectedBillIDs: ["bill-a"],
+            amounts: ["bill-a": "100.00"], lineNotes: [:])
+        store.invalidate()
+        await store.load(store.prepare(vendorId: "a", currency: "USD"))
+
+        XCTAssertEqual(store.bankAccountId, preferred.id)
+        XCTAssertNil(store.bankSelectionError)
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: "USD"))
+    }
+
+    func testSelectedBankDisappearingOnReloadRequiresExplicitSelection() async {
+        let preferred = bank("preferred")
+        let replacement = bank("replacement")
+        let store = PaymentApplicationResourcesStore(
+            billsLoader: { [self] vendor in [bill(vendor)] },
+            banksLoader: { _, _ in [replacement] })
+        store.seed(vendorId: "a", currency: "USD", bills: [bill("a")], bankOptions: [preferred, replacement],
+            preferredBankId: preferred.id, selectedBillIDs: ["bill-a"],
+            amounts: ["bill-a": "100.00"], lineNotes: [:])
+        store.invalidate()
+        await store.load(store.prepare(vendorId: "a", currency: "USD"))
+
+        XCTAssertTrue(store.bankAccountId.isEmpty)
+        XCTAssertNotNil(store.bankSelectionError)
+        XCTAssertFalse(store.ownsSelections(vendorId: "a", currency: "USD"))
+        store.selectBankAccount(replacement.id)
+        XCTAssertNil(store.bankSelectionError)
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: "USD"))
+    }
+
+    func testLegacyDraftWithoutSavedBankCanUseTheDefault() {
+        let defaultBank = bank("a")
+        let store = PaymentApplicationResourcesStore()
+        store.seed(vendorId: "a", currency: "USD", bills: [bill("a")], bankOptions: [defaultBank],
+            preferredBankId: nil, selectedBillIDs: ["bill-a"], amounts: ["bill-a": "100.00"], lineNotes: [:])
+
+        XCTAssertEqual(store.bankAccountId, defaultBank.id)
+        XCTAssertNil(store.bankSelectionError)
+        XCTAssertTrue(store.ownsSelections(vendorId: "a", currency: "USD"))
+    }
+
     private func seed(_ store: PaymentApplicationResourcesStore, vendor: String) {
         store.seed(vendorId: vendor, currency: "USD", bills: [bill(vendor)], bankOptions: [bank(vendor)],
             preferredBankId: "bank-\(vendor)-USD", selectedBillIDs: ["bill-\(vendor)"],
@@ -230,8 +363,8 @@ final class PaymentApplicationStoreTests: XCTestCase {
             occurredAt: "2026-10-11", dueAt: nil, createdAt: "2026-10-11")
     }
 
-    private func bank(_ vendor: String, currency: String = "USD") -> PaymentApplicationBankOption {
+    private func bank(_ vendor: String, currency: String = "USD", isDefault: Bool = true) -> PaymentApplicationBankOption {
         .init(id: "bank-\(vendor)-\(currency)", label: nil, beneficiaryName: vendor, bankName: "Bank",
-            accountLast4: "1234", accountMasked: "****1234", currency: currency, isDefault: true)
+            accountLast4: "1234", accountMasked: "****1234", currency: currency, isDefault: isDefault)
     }
 }

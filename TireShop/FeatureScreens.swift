@@ -770,7 +770,7 @@ struct InventoryListNativeView: View {
         .task {
             if warehouses.isEmpty { await loadWarehouses() }
             if brands.isEmpty { await loadBrands() }
-            if !hasLoaded { await reload() }
+            if !hasLoaded || loadedInventoryRequest != currentRequest { await reload() }
         }
         .task(id: priceRequest) { await priceHistory.load(priceRequest) }
         .task {
@@ -1613,20 +1613,20 @@ struct InventoryListNativeView: View {
         }
         loadedInventoryRequest = request
         loadingMore = false
-        await loadPage(1, reset: true)
+        await loadPage(1, reset: true, request: request)
     }
 
     @MainActor
     private func loadMoreIfNeeded() async {
-        guard hasMorePages, !loading, !loadingMore, errorMessage == nil else { return }
-        await loadPage(loadedPage + 1, reset: false)
+        guard hasMorePages, !loading, !loadingMore, errorMessage == nil,
+              let request = loadedInventoryRequest, request == currentRequest else { return }
+        await loadPage(loadedPage + 1, reset: false, request: request)
     }
 
     @MainActor
-    private func loadPage(_ page: Int, reset: Bool) async {
+    private func loadPage(_ page: Int, reset: Bool, request: InventoryListRequest) async {
         let requestID = UUID()
         loadRequestID = requestID
-        let request = currentRequest
         if reset {
             loading = true
             errorMessage = nil
@@ -1647,7 +1647,7 @@ struct InventoryListNativeView: View {
 
         do {
             let pageData = try await requestInventoryPage(page, request: request)
-            guard loadRequestID == requestID, !Task.isCancelled else { return }
+            guard loadRequestID == requestID, request == currentRequest, !Task.isCancelled else { return }
 
             total = pageData.total
             inventoryTotals = reset ? pageData.totals : (pageData.totals ?? inventoryTotals)
@@ -1664,7 +1664,7 @@ struct InventoryListNativeView: View {
             }
             selectedSkuIDs = PagedSelection.reconciled(selectedSkuIDs, loadedIDs: Set(items.map(\.id)), complete: !moreInventoryAvailable)
         } catch {
-            guard loadRequestID == requestID, !isCancellation(error) else { return }
+            guard loadRequestID == requestID, request == currentRequest, !isCancellation(error) else { return }
 
             let message = (error as? LocalizedError)?.errorDescription ?? "Could not load inventory."
             if reset {

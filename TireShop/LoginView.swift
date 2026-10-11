@@ -177,6 +177,9 @@ struct LoginView: View {
             return
         }
         serverURL = Server.baseURLString
+        // Capture this window's origin before scheduling the login task; a
+        // different window can change the shared server before that task runs.
+        let loginServerURL = Server.baseURL.absoluteString
 
         focusedField = nil
         KeyboardSession.dismiss(in: presentationContext.window)
@@ -186,7 +189,7 @@ struct LoginView: View {
             defer { busy = false }
 
             do {
-                let result = try await auth.signIn(email: trimmedEmail, password: password)
+                let result = try await auth.signIn(email: trimmedEmail, password: password, expectedServerURL: loginServerURL)
                 if case .mfa(let method, let challengeToken) = result {
                     challenge = Challenge(method: method, token: challengeToken)
                     code = ""

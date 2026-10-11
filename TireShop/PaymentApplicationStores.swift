@@ -89,7 +89,7 @@ final class PaymentApplicationResourcesStore: ObservableObject {
 
     @Published private(set) var bills: [PaymentApplicationOpenBill] = []
     @Published private(set) var bankOptions: [PaymentApplicationBankOption] = []
-    @Published var bankAccountId = ""
+    @Published private(set) var bankAccountId = ""
     @Published private(set) var selectedBillIDs = Set<String>()
     @Published var amounts: [String: String] = [:]
     @Published var lineNotes: [String: String] = [:]
@@ -97,6 +97,7 @@ final class PaymentApplicationResourcesStore: ObservableObject {
     @Published private(set) var banksLoading = false
     @Published private(set) var billsError: String?
     @Published private(set) var banksError: String?
+    @Published private(set) var bankSelectionError: String?
 
     private var vendorId = ""
     private var currency = ""
@@ -107,7 +108,7 @@ final class PaymentApplicationResourcesStore: ObservableObject {
     private let billsLoader: BillsLoader
     private let banksLoader: BanksLoader
 
-    var errorMessage: String? { billsError ?? banksError }
+    var errorMessage: String? { billsError ?? banksError ?? bankSelectionError }
 
     init(billsLoader: @escaping BillsLoader = { try await PaymentApplicationsAPI().openBills(vendorId: $0) },
          banksLoader: @escaping BanksLoader = { try await PaymentApplicationsAPI().bankOptions(vendorId: $0, currency: $1) }) {
@@ -116,7 +117,7 @@ final class PaymentApplicationResourcesStore: ObservableObject {
     }
 
     func prepare(vendorId: String, currency: String) -> Request {
-        let currency = currency.uppercased()
+        let currency = Self.normalizedCurrency(currency)
         let vendorChanged = self.vendorId != vendorId
         let bankContextChanged = vendorChanged || self.currency != currency
         self.vendorId = vendorId
@@ -139,6 +140,7 @@ final class PaymentApplicationResourcesStore: ObservableObject {
             banksLoaded = false
             banksLoading = false
             banksError = nil
+            bankSelectionError = nil
         }
         guard !vendorId.isEmpty else { return Request(bills: nil, banks: nil) }
 
@@ -170,9 +172,9 @@ final class PaymentApplicationResourcesStore: ObservableObject {
               selectedBillIDs: Set<String>, amounts: [String: String], lineNotes: [String: String]) {
         invalidate()
         self.vendorId = vendorId
-        self.currency = currency.uppercased()
+        self.currency = Self.normalizedCurrency(currency)
         self.bills = bills.filter { belongsToVendor($0, vendorId: vendorId) }
-        self.bankOptions = bankOptions.filter { $0.currency.uppercased() == self.currency }
+        self.bankOptions = bankOptions.filter { Self.normalizedCurrency($0.currency) == self.currency }
         billsLoaded = true
         banksLoaded = true
         billsError = nil
@@ -180,8 +182,16 @@ final class PaymentApplicationResourcesStore: ObservableObject {
         self.selectedBillIDs = selectedBillIDs.intersection(Set(self.bills.map(\.id)))
         self.amounts = amounts
         self.lineNotes = lineNotes
-        bankAccountId = self.bankOptions.first(where: { $0.id == preferredBankId })?.id
-            ?? self.bankOptions.first(where: \.isDefault)?.id ?? self.bankOptions.first?.id ?? ""
+        bankSelectionError = nil
+        if let preferredBankId {
+            if self.bankOptions.contains(where: { $0.id == preferredBankId }) {
+                bankAccountId = preferredBankId
+            } else {
+                requireBankSelection()
+            }
+        } else {
+            bankAccountId = self.bankOptions.first(where: \.isDefault)?.id ?? self.bankOptions.first?.id ?? ""
+        }
     }
 
     func canSelectBills(vendorId: String) -> Bool {
@@ -189,17 +199,28 @@ final class PaymentApplicationResourcesStore: ObservableObject {
     }
 
     func canSelectBank(vendorId: String, currency: String) -> Bool {
-        !vendorId.isEmpty && self.vendorId == vendorId && self.currency == currency.uppercased()
+        !vendorId.isEmpty && self.vendorId == vendorId && self.currency == Self.normalizedCurrency(currency)
             && banksLoaded && !banksLoading
     }
 
     func ownsSelections(vendorId: String, currency: String) -> Bool {
         canSelectBills(vendorId: vendorId) && canSelectBank(vendorId: vendorId, currency: currency)
+            && bankSelectionError == nil
             && bankOptions.contains(where: { $0.id == bankAccountId })
             && !selectedBillIDs.isEmpty
             && selectedBillIDs.allSatisfy { id in
                 bills.contains { $0.id == id && belongsToVendor($0, vendorId: vendorId) }
             }
+    }
+
+    func selectBankAccount(_ id: String) {
+        guard canSelectBank(vendorId: vendorId, currency: currency) else { return }
+        if bankOptions.contains(where: { $0.id == id }) {
+            bankAccountId = id
+            bankSelectionError = nil
+        } else {
+            bankAccountId = ""
+        }
     }
 
     func toggle(_ bill: PaymentApplicationOpenBill, selected: Bool) {
@@ -228,6 +249,15 @@ final class PaymentApplicationResourcesStore: ObservableObject {
         bill.vendorId == nil || bill.vendorId == vendorId
     }
 
+    private static func normalizedCurrency(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private func requireBankSelection() {
+        bankAccountId = ""
+        bankSelectionError = "The previously selected bank account is unavailable. Choose an active account before saving."
+    }
+
     private func loadBills(_ request: BillsRequest?) async {
         guard let request, request == billsRequest else { return }
         defer {
@@ -254,8 +284,14 @@ final class PaymentApplicationResourcesStore: ObservableObject {
             let result = try await banksLoader(request.vendorId, request.currency)
             try Task.checkCancellation()
             guard request == banksRequest else { return }
-            bankOptions = result.filter { $0.currency.uppercased() == request.currency }
-            bankAccountId = bankOptions.first(where: \.isDefault)?.id ?? bankOptions.first?.id ?? ""
+            bankOptions = result.filter { Self.normalizedCurrency($0.currency) == request.currency }
+            if !bankOptions.contains(where: { $0.id == bankAccountId }) {
+                if !bankAccountId.isEmpty {
+                    requireBankSelection()
+                } else if bankSelectionError == nil {
+                    bankAccountId = bankOptions.first(where: \.isDefault)?.id ?? bankOptions.first?.id ?? ""
+                }
+            }
             banksLoaded = true
         } catch {
             guard request == banksRequest, !Task.isCancelled else { return }

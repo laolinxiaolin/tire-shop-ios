@@ -450,7 +450,7 @@ struct PaymentApplicationEditorNativeView: View {
                         TextField("Currency", text: Binding(
                             get: { currency },
                             set: { value in
-                                let normalized = String(value.uppercased().prefix(8))
+                                let normalized = String(value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().prefix(8))
                                 guard normalized != currency else { return }
                                 currency = normalized
                                 reloadResources()
@@ -464,7 +464,10 @@ struct PaymentApplicationEditorNativeView: View {
                             DatePicker("Planned payment", selection: $plannedPayAt, displayedComponents: .date)
                         }
 
-                        Picker("Pay to", selection: $resources.bankAccountId) {
+                        Picker("Pay to", selection: Binding(
+                            get: { resources.bankAccountId },
+                            set: { resources.selectBankAccount($0) }
+                        )) {
                             Text(resources.banksLoading ? "Loading accounts..." : resources.bankOptions.isEmpty ? "No active account" : "Select account").tag("")
                             ForEach(resources.bankOptions) { account in
                                 Text("\(account.label?.nilIfBlank ?? account.bankName) · \(account.accountMasked)")
@@ -517,7 +520,7 @@ struct PaymentApplicationEditorNativeView: View {
                             Text(message)
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.danger)
-                            if resources.errorMessage != nil {
+                            if resources.billsError != nil || resources.banksError != nil {
                                 Button("Retry bills and bank accounts") { reloadResources() }
                             } else if !resources.canSelectBills(vendorId: vendorId) {
                                 Button("Retry") { Task { await initialLoad() } }

@@ -306,14 +306,15 @@ final class APIClient {
         }
     }
 
-    func login(email: String, password: String) async throws -> LoginResult {
+    func login(email: String, password: String, expectedServerURL: String? = nil) async throws -> LoginResult {
         let body = ["email": email, "password": password]
         let envelope: LoginResultEnvelope = try await request(
             "/auth/login",
             method: "POST",
             body: body,
             noAuthBounce: true,
-            includeAuth: false
+            includeAuth: false,
+            expectedServerURL: expectedServerURL
         )
 
         if envelope.mfaRequired == true {

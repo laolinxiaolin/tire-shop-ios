@@ -111,6 +111,83 @@ final class AuthStoreTests: XCTestCase {
         XCTAssertNil(storage.session)
     }
 
+    func testIndependentLoginWindowsCanCompleteTheirOwnMFAChallenge() async throws {
+        let serverURL = Server.baseURL.absoluteString
+        let (api, stub) = sessionClient([
+            .http(200, """
+            {"mfaRequired":true,"method":"TOTP","challengeToken":"first-window-challenge"}
+            """),
+            .http(200, """
+            {"mfaRequired":true,"method":"TOTP","challengeToken":"second-window-challenge"}
+            """),
+            .http(200, LoginStubProtocol.sessionJSON)
+        ])
+        let storage = MemorySessionStorage()
+        let auth = AuthStore(api: api, storage: storage)
+
+        let first = try await auth.signIn(email: "first@example.com", password: "test-password")
+        let second = try await auth.signIn(email: "second@example.com", password: "test-password")
+        XCTAssertEqual(first, .mfa(method: "TOTP", challengeToken: "first-window-challenge"))
+        XCTAssertEqual(second, .mfa(method: "TOTP", challengeToken: "second-window-challenge"))
+
+        _ = try await auth.completeMFA(challengeToken: "first-window-challenge", code: "123456")
+        XCTAssertEqual(stub.requests.count, 3)
+        XCTAssertEqual(stub.requests.last?.url?.path, "/api/auth/mfa/verify")
+        XCTAssertEqual(stub.requests.last?.url?.host, URL(string: serverURL)?.host)
+        XCTAssertEqual(api.token, "test-session-token")
+        XCTAssertEqual(storage.session?.serverURL, serverURL)
+
+        // Completing one window installs the app-wide session and invalidates
+        // the other windows' pending challenges.
+        do {
+            _ = try await auth.completeMFA(challengeToken: "second-window-challenge", code: "123456")
+            XCTFail("A completed login must invalidate every other pending challenge")
+        } catch is CancellationError {
+        }
+        XCTAssertEqual(stub.requests.count, 3)
+    }
+
+    func testPasswordLoginOriginGuardRejectsBeforeSendingCredentials() async throws {
+        let previousServer = UserDefaults.standard.object(forKey: "ts_server_url")
+        defer { UserDefaults.standard.set(previousServer, forKey: "ts_server_url") }
+        XCTAssertTrue(Server.setBaseURL("https://password-login-origin.invalid"))
+        let expectedServerURL = Server.baseURL.absoluteString
+        XCTAssertTrue(Server.setBaseURL("https://password-login-other-origin.invalid"))
+        let (api, stub) = sessionClient([])
+
+        do {
+            _ = try await api.login(
+                email: "staff@example.com", password: "test-password",
+                expectedServerURL: expectedServerURL
+            )
+            XCTFail("An origin change before login request construction must be rejected")
+        } catch is CancellationError {
+        }
+        XCTAssertTrue(stub.requests.isEmpty, "No login request may send a password to the new server")
+    }
+
+    func testDelayedLoginTaskRetainsSubmittingWindowsServer() async throws {
+        let previousServer = UserDefaults.standard.object(forKey: "ts_server_url")
+        defer { UserDefaults.standard.set(previousServer, forKey: "ts_server_url") }
+        XCTAssertTrue(Server.setBaseURL("https://first-login-window.invalid"))
+        let submittedServer = Server.baseURL.absoluteString
+        let (api, stub) = sessionClient([])
+        let auth = AuthStore(api: api, storage: MemorySessionStorage())
+
+        // Another scene selects its server before the first scene's task enters
+        // AuthStore. The first form must not adopt that replacement origin.
+        XCTAssertTrue(Server.setBaseURL("https://second-login-window.invalid"))
+        do {
+            _ = try await auth.signIn(email: "first@example.com", password: "test-password",
+                                      expectedServerURL: submittedServer)
+            XCTFail("A delayed login must retain the submitting form's server")
+        } catch is CancellationError {
+        }
+        XCTAssertTrue(stub.requests.isEmpty)
+        XCTAssertNil(api.token)
+        XCTAssertNil(auth.user)
+    }
+
     func testMFARequestOriginGuardRejectsBeforeSending() async throws {
         let (api, stub) = sessionClient([])
         do {
