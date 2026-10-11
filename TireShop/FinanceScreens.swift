@@ -48,6 +48,13 @@ enum FinanceMoney {
         let difference = ((amount - balance) * 100).rounded() / 100
         return difference > 0 ? difference : 0
     }
+
+    // The current manual-payment backend recognizes credit only when the
+    // excess is strictly greater than one cent. Preserve that tender in the
+    // form and require correction instead of silently dropping or misbooking it.
+    static func isUnsupportedCredit(_ excess: Double) -> Bool {
+        excess > 0.005 && excess < 0.015
+    }
 }
 
 enum ReceivableOverpaymentPolicy {
@@ -67,7 +74,10 @@ enum ReceivableOverpaymentPolicy {
     static func applicationsForSubmission(
         _ applications: [ReceivableApplication],
         excess: Double
-    ) -> [ReceivableApplication] {
+    ) throws -> [ReceivableApplication] {
+        guard !FinanceMoney.isUnsupportedCredit(excess) else {
+            throw APIError(status: 400, message: "payment.oneCentOverpaymentUnsupported")
+        }
         guard excess > 0.005, let last = applications.indices.last else { return applications }
         var result = applications
         result[last] = ReceivableApplication(
@@ -490,7 +500,8 @@ private struct CollectReceivableSheet: View {
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var postedRef: String?
-    @State private var postedStoreCredit = 0.0
+    @State private var postedStoreCredit: Double?
+    @State private var postedStoreCreditExpected = false
     @State private var submissionIdentity = FinanceSubmissionIdentity()
     @State private var submissionTask: Task<Void, Never>?
     @State private var showOverpaymentConfirmation = false
@@ -508,6 +519,9 @@ private struct CollectReceivableSheet: View {
     }
 
     private var overpaymentError: String? {
+        if FinanceMoney.isUnsupportedCredit(overpaymentAmount) {
+            return i18n.t("payment.oneCentOverpaymentUnsupported")
+        }
         guard !ReceivableOverpaymentPolicy.allowsStoreCredit(
             excess: overpaymentAmount,
             paymentMethodAccountCode: selectedMethod?.account.code
@@ -560,6 +574,7 @@ private struct CollectReceivableSheet: View {
             Group {
                 if let detail {
                     form(detail, state: state)
+                        .disabled(busy || postedRef != nil)
                 } else if let errorMessage {
                     RetryView(message: errorMessage) { Task { await load() } }
                 } else {
@@ -578,6 +593,7 @@ private struct CollectReceivableSheet: View {
                         Button(busy ? "Posting..." : "Collect") { requestSubmission() }
                             .disabled(
                                 busy
+                                    || postedRef != nil
                                     || state.totalApplied <= 0
                                     || paymentMethodId.isEmpty
                                     || !state.invalidRows.isEmpty
@@ -599,13 +615,15 @@ private struct CollectReceivableSheet: View {
             )) {
                 Button("OK") {}
             } message: {
-                if postedStoreCredit > 0.005 {
+                if let postedStoreCredit, postedStoreCredit > 0.005 {
                     Text(
                         "Receipt # \(postedRef ?? "")\n"
                             + i18n.t("payment.creditSaved", [
                                 "credit": AppFormat.money(postedStoreCredit),
                             ])
                     )
+                } else if postedStoreCredit == nil, postedStoreCreditExpected {
+                    Text("Receipt # \(postedRef ?? "")\n" + i18n.t("payment.creditConfirmationUnavailable"))
                 } else {
                     Text("Receipt # \(postedRef ?? "")")
                 }
@@ -651,7 +669,9 @@ private struct CollectReceivableSheet: View {
                 } header: {
                     Text("Quick split")
                 } footer: {
-                    if overpaymentAmount > 0.005 {
+                    if let overpaymentError {
+                        Text(overpaymentError)
+                    } else if overpaymentAmount > 0.005 {
                         Text(i18n.t("payment.excessBecomesCredit"))
                     } else {
                         Text("Or type an amount on each invoice below.")
@@ -711,8 +731,8 @@ private struct CollectReceivableSheet: View {
                     }
                     if overpaymentAmount > 0.005 {
                         RowLine(
-                            title: i18n.t("payment.storeCredit"),
-                            subtitle: i18n.t("payment.creditFromOverpayment"),
+                            title: i18n.t(overpaymentError == nil ? "payment.storeCredit" : "payment.overpayment"),
+                            subtitle: overpaymentError == nil ? i18n.t("payment.creditFromOverpayment") : nil,
                             trailing: AppFormat.money(overpaymentAmount)
                         )
                         HStack {
@@ -836,6 +856,7 @@ private struct CollectReceivableSheet: View {
 
     @MainActor
     private func submit() async {
+        guard !busy, postedRef == nil else { return }
         guard canCollect else {
             errorMessage = "You do not have permission to collect payments."
             return
@@ -871,7 +892,8 @@ private struct CollectReceivableSheet: View {
         defer { busy = false }
 
         do {
-            let applications = ReceivableOverpaymentPolicy.applicationsForSubmission(
+            let expectedStoreCredit = overpaymentAmount > 0.005
+            let applications = try ReceivableOverpaymentPolicy.applicationsForSubmission(
                 state.applications,
                 excess: overpaymentAmount
             )
@@ -886,12 +908,13 @@ private struct CollectReceivableSheet: View {
                     : nil
             )
             let idempotencyKey = try submissionIdentity.key(for: input)
-            let result = try await MoneyAPI().payReceivables(
+            let confirmation = try await MoneyAPI().payReceivablesWithCreditConfirmation(
                 input,
                 idempotencyKey: idempotencyKey
             )
-            if let ref = result.ref {
-                postedStoreCredit = overpaymentAmount
+            if let ref = confirmation.result.ref {
+                postedStoreCredit = confirmation.createdStoreCredit
+                postedStoreCreditExpected = expectedStoreCredit
                 postedRef = ref
             } else {
                 busy = false
@@ -906,7 +929,7 @@ private struct CollectReceivableSheet: View {
     }
 
     private func startSubmission() {
-        guard submissionTask == nil else { return }
+        guard submissionTask == nil, !busy, postedRef == nil else { return }
         submissionTask = Task { @MainActor in
             await submit()
             submissionTask = nil
@@ -914,8 +937,12 @@ private struct CollectReceivableSheet: View {
     }
 
     private func requestSubmission() {
-        guard submissionTask == nil else { return }
+        guard submissionTask == nil, !busy, postedRef == nil else { return }
         if let message = plannedDepositDateError {
+            errorMessage = message
+            return
+        }
+        if let message = overpaymentError {
             errorMessage = message
             return
         }

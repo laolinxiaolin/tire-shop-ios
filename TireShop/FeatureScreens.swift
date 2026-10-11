@@ -645,14 +645,12 @@ struct InventoryListNativeView: View {
         hasLoaded && moreInventoryAvailable
     }
 
-    private var totalQuantity: Int {
-        if let inventoryTotals { return selectForQuote ? inventoryTotals.available : inventoryTotals.units }
-        let location = selectedLocation.nilIfBlank
-        return items.reduce(0) { result, sku in
-            result + (selectForQuote
-                ? Self.available(sku, location: location)
-                : Self.onHand(sku, location: location))
-        }
+    private var quoteAvailability: InventoryAvailability.Summary {
+        InventoryAvailability.summary(
+            items: items,
+            location: selectedLocation.nilIfBlank,
+            hasMorePages: hasMorePages
+        )
     }
 
     private var displayedInventoryTotals: InventoryTotals {
@@ -897,9 +895,10 @@ struct InventoryListNativeView: View {
                     Image(systemName: "shippingbox.fill")
                         .foregroundStyle(Theme.primary)
 
-                    let quantity = totalQuantity
+                    let summary = quoteAvailability
+                    let quantity = summary.quantity
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(inventoryTotals == nil && hasMorePages ? "Available in loaded items" : "Available inventory")
+                        Text(summary.title)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.muted)
 
@@ -1548,7 +1547,7 @@ struct InventoryListNativeView: View {
 
     private func availableToAdd(_ sku: TireSku) -> Int {
         let inCart = quote.lines.filter { $0.itemType == "SKU" && $0.itemId == sku.id }.reduce(0) { $0 + $1.qty }
-        return max(0, Self.available(sku, location: selectedLocation.nilIfBlank) - inCart)
+        return max(0, InventoryAvailability.quantity(for: sku, location: selectedLocation.nilIfBlank) - inCart)
     }
 
     private func canAddToQuote(_ sku: TireSku) -> Bool {
@@ -1580,23 +1579,6 @@ struct InventoryListNativeView: View {
         } catch {
             salePriceError = (error as? LocalizedError)?.errorDescription ?? i18n.t("salePrice.resolveError")
         }
-    }
-
-    private static func available(_ sku: TireSku, location: String?) -> Int {
-        guard let location else {
-            return sku.inventory.reduce(0) { total, inventory in
-                total + max(0, inventory.qtyOnHand - inventory.qtyReserved)
-            }
-        }
-        guard let inventory = sku.inventory.first(where: { $0.location == location }) else { return 0 }
-        return max(0, inventory.qtyOnHand - inventory.qtyReserved)
-    }
-
-    private static func onHand(_ sku: TireSku, location: String?) -> Int {
-        guard let location else {
-            return sku.inventory.reduce(0) { $0 + $1.qtyOnHand }
-        }
-        return sku.inventory.first(where: { $0.location == location })?.qtyOnHand ?? 0
     }
 
     @MainActor
@@ -1801,13 +1783,7 @@ private struct InventorySkuRow: View {
     }
 
     private var available: Int {
-        if location != nil {
-            guard let selectedInventory else { return 0 }
-            return max(0, selectedInventory.qtyOnHand - selectedInventory.qtyReserved)
-        }
-        return sku.inventory.reduce(0) { total, inventory in
-            total + max(0, inventory.qtyOnHand - inventory.qtyReserved)
-        }
+        InventoryAvailability.quantity(for: sku, location: location)
     }
 
     private var displayedQuantity: Int {

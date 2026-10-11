@@ -224,10 +224,10 @@ struct PaymentSheetNativeView: View {
                                 balance: effectiveBalance
                             )
                             RowLine(
-                                title: allowsOverpay(totals)
+                                title: overpaymentError(totals) == nil
                                     ? i18n.t("payment.storeCredit")
                                     : i18n.t("payment.overpayment"),
-                                subtitle: allowsOverpay(totals)
+                                subtitle: overpaymentError(totals) == nil
                                     ? i18n.t("payment.creditFromOverpayment")
                                     : nil,
                                 trailing: AppFormat.money(overpayment)
@@ -401,6 +401,10 @@ struct PaymentSheetNativeView: View {
     }
 
     private func overpaymentError(_ totals: PaymentTotals) -> String? {
+        let amounts = rows.filter { Self.isValid($0) }.compactMap { ManualReceiptInput.money($0.amount) }
+        if ManualPaymentCreditCompatibility.hasUnsupportedCredit(amounts: amounts, balance: effectiveBalance) {
+            return i18n.t("payment.oneCentOverpaymentUnsupported")
+        }
         guard isOverpay(totals), !allowsOverpay(totals) else { return nil }
         if customerId?.nilIfBlank == nil {
             return i18n.t("payment.customerRequiredForOverpayment")
@@ -415,7 +419,7 @@ struct PaymentSheetNativeView: View {
 
     private func canRecord(_ totals: PaymentTotals) -> Bool {
         !recording && totals.validRowCount > 0
-            && (!isOverpay(totals) || allowsOverpay(totals))
+            && overpaymentError(totals) == nil
             && !isOverCredit(totals)
     }
 
@@ -492,7 +496,7 @@ struct PaymentSheetNativeView: View {
         errorMessage = nil
         do {
             let input = try ManualReceiptInput.make(invoiceId: invoiceId, customerId: customerId,
-                                                    rows: rows, methods: methods)
+                                                    rows: rows, methods: methods, balance: effectiveBalance)
             let totals = paymentTotals
             if let message = overpaymentError(totals) { throw APIError(status: 400, message: message) }
             if isOverCredit(totals) {
@@ -536,6 +540,10 @@ struct PaymentSheetNativeView: View {
     private func requestRecording(_ totals: PaymentTotals) {
         guard recordingTask == nil else { return }
         if let message = plannedDepositDateError {
+            errorMessage = message
+            return
+        }
+        if let message = overpaymentError(totals) {
             errorMessage = message
             return
         }

@@ -42,6 +42,7 @@
 		6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F2FDAF3073867A0D51FCB72 /* Formatters.swift */; };
 		11A112861298144664360E27 /* I18nMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */; };
 		68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88CA5A639740B9905E77B77 /* I18nStore.swift */; };
+		31EF96426CCD5680ACA3CA64 /* InventoryAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA56D0AE8EE93F6CF0173C2C /* InventoryAvailability.swift */; };
 		1F48DAF4B10E02E253827AD9 /* LayoutDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */; };
 		F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */; };
 		7E6C22B0D3D23148D81B4A27 /* ManualReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D98F39E5FD00B5DAE3096A /* ManualReceiptStore.swift */; };
@@ -109,6 +110,7 @@
 		6D4C1833AE0A1A29D0272B9E /* FleetPricingSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2768C5A7E338E5827682D073 /* FleetPricingSnapshotTests.swift */; };
 		CABDEEFE5324FBD7B69C9DA4 /* FleetQuotePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 934B6465E3526BC3EA87F16B /* FleetQuotePricingTests.swift */; };
 		2B50B3689FA74CF413D1D275 /* FleetSkuPriceInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE23A3EE9E9CBB72450453C9 /* FleetSkuPriceInputTests.swift */; };
+		25C8821358CF06A9AC477702 /* InventoryAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C940D54E4B0313F13008CE /* InventoryAvailabilityTests.swift */; };
 		9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */; };
 		F6F09C04298246E20BAA9CAA /* ManualReceiptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC7F22D54BB051999D881B73 /* ManualReceiptTests.swift */; };
 		A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */; };
@@ -121,6 +123,7 @@
 		5D8AB3614DD5B1D4FF81CCFA /* PurchaseOrderDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2113ADF74AF2E8547F239D39 /* PurchaseOrderDraftTests.swift */; };
 		8346B90E79D85159C4EE72AD /* PurchaseOrderSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFABC81F3EF641A2512574EC /* PurchaseOrderSnapshotTests.swift */; };
 		E3FE83032783F9EC17723397 /* PurchaseOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99904C94225080EF5C93310 /* PurchaseOrderTests.swift */; };
+		4CF0FCC2A3B4FF850B99F565 /* ReceivableCreditConfirmationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB2F7C6E506D4B9877AE653E /* ReceivableCreditConfirmationTests.swift */; };
 		B7BB76DFAAEA86C51E3D9E4E /* SaleCartInventoryLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1C7D73DA45FA36B7FE7451 /* SaleCartInventoryLoaderTests.swift */; };
 		5DEEA42BE66278CABFBE5551 /* SaleDetailSkuLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1D2EBCFAFCDD927AB18BF6 /* SaleDetailSkuLoaderTests.swift */; };
 		295B503DA7E0B280A335AFF3 /* SaleDetailSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A09ADC76728436DDF989776 /* SaleDetailSnapshotTests.swift */; };
@@ -177,6 +180,7 @@
 		0F2FDAF3073867A0D51FCB72 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Formatters.swift"; sourceTree = "<group>"; };
 		F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nMessages.swift"; sourceTree = "<group>"; };
 		E88CA5A639740B9905E77B77 /* I18nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "I18nStore.swift"; sourceTree = "<group>"; };
+		FA56D0AE8EE93F6CF0173C2C /* InventoryAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryAvailability.swift"; sourceTree = "<group>"; };
 		4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LayoutDiagnostics.swift"; sourceTree = "<group>"; };
 		64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginView.swift"; sourceTree = "<group>"; };
 		40D98F39E5FD00B5DAE3096A /* ManualReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManualReceiptStore.swift"; sourceTree = "<group>"; };
@@ -244,6 +248,7 @@
 		2768C5A7E338E5827682D073 /* FleetPricingSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetPricingSnapshotTests.swift"; sourceTree = "<group>"; };
 		934B6465E3526BC3EA87F16B /* FleetQuotePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetQuotePricingTests.swift"; sourceTree = "<group>"; };
 		FE23A3EE9E9CBB72450453C9 /* FleetSkuPriceInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetSkuPriceInputTests.swift"; sourceTree = "<group>"; };
+		71C940D54E4B0313F13008CE /* InventoryAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryAvailabilityTests.swift"; sourceTree = "<group>"; };
 		9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InventoryLookupTests.swift"; sourceTree = "<group>"; };
 		AC7F22D54BB051999D881B73 /* ManualReceiptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManualReceiptTests.swift"; sourceTree = "<group>"; };
 		5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OrdersListStoreTests.swift"; sourceTree = "<group>"; };
@@ -256,6 +261,7 @@
 		2113ADF74AF2E8547F239D39 /* PurchaseOrderDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderDraftTests.swift"; sourceTree = "<group>"; };
 		BFABC81F3EF641A2512574EC /* PurchaseOrderSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderSnapshotTests.swift"; sourceTree = "<group>"; };
 		C99904C94225080EF5C93310 /* PurchaseOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PurchaseOrderTests.swift"; sourceTree = "<group>"; };
+		DB2F7C6E506D4B9877AE653E /* ReceivableCreditConfirmationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ReceivableCreditConfirmationTests.swift"; sourceTree = "<group>"; };
 		BF1C7D73DA45FA36B7FE7451 /* SaleCartInventoryLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleCartInventoryLoaderTests.swift"; sourceTree = "<group>"; };
 		4E1D2EBCFAFCDD927AB18BF6 /* SaleDetailSkuLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleDetailSkuLoaderTests.swift"; sourceTree = "<group>"; };
 		4A09ADC76728436DDF989776 /* SaleDetailSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleDetailSnapshotTests.swift"; sourceTree = "<group>"; };
@@ -346,6 +352,7 @@
 				0F2FDAF3073867A0D51FCB72 /* Formatters.swift */,
 				F88EC5DD19E6A9A05E6C0AE0 /* I18nMessages.swift */,
 				E88CA5A639740B9905E77B77 /* I18nStore.swift */,
+				FA56D0AE8EE93F6CF0173C2C /* InventoryAvailability.swift */,
 				4896498E8F2D97C14D296048 /* LayoutDiagnostics.swift */,
 				64DF0BBDE4EF8B0A30A112BA /* LoginView.swift */,
 				40D98F39E5FD00B5DAE3096A /* ManualReceiptStore.swift */,
@@ -426,6 +433,7 @@
 				2768C5A7E338E5827682D073 /* FleetPricingSnapshotTests.swift */,
 				934B6465E3526BC3EA87F16B /* FleetQuotePricingTests.swift */,
 				FE23A3EE9E9CBB72450453C9 /* FleetSkuPriceInputTests.swift */,
+				71C940D54E4B0313F13008CE /* InventoryAvailabilityTests.swift */,
 				9CE8BE525F6F0DDE5925D460 /* InventoryLookupTests.swift */,
 				AC7F22D54BB051999D881B73 /* ManualReceiptTests.swift */,
 				5460F6841D388DDE7B3EB758 /* OrdersListStoreTests.swift */,
@@ -438,6 +446,7 @@
 				2113ADF74AF2E8547F239D39 /* PurchaseOrderDraftTests.swift */,
 				BFABC81F3EF641A2512574EC /* PurchaseOrderSnapshotTests.swift */,
 				C99904C94225080EF5C93310 /* PurchaseOrderTests.swift */,
+				DB2F7C6E506D4B9877AE653E /* ReceivableCreditConfirmationTests.swift */,
 				BF1C7D73DA45FA36B7FE7451 /* SaleCartInventoryLoaderTests.swift */,
 				4E1D2EBCFAFCDD927AB18BF6 /* SaleDetailSkuLoaderTests.swift */,
 				4A09ADC76728436DDF989776 /* SaleDetailSnapshotTests.swift */,
@@ -611,6 +620,7 @@
 				6F9C9F130EB507C20B7B8E3B /* Formatters.swift in Sources */,
 				11A112861298144664360E27 /* I18nMessages.swift in Sources */,
 				68130E455FD5E5E37F07F7E2 /* I18nStore.swift in Sources */,
+				31EF96426CCD5680ACA3CA64 /* InventoryAvailability.swift in Sources */,
 				1F48DAF4B10E02E253827AD9 /* LayoutDiagnostics.swift in Sources */,
 				F5E288ADDA5AAAB3F18047D8 /* LoginView.swift in Sources */,
 				7E6C22B0D3D23148D81B4A27 /* ManualReceiptStore.swift in Sources */,
@@ -685,6 +695,7 @@
 				6D4C1833AE0A1A29D0272B9E /* FleetPricingSnapshotTests.swift in Sources */,
 				CABDEEFE5324FBD7B69C9DA4 /* FleetQuotePricingTests.swift in Sources */,
 				2B50B3689FA74CF413D1D275 /* FleetSkuPriceInputTests.swift in Sources */,
+				25C8821358CF06A9AC477702 /* InventoryAvailabilityTests.swift in Sources */,
 				9C68378802BAB8C8C493C5DE /* InventoryLookupTests.swift in Sources */,
 				F6F09C04298246E20BAA9CAA /* ManualReceiptTests.swift in Sources */,
 				A590CDA285CF9BD35772FDC0 /* OrdersListStoreTests.swift in Sources */,
@@ -697,6 +708,7 @@
 				5D8AB3614DD5B1D4FF81CCFA /* PurchaseOrderDraftTests.swift in Sources */,
 				8346B90E79D85159C4EE72AD /* PurchaseOrderSnapshotTests.swift in Sources */,
 				E3FE83032783F9EC17723397 /* PurchaseOrderTests.swift in Sources */,
+				4CF0FCC2A3B4FF850B99F565 /* ReceivableCreditConfirmationTests.swift in Sources */,
 				B7BB76DFAAEA86C51E3D9E4E /* SaleCartInventoryLoaderTests.swift in Sources */,
 				5DEEA42BE66278CABFBE5551 /* SaleDetailSkuLoaderTests.swift in Sources */,
 				295B503DA7E0B280A335AFF3 /* SaleDetailSnapshotTests.swift in Sources */,

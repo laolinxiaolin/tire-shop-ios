@@ -39,11 +39,33 @@ final class ManualReceiptTests: XCTestCase {
         XCTAssertEqual(ManualReceiptInput.money("9999999999.99"), 9999999999.99)
     }
 
-    func testOneCentExcessIsPreservedAsCustomerCredit() {
+    func testOneCentExcessIsDetectedWithoutDroppingTheTender() {
         XCTAssertTrue(ManualPaymentOverpaymentPolicy.isOverpayment(totalApplied: 100.01, balance: 100))
         XCTAssertEqual(ManualPaymentOverpaymentPolicy.amount(totalApplied: 100.01, balance: 100), 0.01)
         XCTAssertEqual(ManualPaymentOverpaymentPolicy.appliedToInvoice(totalApplied: 100.01, balance: 100), 100)
         XCTAssertFalse(ManualPaymentOverpaymentPolicy.isOverpayment(totalApplied: 100, balance: 100))
+        let row = PaymentRow(paymentMethodId: "cash", amount: "100.01", reference: "")
+        XCTAssertThrowsError(try ManualReceiptInput.make(invoiceId: "invoice", customerId: "customer",
+            rows: [row], methods: methods(), balance: 100))
+        XCTAssertEqual(row.amount, "100.01")
+    }
+
+    func testSplitReceiptRejectsOneCentExcessOnAnySequentialTender() {
+        for amounts in [["100.01", "0.01"], ["100.00", "0.01"], ["99.99", "0.02"], ["100.02", "0.01"]] {
+            let rows = amounts.map { PaymentRow(paymentMethodId: "cash", amount: $0, reference: "") }
+            XCTAssertThrowsError(try ManualReceiptInput.make(invoiceId: "invoice", customerId: "customer",
+                rows: rows, methods: methods(), balance: 100), amounts.joined(separator: ", "))
+            XCTAssertEqual(rows.map(\.amount), amounts)
+        }
+    }
+
+    func testExactAndSupportedSplitReceiptTotalsRemainUnchanged() throws {
+        for amounts in [["100.00"], ["60", "40.02"], ["100.00", "0.02"], ["100.02", "0.02"]] {
+            let rows = amounts.map { PaymentRow(paymentMethodId: "cash", amount: $0, reference: "") }
+            let input = try ManualReceiptInput.make(invoiceId: "invoice", customerId: "customer",
+                rows: rows, methods: methods(), balance: 100)
+            XCTAssertEqual(input.lines.map(\.amount), amounts.compactMap(ManualReceiptInput.money))
+        }
     }
 
     func testFeesRoundHalfCentsLikeTheServerAndRemainPerTender() {
