@@ -1860,25 +1860,61 @@ struct SupplierPaymentDetailSheet: View {
 
 // MARK: - Accounting (P&L / trial balance / journal)
 
+/// Recreate finance content and its sheets when its authorization changes.
+/// In-flight work from the previous scope can only update discarded view state.
+struct FinanceReadScope: Hashable {
+    let session: AppSessionIdentity
+    let canReadSales: Bool
+    let canManage: Bool
+
+    @MainActor init(_ auth: AuthStore) {
+        session = AppSessionIdentity(auth)
+        canReadSales = auth.has("sales.viewAll")
+        canManage = auth.has("accounting.manage")
+    }
+}
+
 struct AccountingNativeView: View {
-    private enum Tab: String, CaseIterable {
+    enum Tab: String, CaseIterable {
         case pnl = "P&L"
         case accounts = "Accounts"
         case journal = "Journal"
+
+        static func available(canReadSales: Bool) -> [Self] {
+            canReadSales ? allCases : [.accounts]
+        }
     }
 
+    @EnvironmentObject private var auth: AuthStore
+
+    var body: some View {
+        if auth.has("accounting.view") {
+            AccountingContentView(canReadSales: auth.has("sales.viewAll"))
+                .id(FinanceReadScope(auth))
+        }
+    }
+}
+
+private struct AccountingContentView: View {
+    typealias Tab = AccountingNativeView.Tab
+    let canReadSales: Bool
     @State private var tab: Tab = .pnl
+
+    private var tabs: [Tab] { Tab.available(canReadSales: canReadSales) }
+    private var selection: Binding<Tab> {
+        Binding(get: { tabs.contains(tab) ? tab : .accounts }, set: { tab = $0 })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Section", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue) }
+            Picker("Section", selection: selection) {
+                ForEach(tabs, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, Theme.Space.lg)
             .padding(.vertical, Theme.Space.sm)
 
-            switch tab {
+            switch selection.wrappedValue {
             case .pnl: PnlTabView()
             case .accounts: TrialBalanceTabView()
             case .journal: JournalTabView()
@@ -1894,6 +1930,7 @@ private struct PnlRequestKey: Hashable {
 }
 
 private struct PnlTabView: View {
+    @EnvironmentObject private var auth: AuthStore
     @State private var from = FinanceDay.monthStart
     @State private var to = Date()
     @State private var pnl: Pnl?
@@ -1967,15 +2004,19 @@ private struct PnlTabView: View {
 
     @MainActor
     private func load(_ key: PnlRequestKey) async {
+        guard auth.has("accounting.view"), auth.has("sales.viewAll") else { return }
+        let session = AppSessionIdentity(auth)
         loading = true
         errorMessage = nil
         do {
             let loaded = try await AccountingAPI().pnl(from: key.from, to: key.to)
-            guard key == requestKey, !Task.isCancelled else { return }
+            guard key == requestKey, !Task.isCancelled, session.isCurrent(auth),
+                  auth.has("sales.viewAll") else { return }
             pnl = loaded
             loading = false
         } catch {
-            guard key == requestKey, !Task.isCancelled, !isFinanceRequestCancellation(error) else { return }
+            guard key == requestKey, !Task.isCancelled, session.isCurrent(auth),
+                  auth.has("sales.viewAll"), !isFinanceRequestCancellation(error) else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the P&L."
             loading = false
         }
@@ -2011,6 +2052,7 @@ private func journalRefRoute(refType: String?, refId: String?) -> AppRoute? {
 }
 
 private struct JournalTabView: View {
+    @EnvironmentObject private var auth: AuthStore
     @State private var items: [JournalEntry] = []
     @State private var total = 0
     @State private var loaded = false
@@ -2044,13 +2086,17 @@ private struct JournalTabView: View {
 
     @MainActor
     private func reload() async {
+        guard auth.has("accounting.view"), auth.has("sales.viewAll") else { return }
+        let session = AppSessionIdentity(auth)
         errorMessage = nil
         do {
             let page = try await AccountingAPI().journal(page: 1, pageSize: pageSize)
+            guard !Task.isCancelled, session.isCurrent(auth), auth.has("sales.viewAll") else { return }
             items = page.items
             total = page.total
             loadedPage = 1
         } catch {
+            guard !Task.isCancelled, session.isCurrent(auth), auth.has("sales.viewAll") else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the journal."
         }
         loaded = true
@@ -2058,10 +2104,13 @@ private struct JournalTabView: View {
 
     @MainActor
     private func loadMore() async {
-        guard !loadingMore, items.count < total else { return }
+        guard auth.has("accounting.view"), auth.has("sales.viewAll"),
+              !loadingMore, items.count < total else { return }
+        let session = AppSessionIdentity(auth)
         loadingMore = true
         let nextPage = loadedPage + 1
         if let page = try? await AccountingAPI().journal(page: nextPage, pageSize: pageSize) {
+            guard !Task.isCancelled, session.isCurrent(auth), auth.has("sales.viewAll") else { return }
             items.appendNewElements(from: page.items)
             total = page.total
             loadedPage = nextPage
@@ -2132,15 +2181,50 @@ private struct JournalEntryRow: View {
 
 // MARK: - Cash accounts
 
+/// Only transfer evidence requires global sales access; the other cash panels
+/// use the accounting grant independently.
+struct CashAccountsSnapshot {
+    let accounts: Result<[CashAccount], Error>
+    let transfers: Result<Paged<CashTransfer>, Error>?
+    let expenses: Result<Paged<ExpensePayment>, Error>
+    let methods: Result<Paged<PaymentMethod>, Error>
+
+    static func load(canReadSales: Bool, pageSize: Int = 30, api: CashAccountsAPI = .init()) async -> Self {
+        async let accounts = financeResult { try await api.list() }
+        async let transfers: Result<Paged<CashTransfer>, Error>? = canReadSales
+            ? await financeResult { try await api.transfersPaged(page: 1, pageSize: pageSize) } : nil
+        async let expenses = financeResult { try await api.expenses(page: 1, pageSize: pageSize) }
+        async let methods = financeResult { try await api.methodsPaged(page: 1, pageSize: pageSize) }
+        return await Self(accounts: accounts, transfers: transfers, expenses: expenses, methods: methods)
+    }
+}
+
 struct CashAccountsNativeView: View {
     @EnvironmentObject private var auth: AuthStore
-    @EnvironmentObject private var i18n: I18nStore
 
     enum Tab: String, CaseIterable {
         case transfers = "Transfers"
         case expenses = "Expenses"
         case methods = "Payment Methods"
+
+        static func available(canReadSales: Bool) -> [Self] {
+            canReadSales ? allCases : [.expenses, .methods]
+        }
     }
+
+    var body: some View {
+        if auth.has("accounting.view") {
+            CashAccountsContentView(scope: FinanceReadScope(auth))
+                .id(FinanceReadScope(auth))
+        }
+    }
+}
+
+private struct CashAccountsContentView: View {
+    typealias Tab = CashAccountsNativeView.Tab
+    @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var i18n: I18nStore
+    let scope: FinanceReadScope
 
     @State private var accounts: [CashAccount] = []
     @State private var tab: Tab = .transfers
@@ -2179,6 +2263,12 @@ struct CashAccountsNativeView: View {
     private let pageSize = 30
 
     private var canManage: Bool { auth.has("accounting.manage") }
+    private var canReadSales: Bool { auth.has("sales.viewAll") }
+    private var isCurrent: Bool { scope == FinanceReadScope(auth) && !Task.isCancelled }
+    private var tabs: [Tab] { Tab.available(canReadSales: canReadSales) }
+    private var selection: Binding<Tab> {
+        Binding(get: { tabs.contains(tab) ? tab : .expenses }, set: { tab = $0 })
+    }
     private var totalCash: Double { accounts.reduce(0) { $0 + $1.balance } }
 
     var body: some View {
@@ -2198,7 +2288,9 @@ struct CashAccountsNativeView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { showingAddAccount = true } label: { Label(i18n.t("accounting.cash.addAccount"), systemImage: "building.columns") }
-                        Button { showingTransfer = true } label: { Label("Transfer funds", systemImage: "arrow.left.arrow.right") }
+                        if canReadSales {
+                            Button { showingTransfer = true } label: { Label("Transfer funds", systemImage: "arrow.left.arrow.right") }
+                        }
                         Button { showingExpense = true } label: { Label("Record expense", systemImage: "minus.circle") }
                         Button { showingAddMethod = true } label: { Label("Add payment method", systemImage: "creditcard") }
                     } label: {
@@ -2218,7 +2310,9 @@ struct CashAccountsNativeView: View {
             }
         }
         .sheet(isPresented: $showingTransfer) {
-            TransferFundsSheet(accounts: accounts) { Task { await load() } }
+            if canReadSales {
+                TransferFundsSheet(accounts: accounts) { Task { await load() } }
+            }
         }
         .sheet(isPresented: $showingExpense) {
             RecordExpenseSheet(accounts: accounts) { Task { await load() } }
@@ -2230,7 +2324,7 @@ struct CashAccountsNativeView: View {
             AddPaymentMethodSheet(accounts: accounts, editing: method) { Task { await load() } }
         }
         .sheet(item: $historyAccount) { account in
-            AccountHistorySheet(account: account)
+            if canReadSales { AccountHistorySheet(account: account) }
         }
         .sheet(item: $receiptsExpense) { expense in
             ExpenseReceiptsSheet(expense: expense, canManage: canManage) { Task { await load() } }
@@ -2275,29 +2369,14 @@ struct CashAccountsNativeView: View {
 
             Section("Balances") {
                 ForEach(accounts) { account in
-                    Button {
-                        historyAccount = account
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(account.name)
-                                    .font(.body)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(Theme.text)
-                                Text(account.code)
-                                    .font(.caption)
-                                    .foregroundStyle(Theme.muted)
-                                    .monospaced()
-                            }
-                            Spacer()
-                            Text(AppFormat.money(account.balance))
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(account.balance >= 0 ? Color.green : Color.red)
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(Theme.muted)
+                    if canReadSales {
+                        Button {
+                            historyAccount = account
+                        } label: {
+                            accountRow(account)
                         }
+                    } else {
+                        accountRow(account)
                     }
                 }
                 HStack {
@@ -2310,8 +2389,8 @@ struct CashAccountsNativeView: View {
             }
 
             Section {
-                Picker("Category", selection: $tab) {
-                    ForEach(Tab.allCases, id: \.self) { t in
+                Picker("Category", selection: selection) {
+                    ForEach(tabs, id: \.self) { t in
                         Text(t.rawValue).tag(t)
                     }
                 }
@@ -2320,7 +2399,7 @@ struct CashAccountsNativeView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
 
-            switch tab {
+            switch selection.wrappedValue {
             case .transfers:
                 transfersSection
             case .expenses:
@@ -2331,6 +2410,31 @@ struct CashAccountsNativeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await load() }
+    }
+
+    private func accountRow(_ account: CashAccount) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(account.name)
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.text)
+                Text(account.code)
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                    .monospaced()
+            }
+            Spacer()
+            Text(AppFormat.money(account.balance))
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(account.balance >= 0 ? Color.green : Color.red)
+            if canReadSales {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.muted)
+            }
+        }
     }
 
     private var transfersSection: some View {
@@ -2380,7 +2484,7 @@ struct CashAccountsNativeView: View {
                     .foregroundStyle(Theme.muted)
                 }
                 .swipeActions {
-                    if canManage && transfer.reversedAt == nil {
+                    if canReadSales && canManage && transfer.reversedAt == nil {
                         Button("Reverse", role: .destructive) { reverseTransferTarget = transfer }
                     }
                 }
@@ -2533,6 +2637,7 @@ struct CashAccountsNativeView: View {
 
     @MainActor
     private func load() async {
+        guard isCurrent else { return }
         loadGeneration += 1
         let generation = loadGeneration
         refreshing = true
@@ -2541,32 +2646,32 @@ struct CashAccountsNativeView: View {
         methodsLoadingMore = false
         errorMessage = nil
         defer { if generation == loadGeneration { refreshing = false; loaded = true } }
-        async let accountResult = financeResult { try await CashAccountsAPI().list() }
-        async let transferResult = financeResult { try await CashAccountsAPI().transfersPaged(page: 1, pageSize: pageSize) }
-        async let expenseResult = financeResult { try await CashAccountsAPI().expenses(page: 1, pageSize: pageSize) }
-        async let methodResult = financeResult { try await CashAccountsAPI().methodsPaged(page: 1, pageSize: pageSize) }
-        let (accountResponse, transferResponse, expenseResponse, methodResponse) = await (accountResult, transferResult, expenseResult, methodResult)
-        guard generation == loadGeneration else { return }
+        let snapshot = await CashAccountsSnapshot.load(canReadSales: canReadSales, pageSize: pageSize)
+        guard generation == loadGeneration, isCurrent else { return }
         var failures: [String] = []
-        switch accountResponse {
+        switch snapshot.accounts {
         case .success(let value): accounts = value
         case .failure(let error): failures.append(error.localizedDescription)
         }
-        switch transferResponse {
-        case .success(let value):
+        switch snapshot.transfers {
+        case .some(.success(let value)):
             transfers = value.items
             transfersTotal = value.total
             transfersPage = 1
-        case .failure(let error): failures.append(error.localizedDescription)
+        case .some(.failure(let error)): failures.append(error.localizedDescription)
+        case .none:
+            transfers = []
+            transfersTotal = 0
+            transfersPage = 0
         }
-        switch expenseResponse {
+        switch snapshot.expenses {
         case .success(let value):
             expenses = value.items
             expensesTotal = value.total
             expensesPage = 1
         case .failure(let error): failures.append(error.localizedDescription)
         }
-        switch methodResponse {
+        switch snapshot.methods {
         case .success(let value):
             methods = value.items
             methodsTotal = value.total
@@ -2578,100 +2683,110 @@ struct CashAccountsNativeView: View {
 
     @MainActor
     private func loadMoreTransfers() async {
-        guard !refreshing, !transfersLoadingMore, transfersPage * pageSize < transfersTotal else { return }
+        guard isCurrent, canReadSales, !refreshing, !transfersLoadingMore,
+              transfersPage * pageSize < transfersTotal else { return }
         let generation = loadGeneration
         transfersLoadingMore = true
         defer { if generation == loadGeneration { transfersLoadingMore = false } }
         do {
             let page = try await CashAccountsAPI().transfersPaged(page: transfersPage + 1, pageSize: pageSize)
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, isCurrent else { return }
             transfers.appendNewElements(from: page.items)
             transfersPage += 1
             transfersTotal = page.total
         } catch {
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, isCurrent else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     @MainActor
     private func loadMoreExpenses() async {
-        guard !refreshing, !expensesLoadingMore, expensesPage * pageSize < expensesTotal else { return }
+        guard isCurrent, !refreshing, !expensesLoadingMore, expensesPage * pageSize < expensesTotal else { return }
         let generation = loadGeneration
         expensesLoadingMore = true
         defer { if generation == loadGeneration { expensesLoadingMore = false } }
         do {
             let page = try await CashAccountsAPI().expenses(page: expensesPage + 1, pageSize: pageSize)
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, isCurrent else { return }
             expenses.appendNewElements(from: page.items)
             expensesPage += 1
             expensesTotal = page.total
         } catch {
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, isCurrent else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     @MainActor
     private func loadMoreMethods() async {
-        guard !refreshing, !methodsLoadingMore, methodsPage * pageSize < methodsTotal else { return }
+        guard isCurrent, !refreshing, !methodsLoadingMore, methodsPage * pageSize < methodsTotal else { return }
         let generation = loadGeneration
         methodsLoadingMore = true
         defer { if generation == loadGeneration { methodsLoadingMore = false } }
         do {
             let page = try await CashAccountsAPI().methodsPaged(page: methodsPage + 1, pageSize: pageSize)
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, isCurrent else { return }
             methods.appendNewElements(from: page.items)
             methodsPage += 1
             methodsTotal = page.total
         } catch {
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, isCurrent else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     @MainActor
     private func reverseTransfer() async {
-        guard let target = reverseTransferTarget else { return }
+        guard isCurrent, canReadSales, canManage, let target = reverseTransferTarget else { return }
         reverseTransferTarget = nil
         do {
             _ = try await CashAccountsAPI().reverseTransfer(id: target.id)
+            guard isCurrent else { return }
             await load()
         } catch {
+            guard isCurrent else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not reverse the transfer."
         }
     }
 
     @MainActor
     private func reverseExpense() async {
-        guard let target = reverseExpenseTarget else { return }
+        guard isCurrent, canManage, let target = reverseExpenseTarget else { return }
         reverseExpenseTarget = nil
         do {
             _ = try await CashAccountsAPI().reverseExpense(id: target.id)
+            guard isCurrent else { return }
             await load()
         } catch {
+            guard isCurrent else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not reverse the expense."
         }
     }
 
     @MainActor
     private func toggleMethod(_ method: PaymentMethod) async {
+        guard isCurrent, canManage else { return }
         do {
             _ = try await CashAccountsAPI().updateMethod(id: method.id, body: PaymentMethodPatchInput(isActive: !method.isActive))
+            guard isCurrent else { return }
             await load()
         } catch {
+            guard isCurrent else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not update the payment method."
         }
     }
 
     @MainActor
     private func deleteMethod() async {
-        guard let target = deleteMethodTarget else { return }
+        guard isCurrent, canManage, let target = deleteMethodTarget else { return }
         deleteMethodTarget = nil
         do {
             _ = try await CashAccountsAPI().deleteMethod(id: target.id)
+            guard isCurrent else { return }
             await load()
         } catch {
+            guard isCurrent else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not delete the payment method."
         }
     }
@@ -2681,6 +2796,7 @@ private struct AccountHistorySheet: View {
     let account: CashAccount
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthStore
     @State private var items: [AccountHistory.Item] = []
     @State private var total = 0
     @State private var balance: Double?
@@ -2761,14 +2877,18 @@ private struct AccountHistorySheet: View {
 
     @MainActor
     private func reload() async {
+        guard auth.has("accounting.view"), auth.has("sales.viewAll") else { return }
+        let session = AppSessionIdentity(auth)
         errorMessage = nil
         do {
             let page = try await AccountingAPI().accountHistory(code: account.code, page: 1, pageSize: pageSize)
+            guard !Task.isCancelled, session.isCurrent(auth), auth.has("sales.viewAll") else { return }
             items = page.items
             total = page.total
             loadedPage = 1
             balance = page.account.balance
         } catch {
+            guard !Task.isCancelled, session.isCurrent(auth), auth.has("sales.viewAll") else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load the account history."
         }
         loaded = true
@@ -2776,10 +2896,13 @@ private struct AccountHistorySheet: View {
 
     @MainActor
     private func loadMore() async {
-        guard !loadingMore, items.count < total else { return }
+        guard auth.has("accounting.view"), auth.has("sales.viewAll"),
+              !loadingMore, items.count < total else { return }
+        let session = AppSessionIdentity(auth)
         loadingMore = true
         let nextPage = loadedPage + 1
         if let page = try? await AccountingAPI().accountHistory(code: account.code, page: nextPage, pageSize: pageSize) {
+            guard !Task.isCancelled, session.isCurrent(auth), auth.has("sales.viewAll") else { return }
             items.appendNewElements(from: page.items)
             total = page.total
             loadedPage = nextPage
