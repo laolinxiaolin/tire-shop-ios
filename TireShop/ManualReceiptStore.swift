@@ -13,9 +13,31 @@ struct ManualReceiptInput: Encodable, Equatable {
 
     let customerId: String?
     let lines: [Line]
+    let adjustments: [InvoiceCollectionAdjustment]?
+
+    init(customerId: String?, lines: [Line], adjustments: [InvoiceCollectionAdjustment]? = nil) {
+        self.customerId = customerId
+        self.lines = lines
+        self.adjustments = adjustments?.isEmpty == false ? adjustments : nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case customerId, lines, adjustments
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try CollectionAdjustmentValidation.validate(
+            adjustments: adjustments ?? [],
+            paidInvoiceIds: Set(lines.filter { $0.amount > 0 }.map(\.invoiceId))
+        )
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(customerId, forKey: .customerId)
+        try container.encode(lines, forKey: .lines)
+        try container.encodeIfPresent(adjustments, forKey: .adjustments)
+    }
 
     static func make(invoiceId: String, customerId: String?, rows: [PaymentRow], methods: [PaymentMethod],
-                     balance: Double? = nil) throws -> Self {
+                     balance: Double? = nil, adjustments: [InvoiceCollectionAdjustment] = []) throws -> Self {
         var lines: [Line] = []
         for row in rows {
             if row.amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
@@ -38,22 +60,31 @@ struct ManualReceiptInput: Encodable, Equatable {
         guard !lines.isEmpty else {
             throw APIError(status: 400, message: "payment.addOne")
         }
-        if let balance, ManualPaymentCreditCompatibility.hasUnsupportedCredit(
-            amounts: lines.map(\.amount), balance: balance
+        try CollectionAdjustmentValidation.validate(
+            adjustments: adjustments, paidInvoiceIds: Set(lines.map(\.invoiceId))
+        )
+        let revisedBalance: Double?
+        if let balance {
+            revisedBalance = try CollectionAdjustmentValidation.revisedBalances(
+                adjustments: adjustments, invoiceBalances: [invoiceId: balance]
+            )[invoiceId]
+        } else {
+            guard adjustments.isEmpty else {
+                throw APIError(status: 400, message: "payment.adjustmentStale")
+            }
+            revisedBalance = nil
+        }
+        if let revisedBalance, ManualPaymentCreditCompatibility.hasUnsupportedCredit(
+            amounts: lines.map(\.amount), balance: revisedBalance
         ) {
             throw APIError(status: 400, message: "payment.oneCentOverpaymentUnsupported")
         }
-        return Self(customerId: customerId?.nilIfBlank, lines: lines)
+        return Self(customerId: customerId?.nilIfBlank, lines: lines, adjustments: adjustments)
     }
 
     static func money(_ text: String) -> Double? {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.range(of: #"^[0-9]+(\.[0-9]{1,2})?$"#, options: .regularExpression) != nil,
-              let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")),
-              decimal >= 0, decimal <= Decimal(999_999_999_999) / 100 else { return nil }
-        // NSDecimalNumber.doubleValue can add a fractional tail (288.58 becomes
-        // 288.58000000000004), which fails the server's decimal-place validation.
-        return Double(value)
+        guard let cents = CollectionMoney.cents(text) else { return nil }
+        return CollectionMoney.amount(cents: cents)
     }
 }
 
@@ -61,12 +92,11 @@ enum ManualPaymentCreditCompatibility {
     /// Receipts book split tenders sequentially. Even a supported total excess
     /// can include a one-cent excess on an earlier or later individual tender.
     static func hasUnsupportedCredit(amounts: [Double], balance: Double) -> Bool {
-        var remaining = max(0, (balance * 100).rounded() / 100)
+        guard var remaining = CollectionMoney.cents(balance) else { return true }
         for amount in amounts {
-            if FinanceMoney.isUnsupportedCredit(FinanceMoney.excess(amount: amount, balance: remaining)) {
-                return true
-            }
-            remaining = max(0, ((remaining - min(amount, remaining)) * 100).rounded() / 100)
+            guard let tender = CollectionMoney.cents(amount) else { return true }
+            if tender - remaining == 1 { return true }
+            remaining = max(0, remaining - tender)
         }
         return false
     }
@@ -132,8 +162,9 @@ final class ManualReceiptStore: ObservableObject {
         do {
             _ = try await collect(input)
         } catch {
-            if let status = (error as? APIError)?.status {
-                needsReconciliation = status == 0 || status >= 500 || [408, 409, 429].contains(status)
+            if let error = error as? APIError {
+                needsReconciliation = error.code == "PAYMENT_ADJUSTMENT_STALE"
+                    || error.status == 0 || error.status >= 500 || [408, 409, 429].contains(error.status)
             } else {
                 needsReconciliation = true
             }

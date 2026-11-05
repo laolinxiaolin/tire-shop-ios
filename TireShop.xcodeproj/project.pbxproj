@@ -21,6 +21,8 @@
 		0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */; };
 		16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7712053F65DA51C8D430D86 /* ChecksScreens.swift */; };
 		05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */; };
+		33DBF71F5A3C46667D977B0C /* CollectionAdjustment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9322F2741471D1049B9BF03A /* CollectionAdjustment.swift */; };
+		135BBB1D209144842EAAD3DD /* CollectionAdjustmentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D63B14F70FEC702D0C6AB01 /* CollectionAdjustmentViews.swift */; };
 		B3681FAB9EE48EAA8371A36F /* ContractReceivingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1AFC964134074BA8E7C17E7 /* ContractReceivingScreens.swift */; };
 		88B5B69D134E12ED3F9403D1 /* ContractReceivingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28613FD67D4BC00DA6AE95AD /* ContractReceivingStore.swift */; };
 		C76BE52704EF2615C4C1BCF7 /* CustomerAnalyticsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */; };
@@ -100,6 +102,9 @@
 		898F530EBC3540AE11ABE056 /* CheckReminderLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */; };
 		B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */; };
 		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
+		011D3B8449438BBB94576B0F /* CollectionAdjustmentSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5BCB2812B9317C3E1DD1013 /* CollectionAdjustmentSnapshotTests.swift */; };
+		8017C9C6A7F7B4473CEC341F /* CollectionAdjustmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3692EEB11C19310952EACD62 /* CollectionAdjustmentTests.swift */; };
+		4A3B9D127382351065C89A14 /* CollectionReceivableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4300057B5A77014B8928FBA9 /* CollectionReceivableTests.swift */; };
 		6BCDA576C7F73AB023DD3187 /* ContainerCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6E66B4D4FDED0A94883709 /* ContainerCompatibilityTests.swift */; };
 		20C2C2D04609DC4D7C6195EB /* ContractReceivingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A7D0836F056ED220A1C28F /* ContractReceivingTests.swift */; };
 		AB86C7D557B8CDF86CB93681 /* CustomerAnalyticsNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */; };
@@ -166,6 +171,8 @@
 		0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDraft.swift"; sourceTree = "<group>"; };
 		D7712053F65DA51C8D430D86 /* ChecksScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksScreens.swift"; sourceTree = "<group>"; };
 		7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStore.swift"; sourceTree = "<group>"; };
+		9322F2741471D1049B9BF03A /* CollectionAdjustment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollectionAdjustment.swift"; sourceTree = "<group>"; };
+		3D63B14F70FEC702D0C6AB01 /* CollectionAdjustmentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollectionAdjustmentViews.swift"; sourceTree = "<group>"; };
 		C1AFC964134074BA8E7C17E7 /* ContractReceivingScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContractReceivingScreens.swift"; sourceTree = "<group>"; };
 		28613FD67D4BC00DA6AE95AD /* ContractReceivingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContractReceivingStore.swift"; sourceTree = "<group>"; };
 		95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsAPI.swift"; sourceTree = "<group>"; };
@@ -245,6 +252,9 @@
 		1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckReminderLayoutTests.swift"; sourceTree = "<group>"; };
 		BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckScreensSnapshotTests.swift"; sourceTree = "<group>"; };
 		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
+		D5BCB2812B9317C3E1DD1013 /* CollectionAdjustmentSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollectionAdjustmentSnapshotTests.swift"; sourceTree = "<group>"; };
+		3692EEB11C19310952EACD62 /* CollectionAdjustmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollectionAdjustmentTests.swift"; sourceTree = "<group>"; };
+		4300057B5A77014B8928FBA9 /* CollectionReceivableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollectionReceivableTests.swift"; sourceTree = "<group>"; };
 		BD6E66B4D4FDED0A94883709 /* ContainerCompatibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContainerCompatibilityTests.swift"; sourceTree = "<group>"; };
 		10A7D0836F056ED220A1C28F /* ContractReceivingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContractReceivingTests.swift"; sourceTree = "<group>"; };
 		F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsNavigationTests.swift"; sourceTree = "<group>"; };
@@ -345,6 +355,8 @@
 				0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */,
 				D7712053F65DA51C8D430D86 /* ChecksScreens.swift */,
 				7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */,
+				9322F2741471D1049B9BF03A /* CollectionAdjustment.swift */,
+				3D63B14F70FEC702D0C6AB01 /* CollectionAdjustmentViews.swift */,
 				C1AFC964134074BA8E7C17E7 /* ContractReceivingScreens.swift */,
 				28613FD67D4BC00DA6AE95AD /* ContractReceivingStore.swift */,
 				95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */,
@@ -437,6 +449,9 @@
 				1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */,
 				BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */,
 				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
+				D5BCB2812B9317C3E1DD1013 /* CollectionAdjustmentSnapshotTests.swift */,
+				3692EEB11C19310952EACD62 /* CollectionAdjustmentTests.swift */,
+				4300057B5A77014B8928FBA9 /* CollectionReceivableTests.swift */,
 				BD6E66B4D4FDED0A94883709 /* ContainerCompatibilityTests.swift */,
 				10A7D0836F056ED220A1C28F /* ContractReceivingTests.swift */,
 				F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */,
@@ -620,6 +635,8 @@
 				0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */,
 				16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */,
 				05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */,
+				33DBF71F5A3C46667D977B0C /* CollectionAdjustment.swift in Sources */,
+				135BBB1D209144842EAAD3DD /* CollectionAdjustmentViews.swift in Sources */,
 				B3681FAB9EE48EAA8371A36F /* ContractReceivingScreens.swift in Sources */,
 				88B5B69D134E12ED3F9403D1 /* ContractReceivingStore.swift in Sources */,
 				C76BE52704EF2615C4C1BCF7 /* CustomerAnalyticsAPI.swift in Sources */,
@@ -706,6 +723,9 @@
 				898F530EBC3540AE11ABE056 /* CheckReminderLayoutTests.swift in Sources */,
 				B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */,
 				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
+				011D3B8449438BBB94576B0F /* CollectionAdjustmentSnapshotTests.swift in Sources */,
+				8017C9C6A7F7B4473CEC341F /* CollectionAdjustmentTests.swift in Sources */,
+				4A3B9D127382351065C89A14 /* CollectionReceivableTests.swift in Sources */,
 				6BCDA576C7F73AB023DD3187 /* ContainerCompatibilityTests.swift in Sources */,
 				20C2C2D04609DC4D7C6195EB /* ContractReceivingTests.swift in Sources */,
 				AB86C7D557B8CDF86CB93681 /* CustomerAnalyticsNavigationTests.swift in Sources */,
@@ -882,7 +902,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026110401;
+				CURRENT_PROJECT_VERSION = 2026110501;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -894,7 +914,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.17;
+				MARKETING_VERSION = 1.0.18;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -911,7 +931,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026110401;
+				CURRENT_PROJECT_VERSION = 2026110501;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -923,7 +943,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.17;
+				MARKETING_VERSION = 1.0.18;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -940,7 +960,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026110401;
+				CURRENT_PROJECT_VERSION = 2026110501;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -949,7 +969,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.17;
+				MARKETING_VERSION = 1.0.18;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;
@@ -963,7 +983,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026110401;
+				CURRENT_PROJECT_VERSION = 2026110501;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -972,7 +992,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.17;
+				MARKETING_VERSION = 1.0.18;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tireforceus.tireshopTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.10;

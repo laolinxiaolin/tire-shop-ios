@@ -25,6 +25,14 @@ This folder is the SwiftUI starting point for converting the Expo/React Native a
 
 The main tab and More-menu modules now have native SwiftUI data-loading screens for dashboard, inventory, sales, customers, customer relations, work orders, returns, inventory counts, purchasing, vendors, money, accounting, cash accounts, FET, EOD, employees, commissions, activity, approvals, users, roles, API keys, and shop settings. Work orders include status filtering plus task and status actions. The larger transaction areas now have native first-pass flows for quote creation/confirmation, sale editing, SKU detail/create/edit, stock adjustment, Tap to Pay intent loading, return draft creation, customer creation, inventory count creation, employee create/edit, commission payout, vendor create/edit/refunds, CRM outreach, and SKU/customer pickers.
 
+The November 2026 collection update follows backend [PR #522](https://github.com/laolinxiaolin/tire-shop/pull/522):
+
+- Sales and receivables have optional Reduce/Increase controls for the invoice's tax-inclusive price, with the reviewed open balance, signed change, and revised balance shown before collection. Full-payment amounts follow the revised balance; partial payments remain as entered. Adjustments and payments save together in one receipt.
+- Adjustment access follows the pricing policy and `sales.price.override`. Keyed-card entry becomes available when the adjustment is removed; the atomic adjustment endpoints record manual payment methods. The server retains its return/exchange and accounting-evidence protections.
+- Stale or uncertain submissions require payment-history and balance refresh before another collection. Receivable fee previews match the server's decimal half-up rounding for each invoice allocation.
+
+Deploy the API from #522 and migration `20261104001000_invoice_price_adjustment_analytics` before enabling these workflows. Regression coverage includes `CollectionAdjustmentTests`, `CollectionReceivableTests`, and real-form English/Chinese snapshots on phone, iPad, dark mode, and accessibility text sizes.
+
 The September 2026 update follows the web repository through `1e479f4`:
 
 - SKU wholesale prices can be set or cleared. Sale builders offer retail, wholesale, and the customer's latest invoiced/paid effective price, with its sale reference and date.

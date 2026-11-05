@@ -71,6 +71,7 @@ enum Server {
 struct APIError: Error, LocalizedError {
     let status: Int
     let message: String
+    var code: String? = nil
 
     var errorDescription: String? { message }
 }
@@ -484,11 +485,13 @@ final class APIClient {
 
         if http.statusCode == 401 && !noAuthBounce {
             invalidateSession(ifCurrentRequestToken: requestToken)
-            throw APIError(status: 401, message: "Session expired. Please sign in again.")
+            throw APIError(status: 401, message: "Session expired. Please sign in again.",
+                           code: Self.errorCode(from: data))
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            throw APIError(status: http.statusCode, message: Self.errorMessage(from: data, status: http.statusCode))
+            throw APIError(status: http.statusCode, message: Self.errorMessage(from: data, status: http.statusCode),
+                           code: Self.errorCode(from: data))
         }
 
         return data
@@ -608,11 +611,12 @@ final class APIClient {
 
         if http.statusCode == 401 && !noAuthBounce {
             invalidateSession(ifCurrentRequestToken: requestToken)
-            throw APIError(status: 401, message: unauthorizedMessage)
+            throw APIError(status: 401, message: unauthorizedMessage, code: Self.errorCode(from: data))
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            throw APIError(status: http.statusCode, message: Self.errorMessage(from: data, status: http.statusCode))
+            throw APIError(status: http.statusCode, message: Self.errorMessage(from: data, status: http.statusCode),
+                           code: Self.errorCode(from: data))
         }
 
         if T.self == EmptyResponse.self {
@@ -748,6 +752,11 @@ final class APIClient {
             .replacingOccurrences(of: "\"", with: "_")
             .replacingOccurrences(of: "\\", with: "_")
         return sanitized.nilIfBlank ?? fallback
+    }
+
+    private static func errorCode(from data: Data) -> String? {
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["code"] as? String)?.nilIfBlank
     }
 
     private static func errorMessage(from data: Data, status: Int) -> String {

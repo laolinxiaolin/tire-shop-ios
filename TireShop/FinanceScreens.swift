@@ -499,9 +499,136 @@ private struct EmailStatementSheet: View {
     }
 }
 
-private struct CollectReceivableSheet: View {
+/// Exact full allocations follow price changes. Preserve partial, overpaid,
+/// and malformed entries, and retain the last valid balance while an
+/// adjustment is incomplete.
+struct ReceivableCollectionDraft {
+    private(set) var allocations: [String: String] = [:]
+    private(set) var adjustments: [String: CollectionAdjustmentDraft] = [:]
+    private var validBalances: [String: Double] = [:]
+
+    func balance(invoiceId: String, original: Double) -> Double {
+        validBalances[invoiceId] ?? original
+    }
+
+    func isSelected(_ invoiceId: String) -> Bool {
+        (CollectionMoney.cents(allocations[invoiceId] ?? "") ?? 0) > 0
+    }
+
+    mutating func setAllocation(_ text: String, invoiceId: String) {
+        allocations[invoiceId] = text
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || CollectionMoney.cents(text) == 0 {
+            adjustments.removeValue(forKey: invoiceId)
+            validBalances.removeValue(forKey: invoiceId)
+        }
+    }
+
+    mutating func setAdjustment(_ draft: CollectionAdjustmentDraft, invoiceId: String, original: Double) {
+        adjustments[invoiceId] = draft
+        guard let revised = try? draft.adjustedBalance(originalBalance: original) else { return }
+        followBalance(invoiceId: invoiceId, from: balance(invoiceId: invoiceId, original: original), to: revised)
+        validBalances[invoiceId] = revised
+    }
+
+    mutating func removeAdjustment(invoiceId: String, original: Double) {
+        followBalance(invoiceId: invoiceId, from: balance(invoiceId: invoiceId, original: original), to: original)
+        adjustments.removeValue(forKey: invoiceId)
+        validBalances.removeValue(forKey: invoiceId)
+    }
+
+    mutating func removeAllAdjustments(originalBalances: [String: Double]) {
+        for invoiceId in Array(adjustments.keys) {
+            removeAdjustment(invoiceId: invoiceId, original: originalBalances[invoiceId] ?? 0)
+        }
+    }
+
+    /// Returns the tender left for store credit, in cents.
+    mutating func split(invoices: [(id: String, balance: Double)], totalCents: Int64) -> Int64 {
+        var remaining = totalCents
+        var next: [String: String] = [:]
+        for invoice in invoices {
+            let due = CollectionMoney.cents(balance(invoiceId: invoice.id, original: invoice.balance)) ?? 0
+            let applied = min(remaining, due)
+            next[invoice.id] = applied > 0 ? CollectionMoney.text(cents: applied) : ""
+            if applied == 0 {
+                adjustments.removeValue(forKey: invoice.id)
+                validBalances.removeValue(forKey: invoice.id)
+            }
+            remaining -= applied
+        }
+        allocations = next
+        return remaining
+    }
+
+    func submissionAdjustments(originalBalances: [String: Double]) throws -> [InvoiceCollectionAdjustment] {
+        try adjustments.keys.sorted().compactMap { invoiceId in
+            guard isSelected(invoiceId), let original = originalBalances[invoiceId] else {
+                throw APIError(status: 400, message: "payment.adjustmentInvoiceMismatch")
+            }
+            return try adjustments[invoiceId]?.adjustment(invoiceId: invoiceId, originalBalance: original)
+        }
+    }
+
+    private mutating func followBalance(invoiceId: String, from oldBalance: Double, to newBalance: Double) {
+        guard let currentCents = CollectionMoney.cents(allocations[invoiceId] ?? ""),
+              let oldCents = CollectionMoney.cents(oldBalance), currentCents > 0, currentCents == oldCents,
+              let newCents = CollectionMoney.cents(newBalance) else { return }
+        allocations[invoiceId] = CollectionMoney.text(cents: newCents)
+    }
+}
+
+/// Receivables become one receipt line per invoice. Round each line's fee
+/// before adding them, including any credit carried on the final application.
+enum ReceivableCollectionFee {
+    static func total(
+        applications: [ReceivableApplication], excess: Double,
+        paymentMethodAccountCode: String?, feeRate: String?
+    ) throws -> Decimal {
+        guard paymentMethodAccountCode != ReceivableOverpaymentPolicy.storeCreditAccountCode else { return 0 }
+        let submitted = try ReceivableOverpaymentPolicy.applicationsForSubmission(applications, excess: excess)
+        return try submitted.reduce(Decimal(0)) { sum, application in
+            guard let cents = CollectionMoney.cents(application.amount) else {
+                throw APIError(status: 400, message: "payment.invalidAmount")
+            }
+            return sum + ManualTenderAmounts.surcharge(amount: CollectionMoney.text(cents: cents), feeRate: feeRate)
+        }
+    }
+}
+
+/// Receipt writes have no replay guarantee. Retain the affected invoice set until
+/// receipt history and current customer balances have refreshed, then discard the draft.
+struct ReceivableCollectionRecovery {
+    private(set) var invoiceIds: Set<String> = []
+    var needsRefresh: Bool { !invoiceIds.isEmpty }
+
+    mutating func recordFailure(_ error: Error, invoiceIds: Set<String>) {
+        let apiError = error as? APIError
+        let status = apiError?.status
+        if status == nil || status == 0 || (status ?? 0) >= 500 || [408, 409, 429].contains(status ?? 0)
+            || apiError?.code == "PAYMENT_ADJUSTMENT_STALE" {
+            self.invoiceIds.formUnion(invoiceIds)
+        }
+    }
+
+    func readRefresh<Value>(
+        history: @Sendable () async throws -> Void,
+        balances: () async throws -> Value
+    ) async throws -> Value {
+        if needsRefresh { try await history() }
+        return try await balances()
+    }
+
+    mutating func refreshed() { invoiceIds.removeAll() }
+}
+
+struct CollectReceivableSheet: View {
     let customer: CustomerSummary
     let onPaid: () -> Void
+    private let detailLoader: (String) async throws -> ReceivableCustomerDetail
+    private let methodsLoader: () async throws -> [PaymentMethod]
+    private let pricingPolicyLoader: () async throws -> FleetPricingPolicy
+    private let historyLoader: @Sendable () async throws -> Void
 
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
@@ -514,7 +641,12 @@ private struct CollectReceivableSheet: View {
     @State private var note = ""
     @State private var plannedDepositDate = ""
     @State private var bulkAmount = ""
-    @State private var allocations: [String: String] = [:]
+    @State private var bulkFollowsFull = false
+    @State private var loadedSession: AppSessionIdentity?
+    @State private var collectionDraft: ReceivableCollectionDraft
+    @State private var policyEnabled: Bool?
+    @State private var recovery = ReceivableCollectionRecovery()
+    @State private var refreshing = false
     @State private var overpaymentAmount = 0.0
     @State private var busy = false
     @State private var errorMessage: String?
@@ -525,7 +657,63 @@ private struct CollectReceivableSheet: View {
     @State private var submissionTask: Task<Void, Never>?
     @State private var showOverpaymentConfirmation = false
 
+    @MainActor
+    init(
+        customer: CustomerSummary,
+        initialDraft: ReceivableCollectionDraft = .init(),
+        detailLoader: @escaping (String) async throws -> ReceivableCustomerDetail = {
+            try await MoneyAPI().receivable(customerId: $0)
+        },
+        methodsLoader: @escaping () async throws -> [PaymentMethod] = { try await CashAccountsAPI().methods() },
+        pricingPolicyLoader: @escaping () async throws -> FleetPricingPolicy = { try await FleetPricingAPI().policy() },
+        historyLoader: @escaping @Sendable () async throws -> Void = {
+            try await MoneyAPI().refreshCollectionHistory()
+        },
+        onPaid: @escaping () -> Void
+    ) {
+        self.customer = customer
+        self.onPaid = onPaid
+        self.detailLoader = detailLoader
+        self.methodsLoader = methodsLoader
+        self.pricingPolicyLoader = pricingPolicyLoader
+        self.historyLoader = historyLoader
+        _collectionDraft = State(initialValue: initialDraft)
+    }
+
+    private var controlsLocked: Bool {
+        busy || postedRef != nil || recovery.needsRefresh || refreshing || showOverpaymentConfirmation
+    }
+
     private var canCollect: Bool { auth.has("payments.collect") }
+    private var sessionIdentity: AppSessionIdentity { AppSessionIdentity(auth) }
+    private var canAdjust: Bool {
+        canCollect && CollectionAdjustmentPermission.allows(
+            hasOverride: auth.has("sales.price.override"), policyEnabled: policyEnabled
+        )
+    }
+    private var originalBalances: [String: Double] {
+        Dictionary(uniqueKeysWithValues: (detail?.openInvoices ?? []).map { ($0.id, $0.balance) })
+    }
+    private var adjustedTotalBalance: Double {
+        let cents = (detail?.openInvoices ?? []).reduce(Int64(0)) {
+            $0 + (CollectionMoney.cents(revisedBalance($1)) ?? 0)
+        }
+        return CollectionMoney.amount(cents: cents)
+    }
+    private var adjustmentError: String? {
+        for invoice in detail?.openInvoices ?? [] {
+            if let draft = collectionDraft.adjustments[invoice.id] {
+                if !canAdjust { return i18n.t("payment.adjustmentUnavailable") }
+                if let key = draft.validationError(originalBalance: invoice.balance) { return i18n.t(key) }
+                if !collectionDraft.isSelected(invoice.id) { return i18n.t("payment.adjustmentNeedsPayment") }
+            }
+        }
+        return nil
+    }
+
+    private func revisedBalance(_ invoice: ReceivableCustomerDetail.OpenInvoice) -> Double {
+        collectionDraft.balance(invoiceId: invoice.id, original: invoice.balance)
+    }
 
     private var selectedMethod: PaymentMethod? {
         methods.first { $0.id == paymentMethodId }
@@ -555,26 +743,36 @@ private struct CollectReceivableSheet: View {
         var parsedAmounts = FinanceAllocationAmounts([:])
         var overpaidRows: Set<String> = []
         var totalApplied = 0.0
+        var impreciseRows: Set<String> = []
 
-        var invalidRows: Set<String> { parsedAmounts.invalidRows }
+        var invalidRows: Set<String> { parsedAmounts.invalidRows.union(impreciseRows) }
     }
 
     private var allocationState: AllocationState {
         var state = AllocationState()
         let invoices = detail?.openInvoices ?? []
         state.parsedAmounts = FinanceAllocationAmounts(Dictionary(uniqueKeysWithValues:
-            invoices.map { ($0.id, allocations[$0.id] ?? "") }))
+            invoices.map { ($0.id, collectionDraft.allocations[$0.id] ?? "") }))
+        var totalCents: Int64 = 0
         for invoice in invoices {
-            guard let amount = state.parsedAmounts.amounts[invoice.id] else { continue }
+            let text = collectionDraft.allocations[invoice.id] ?? ""
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+            guard let cents = CollectionMoney.cents(text) else {
+                state.impreciseRows.insert(invoice.id)
+                continue
+            }
+            guard cents > 0 else { continue }
+            let amount = CollectionMoney.amount(cents: cents)
             state.applications.append(
                 ReceivableApplication(invoiceId: invoice.id, amount: amount)
             )
-            state.totalApplied += amount
+            totalCents += cents
 
-            if FinanceMoney.excess(amount: amount, balance: invoice.balance) > 0 {
+            if FinanceMoney.excess(amount: amount, balance: revisedBalance(invoice)) > 0 {
                 state.overpaidRows.insert(invoice.id)
             }
         }
+        state.totalApplied = CollectionMoney.amount(cents: totalCents)
         return state
     }
 
@@ -595,16 +793,17 @@ private struct CollectReceivableSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                        .disabled(busy)
+                    Button("Close") { Task { await close() } }
+                        .disabled(busy || refreshing || showOverpaymentConfirmation)
                 }
                 if canCollect {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(busy ? "Posting..." : "Collect") { requestSubmission() }
                             .disabled(
-                                busy
-                                    || postedRef != nil
+                                controlsLocked
+                                    || adjustmentError != nil
                                     || !state.parsedAmounts.canSubmit
+                                    || !state.invalidRows.isEmpty
                                     || paymentMethodId.isEmpty
                                     || !state.overpaidRows.isEmpty
                                     || overpaymentError != nil
@@ -616,7 +815,7 @@ private struct CollectReceivableSheet: View {
                 Button(i18n.t("common.cancel"), role: .cancel) {}
                 Button(i18n.t("payment.confirmCollectCredit")) { startSubmission() }
             } message: {
-                Text(overpaymentConfirmationMessage(totalApplied: state.totalApplied))
+                Text(overpaymentConfirmationMessage(state: state))
             }
             .alert("Payment recorded", isPresented: Binding(
                 get: { postedRef != nil },
@@ -638,8 +837,26 @@ private struct CollectReceivableSheet: View {
                 }
             }
         }
-        .task { if detail == nil { await load() } }
-        .interactiveDismissDisabled(busy)
+        .task(id: sessionIdentity) {
+            let session = sessionIdentity
+            if let loadedSession, loadedSession != session {
+                submissionTask?.cancel()
+                collectionDraft = ReceivableCollectionDraft()
+                recovery = ReceivableCollectionRecovery()
+                dismiss()
+                return
+            }
+            loadedSession = session
+            await load()
+        }
+        .task(id: sessionIdentity) { await loadPolicy() }
+        .onChange(of: canAdjust) { _, allowed in
+            if !allowed {
+                collectionDraft.removeAllAdjustments(originalBalances: originalBalances)
+                updateBulkAfterAdjustment()
+            }
+        }
+        .interactiveDismissDisabled(busy || recovery.needsRefresh || refreshing)
         .onDisappear {
             if busy {
                 submissionTask?.cancel()
@@ -649,6 +866,16 @@ private struct CollectReceivableSheet: View {
 
     private func form(_ detail: ReceivableCustomerDetail, state: AllocationState) -> some View {
         Form {
+            if recovery.needsRefresh {
+                Section {
+                    Text(i18n.t("payment.adjustmentRefreshRequired"))
+                        .font(.subheadline)
+                    Button(i18n.t("payment.refreshBalancesAndHistory")) {
+                        Task { await load() }
+                    }
+                    .disabled(refreshing)
+                }
+            }
             if canCollect {
                 Section("Payment") {
                     Picker("Method", selection: $paymentMethodId) {
@@ -665,12 +892,16 @@ private struct CollectReceivableSheet: View {
                     TextField("Reference / check #", text: $reference)
                     TextField("Note (optional)", text: $note)
                 }
+                .disabled(controlsLocked)
 
                 Section {
                     HStack {
                         Text("$")
                             .foregroundStyle(Theme.muted)
-                        TextField("\(String(format: "%.2f", detail.totalBalance)) = pay all", text: $bulkAmount)
+                        TextField("\(String(format: "%.2f", adjustedTotalBalance)) = pay all", text: Binding(
+                            get: { bulkAmount },
+                            set: { bulkAmount = $0; bulkFollowsFull = false }
+                        ))
                             .keyboardType(.decimalPad)
                     }
                     Button("Collect all in full") { collectAllInFull(detail) }
@@ -686,9 +917,10 @@ private struct CollectReceivableSheet: View {
                         Text("Or type an amount on each invoice below.")
                     }
                 }
+                .disabled(controlsLocked)
             }
 
-            Section("Open invoices — total \(AppFormat.money(detail.totalBalance))") {
+            Section("Open invoices — total \(AppFormat.money(adjustedTotalBalance))") {
                 ForEach(detail.openInvoices) { inv in
                     VStack(alignment: .leading, spacing: Theme.Space.xs) {
                         HStack {
@@ -697,7 +929,7 @@ private struct CollectReceivableSheet: View {
                                 .fontWeight(.semibold)
                             AgeBadge(days: inv.ageDays)
                             Spacer()
-                            Text(AppFormat.money(inv.balance))
+                            Text(AppFormat.money(revisedBalance(inv)))
                                 .font(.subheadline)
                         }
                         if canCollect {
@@ -706,28 +938,33 @@ private struct CollectReceivableSheet: View {
                                     .font(.caption)
                                     .foregroundStyle(Theme.muted)
                                 TextField("0.00", text: Binding(
-                                    get: { allocations[inv.id] ?? "" },
+                                    get: { collectionDraft.allocations[inv.id] ?? "" },
                                     set: {
-                                        allocations[inv.id] = $0
+                                        collectionDraft.setAllocation($0, invoiceId: inv.id)
                                         bulkAmount = ""
+                                        bulkFollowsFull = false
                                         overpaymentAmount = 0
+                                        showOverpaymentConfirmation = false
                                     }
                                 ))
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
+                                .font(.body.weight(.semibold))
                             }
+                            adjustmentControl(inv)
                             if state.overpaidRows.contains(inv.id) {
                                 Text("Amount exceeds the remaining balance.")
                                     .font(.caption)
                                     .foregroundStyle(.red)
                             } else if state.invalidRows.contains(inv.id) {
-                                Text("Enter zero or a positive dollar amount.")
+                                Text(i18n.t("payment.invalidAmount"))
                                     .font(.caption)
                                     .foregroundStyle(.red)
                             }
                         }
                     }
                     .padding(.vertical, 2)
+                    .disabled(controlsLocked)
                 }
 
                 if canCollect {
@@ -755,7 +992,7 @@ private struct CollectReceivableSheet: View {
                 }
             }
 
-            if canCollect, let fee = feeNote(totalApplied: state.totalApplied + overpaymentAmount) {
+            if canCollect, let fee = feeNote(state: state) {
                 Section {
                     Text(fee)
                         .font(.caption)
@@ -776,6 +1013,10 @@ private struct CollectReceivableSheet: View {
                 }
             }
 
+            if let adjustmentError {
+                Section { Text(adjustmentError).foregroundStyle(.red).font(.subheadline) }
+            }
+
             if let overpaymentError {
                 Section {
                     Text(overpaymentError).foregroundStyle(.red).font(.subheadline)
@@ -790,25 +1031,77 @@ private struct CollectReceivableSheet: View {
         }
     }
 
-    private func feeNote(totalApplied: Double) -> String? {
-        guard let method = methods.first(where: { $0.id == paymentMethodId }),
-              let rate = method.feeRate.flatMap(Double.init), rate > 0, totalApplied > 0
-        else { return nil }
-        let fee = (totalApplied * rate * 100).rounded() / 100
-        return "A \(String(format: "%.1f", rate * 100))% card fee applies: +\(AppFormat.money(fee)) (customer pays \(AppFormat.money(totalApplied + fee)))."
+    @ViewBuilder
+    private func adjustmentControl(_ invoice: ReceivableCustomerDetail.OpenInvoice) -> some View {
+        if canAdjust, collectionDraft.isSelected(invoice.id), ["INVOICED", "PAID"].contains(invoice.sale.status) {
+            CollectionAdjustmentEditor(
+                originalBalance: invoice.balance,
+                draft: Binding(
+                    get: { collectionDraft.adjustments[invoice.id] ?? CollectionAdjustmentDraft() },
+                    set: { draft in
+                        updateAdjustment(draft, invoice: invoice)
+                    }
+                ),
+                invoiceRef: invoice.ref,
+                isEnabled: !controlsLocked,
+                onRemove: {
+                    collectionDraft.removeAdjustment(invoiceId: invoice.id, original: invoice.balance)
+                    updateBulkAfterAdjustment()
+                }
+            )
+        }
     }
 
-    private func overpaymentConfirmationMessage(totalApplied: Double) -> String {
-        let totalReceived = totalApplied + overpaymentAmount
+    private func updateAdjustment(_ draft: CollectionAdjustmentDraft, invoice: ReceivableCustomerDetail.OpenInvoice) {
+        collectionDraft.setAdjustment(draft, invoiceId: invoice.id, original: invoice.balance)
+        errorMessage = nil
+        updateBulkAfterAdjustment()
+    }
+
+    private func updateBulkAfterAdjustment() {
+        if bulkFollowsFull {
+            bulkAmount = String(format: "%.2f", adjustedTotalBalance)
+            overpaymentAmount = 0
+        } else if let received = CollectionMoney.cents(bulkAmount), received > 0, let detail {
+            // A typed bulk amount is the actual tender. Re-split that same
+            // amount after repricing instead of silently changing cash received.
+            let excess = collectionDraft.split(
+                invoices: detail.openInvoices.map { (id: $0.id, balance: $0.balance) }, totalCents: received
+            )
+            overpaymentAmount = CollectionMoney.amount(cents: excess)
+        }
+        showOverpaymentConfirmation = false
+    }
+
+    private func collectionFee(state: AllocationState) -> Double {
+        let fee = (try? ReceivableCollectionFee.total(
+            applications: state.applications, excess: overpaymentAmount,
+            paymentMethodAccountCode: selectedMethod?.account.code, feeRate: selectedMethod?.feeRate
+        )) ?? 0
+        return NSDecimalNumber(decimal: fee).doubleValue
+    }
+
+    private func feeNote(state: AllocationState) -> String? {
+        let totalReceived = state.totalApplied + overpaymentAmount
+        guard let method = selectedMethod, method.account.code != ReceivableOverpaymentPolicy.storeCreditAccountCode,
+              let rate = method.feeRate.flatMap(Double.init), rate > 0, totalReceived > 0
+        else { return nil }
+        let fee = collectionFee(state: state)
+        return "A \(String(format: "%.1f", rate * 100))% card fee applies: +\(AppFormat.money(fee)) (customer pays \(AppFormat.money(totalReceived + fee)))."
+    }
+
+    private func overpaymentConfirmationMessage(state: AllocationState) -> String {
+        let totalReceived = state.totalApplied + overpaymentAmount
         let methodName = selectedMethod?.name ?? "the selected payment method"
         var message = i18n.t("payment.confirmCustomerOverpayment", [
-            "applied": AppFormat.money(totalApplied),
+            "applied": AppFormat.money(state.totalApplied),
             "credit": AppFormat.money(overpaymentAmount),
             "total": AppFormat.money(totalReceived),
             "method": methodName,
         ])
-        if let rate = selectedMethod?.feeRate.flatMap(Double.init), rate > 0 {
-            let fee = (totalReceived * rate * 100).rounded() / 100
+        if selectedMethod?.account.code != ReceivableOverpaymentPolicy.storeCreditAccountCode,
+           let rate = selectedMethod?.feeRate.flatMap(Double.init), rate > 0 {
+            let fee = collectionFee(state: state)
             message += " " + i18n.t("payment.feeAppliesSummary", [
                 "fee": AppFormat.money(fee),
                 "total": AppFormat.money(totalReceived + fee),
@@ -818,56 +1111,107 @@ private struct CollectReceivableSheet: View {
     }
 
     private func collectAllInFull(_ detail: ReceivableCustomerDetail) {
-        bulkAmount = String(format: "%.2f", detail.totalBalance)
-        split(detail, total: detail.totalBalance)
+        bulkFollowsFull = true
+        bulkAmount = String(format: "%.2f", adjustedTotalBalance)
+        split(detail, total: adjustedTotalBalance)
     }
 
     private func applyOldestFirst(_ detail: ReceivableCustomerDetail) {
-        guard let total = Double(bulkAmount), total.isFinite, total > 0 else {
+        guard let cents = CollectionMoney.cents(bulkAmount), cents > 0 else {
             errorMessage = "Enter a positive amount first"
             return
         }
         errorMessage = nil
-        split(detail, total: total)
+        bulkFollowsFull = false
+        split(detail, total: CollectionMoney.amount(cents: cents))
     }
 
     private func split(_ detail: ReceivableCustomerDetail, total: Double) {
-        var remaining = total
-        var next: [String: String] = [:]
-        for inv in detail.openInvoices {
-            let apply = min(remaining, inv.balance)
-            next[inv.id] = apply > 0 ? String(format: "%.2f", apply) : ""
-            remaining = ((remaining - apply) * 100).rounded() / 100
-        }
-        allocations = next
-        overpaymentAmount = ReceivableOverpaymentPolicy.excess(
-            received: total,
-            openBalance: detail.totalBalance
+        guard let cents = CollectionMoney.cents(total) else { return }
+        let excess = collectionDraft.split(
+            invoices: detail.openInvoices.map { (id: $0.id, balance: $0.balance) }, totalCents: cents
         )
+        overpaymentAmount = CollectionMoney.amount(cents: excess)
+        showOverpaymentConfirmation = false
+    }
+
+    @MainActor
+    private func loadPolicy() async {
+        let session = sessionIdentity
+        let loaded = try? await pricingPolicyLoader()
+        guard !Task.isCancelled, session.isCurrent(auth) else { return }
+        policyEnabled = loaded?.enabled
     }
 
     @MainActor
     private func load() async {
+        guard !refreshing else { return }
+        let session = sessionIdentity
+        let recovering = recovery.needsRefresh
+        let recoverySnapshot = recovery
+        refreshing = true
         errorMessage = nil
+        defer { if session.isCurrent(auth) { refreshing = false } }
         do {
-            async let d = MoneyAPI().receivable(customerId: customer.id)
-            async let ms = CashAccountsAPI().methods()
-            let (loadedDetail, loadedMethods) = try await (d, ms)
+            // History must succeed before replacing a stale price snapshot.
+            // A failed read leaves the original form retired and cannot replay it.
+            let (loadedDetail, loadedMethods) = try await recoverySnapshot.readRefresh(
+                history: historyLoader,
+                balances: {
+                    async let d = detailLoader(customer.id)
+                    async let ms = methodsLoader()
+                    return try await (d, ms)
+                }
+            )
+            try Task.checkCancellation()
+            guard session.isCurrent(auth) else { return }
             detail = loadedDetail
             // This endpoint records manual tenders. Processor-backed methods
             // must use their gateway flow and are rejected by the backend here.
             methods = loadedMethods.filter { $0.isActive && $0.processor == nil }
-            if paymentMethodId.isEmpty { paymentMethodId = methods.first?.id ?? "" }
+            if !methods.contains(where: { $0.id == paymentMethodId }) {
+                paymentMethodId = methods.first?.id ?? ""
+            }
+            if recovering {
+                collectionDraft = ReceivableCollectionDraft()
+                bulkAmount = ""
+                bulkFollowsFull = false
+                overpaymentAmount = 0
+                submissionIdentity = FinanceSubmissionIdentity()
+                showOverpaymentConfirmation = false
+                recovery.refreshed()
+                onPaid()
+            }
         } catch {
+            guard !Task.isCancelled, session.isCurrent(auth) else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load invoices."
         }
     }
 
     @MainActor
+    private func close() async {
+        guard !busy, !refreshing else { return }
+        if recovery.needsRefresh {
+            await load()
+            guard !recovery.needsRefresh else { return }
+        }
+        dismiss()
+    }
+
+    @MainActor
     private func submit() async {
-        guard !busy, postedRef == nil else { return }
+        let session = sessionIdentity
+        guard loadedSession == session, session.isCurrent(auth) else {
+            dismiss()
+            return
+        }
+        guard !busy, postedRef == nil, !recovery.needsRefresh, !refreshing else { return }
         guard canCollect else {
             errorMessage = "You do not have permission to collect payments."
+            return
+        }
+        if let adjustmentError {
+            errorMessage = adjustmentError
             return
         }
         let state = allocationState
@@ -906,6 +1250,7 @@ private struct CollectReceivableSheet: View {
                 state.applications,
                 excess: overpaymentAmount
             )
+            let adjustments = try collectionDraft.submissionAdjustments(originalBalances: originalBalances)
             let input = ReceivablesPayInput(
                 customerId: customer.id,
                 paymentMethodId: paymentMethodId,
@@ -914,13 +1259,15 @@ private struct CollectReceivableSheet: View {
                 note: note.nilIfBlank,
                 plannedDepositDate: selectedMethod?.account.code == "1010"
                     ? plannedDepositDate
-                    : nil
+                    : nil,
+                adjustments: adjustments.isEmpty ? nil : adjustments
             )
             let idempotencyKey = try submissionIdentity.key(for: input)
             let confirmation = try await MoneyAPI().payReceivablesWithCreditConfirmation(
                 input,
                 idempotencyKey: idempotencyKey
             )
+            guard !Task.isCancelled, session.isCurrent(auth) else { return }
             if let ref = confirmation.result.ref {
                 postedStoreCredit = confirmation.createdStoreCredit
                 postedStoreCreditExpected = expectedStoreCredit
@@ -931,6 +1278,8 @@ private struct CollectReceivableSheet: View {
                 dismiss()
             }
         } catch {
+            guard session.isCurrent(auth) else { return }
+            recovery.recordFailure(error, invoiceIds: Set(state.applications.map(\.invoiceId)))
             if !Task.isCancelled {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not record the payment."
             }
@@ -938,7 +1287,7 @@ private struct CollectReceivableSheet: View {
     }
 
     private func startSubmission() {
-        guard submissionTask == nil, !busy, postedRef == nil else { return }
+        guard submissionTask == nil, !busy, postedRef == nil, !recovery.needsRefresh, !refreshing else { return }
         submissionTask = Task { @MainActor in
             await submit()
             submissionTask = nil
@@ -946,7 +1295,11 @@ private struct CollectReceivableSheet: View {
     }
 
     private func requestSubmission() {
-        guard submissionTask == nil, !busy, postedRef == nil else { return }
+        guard submissionTask == nil, !busy, postedRef == nil, !recovery.needsRefresh, !refreshing else { return }
+        if let adjustmentError {
+            errorMessage = adjustmentError
+            return
+        }
         if let message = plannedDepositDateError {
             errorMessage = message
             return

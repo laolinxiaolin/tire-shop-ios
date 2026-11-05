@@ -1740,6 +1740,28 @@ struct ReceivablesPayInput: Codable {
     let reference: String?
     let note: String?
     var plannedDepositDate: String? = nil
+    var adjustments: [InvoiceCollectionAdjustment]? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case customerId, paymentMethodId, applications, reference, note, plannedDepositDate, adjustments
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try CollectionAdjustmentValidation.validate(
+            adjustments: adjustments ?? [],
+            paidInvoiceIds: Set(applications.filter { $0.amount > 0 }.map(\.invoiceId))
+        )
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(customerId, forKey: .customerId)
+        try container.encode(paymentMethodId, forKey: .paymentMethodId)
+        try container.encode(applications, forKey: .applications)
+        try container.encodeIfPresent(reference, forKey: .reference)
+        try container.encodeIfPresent(note, forKey: .note)
+        try container.encodeIfPresent(plannedDepositDate, forKey: .plannedDepositDate)
+        if let adjustments, !adjustments.isEmpty {
+            try container.encode(adjustments, forKey: .adjustments)
+        }
+    }
 }
 
 struct StatementEmailInput: Codable {
@@ -1837,6 +1859,13 @@ struct MoneyAPI {
 
     func receipts(page: Int? = nil, pageSize: Int? = nil) async throws -> Paged<CustomerReceipt> {
         try await client.request("/receipts\(query(["page": page, "pageSize": pageSize]))")
+    }
+
+    /// AR collectors can read receipts with payments.collect; invoice payment
+    /// history additionally requires sales.view. This read does not determine
+    /// whether a POST committed: recovery must also reload AR balances and retire its draft.
+    func refreshCollectionHistory() async throws {
+        _ = try await receipts(page: 1, pageSize: 50)
     }
 
     func receipt(id: String) async throws -> CustomerReceiptDetail {

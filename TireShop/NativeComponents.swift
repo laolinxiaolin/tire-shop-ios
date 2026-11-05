@@ -136,6 +136,9 @@ struct PaymentSheetNativeView: View {
     let balance: Double
     let customerId: String?
     let onPaid: () async throws -> Void
+    let methodsLoader: () async throws -> [PaymentMethod]
+    let pricingPolicyLoader: () async throws -> FleetPricingPolicy
+    let creditLoader: (String) async -> Double?
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var i18n: I18nStore
@@ -146,7 +149,12 @@ struct PaymentSheetNativeView: View {
     @State private var creditBalance: Double?
     @State private var rows: [PaymentRow] = []
     @State private var loading = false
-    @StateObject private var receipt = ManualReceiptStore()
+    @StateObject private var receipt: ManualReceiptStore
+    @State private var adjustmentDraft: CollectionAdjustmentDraft
+    @State private var lastValidAdjustedBalance: Double
+    @State private var policyEnabled: Bool?
+    @State private var policyLoading = false
+    @State private var policyUnavailable = false
     private var recording: Bool { receipt.recording || receipt.reconciling }
     @State private var errorMessage: String?
     @State private var recordingTask: Task<Void, Never>?
@@ -154,33 +162,72 @@ struct PaymentSheetNativeView: View {
     @State private var showOverpaymentConfirmation = false
     @State private var receiptSession: AppSessionIdentity?
 
+    @MainActor
+    init(
+        invoiceId: String, balance: Double, customerId: String?,
+        onPaid: @escaping () async throws -> Void,
+        initialAdjustment: CollectionAdjustmentDraft = .init(),
+        methodsLoader: @escaping () async throws -> [PaymentMethod] = { try await CashAccountsAPI().methods() },
+        pricingPolicyLoader: @escaping () async throws -> FleetPricingPolicy = { try await FleetPricingAPI().policy() },
+        creditLoader: @escaping (String) async -> Double? = { try? await CustomersAPI().creditBalance(id: $0).balance },
+        receiptStore: ManualReceiptStore? = nil
+    ) {
+        self.invoiceId = invoiceId
+        self.balance = balance
+        self.customerId = customerId
+        self.onPaid = onPaid
+        self.methodsLoader = methodsLoader
+        self.pricingPolicyLoader = pricingPolicyLoader
+        self.creditLoader = creditLoader
+        _receipt = StateObject(wrappedValue: receiptStore ?? ManualReceiptStore())
+        _adjustmentDraft = State(initialValue: initialAdjustment)
+        let original = max(0, (balance * 100).rounded() / 100)
+        _lastValidAdjustedBalance = State(initialValue:
+            (try? initialAdjustment.adjustedBalance(originalBalance: original)) ?? original)
+    }
+
+    private var originalBalance: Double { max(0, roundMoney(balance)) }
+    private var canAdjust: Bool {
+        auth.has("payments.collect") && CollectionAdjustmentPermission.allows(
+            hasOverride: auth.has("sales.price.override"), policyEnabled: policyEnabled)
+    }
+    private var adjustmentError: String? { adjustmentDraft.validationError(originalBalance: originalBalance) }
+    private var adjustmentHasInput: Bool { !adjustmentDraft.isEmpty }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    RowLine(title: "Balance owed", trailing: AppFormat.money(effectiveBalance))
+                    LabeledContent {
+                        Text(AppFormat.money(effectiveBalance))
+                            .font(.title2.weight(.semibold)).monospacedDigit()
+                    } label: {
+                        Text(i18n.t("payment.balanceDue"))
+                            .foregroundStyle(Theme.muted)
+                    }
                 }
 
-                Section("Card") {
+                if !adjustmentHasInput { Section("Card") {
                     Button {
                         showCardSheet = true
                     } label: {
-                        Label("Enter card number", systemImage: "creditcard")
+                        Label(i18n.t("payment.enterCardNumber"), systemImage: "creditcard")
                     }
-                    .disabled(recording || receipt.needsReconciliation || effectiveBalance <= 0)
-                }
+                    .disabled(recording || receipt.needsReconciliation || effectiveBalance <= 0
+                        || adjustmentHasInput || !auth.has("payments.collect"))
+                } }
 
                 if loading {
-                    Section("Manual record") {
+                    Section(i18n.t("payment.manualRecord")) {
                         ProgressView()
                     }
                 } else if methods.isEmpty {
-                    Section("Manual record") {
-                        Text("No manual payment methods are active.")
+                    Section(i18n.t("payment.manualRecord")) {
+                        Text(i18n.t("payment.noManualMethods"))
                             .foregroundStyle(Theme.muted)
                     }
                 } else {
-                    Section("Manual record") {
+                    Section(i18n.t("payment.manualRecord")) {
                         ForEach($rows) { $row in
                             PaymentRowEditor(
                                 row: $row,
@@ -198,25 +245,47 @@ struct PaymentSheetNativeView: View {
                             }
                         }
 
-                        Button("Add manual payment method") {
+                        Button(i18n.t("payment.addMethod")) {
                             addRow()
                         }
                         .disabled(recording || receipt.needsReconciliation)
                     }
 
-                    Section("Totals") {
+                    if canAdjust || policyLoading || policyUnavailable {
+                        Section {
+                            if canAdjust {
+                                CollectionAdjustmentEditor(originalBalance: originalBalance, draft: $adjustmentDraft,
+                                    isEnabled: !recording && !receipt.needsReconciliation && !showOverpaymentConfirmation)
+                            } else if policyLoading {
+                                ProgressView(i18n.t("payment.checkingAdjustmentAccess"))
+                                    .font(.caption)
+                            } else {
+                                Button(i18n.t("payment.retryAdjustmentAccess")) {
+                                    Task { await loadAdjustmentPolicy() }
+                                }
+                                .font(.subheadline)
+                                .disabled(recording || receipt.needsReconciliation)
+                            }
+                            if adjustmentHasInput {
+                                Text(i18n.t("payment.adjustmentManualOnly"))
+                                    .font(.caption).foregroundStyle(Theme.muted)
+                            }
+                        }
+                    }
+
+                    Section(i18n.t("payment.totals")) {
                         let totals = paymentTotals
                         let remainder = remaining(totals)
-                        RowLine(
-                            title: i18n.t("payment.appliedToInvoice"),
-                            trailing: AppFormat.money(ManualPaymentOverpaymentPolicy.appliedToInvoice(
+                        LabeledContent(
+                            i18n.t("payment.appliedToInvoice"),
+                            value: AppFormat.money(ManualPaymentOverpaymentPolicy.appliedToInvoice(
                                 totalApplied: totals.applied,
                                 balance: effectiveBalance
                             ))
                         )
                         if totals.surcharge > 0 {
-                            RowLine(title: "Card fee", trailing: AppFormat.money(totals.surcharge))
-                            RowLine(title: "Customer pays", trailing: AppFormat.money(totals.customerPays))
+                            LabeledContent(i18n.t("payment.cardFee"), value: AppFormat.money(totals.surcharge))
+                            LabeledContent(i18n.t("payment.customerPaysTotal"), value: AppFormat.money(totals.customerPays))
                         }
                         if isOverpay(totals) {
                             let overpayment = ManualPaymentOverpaymentPolicy.amount(
@@ -246,9 +315,9 @@ struct PaymentSheetNativeView: View {
                                 .foregroundStyle(.orange)
                             }
                         } else {
-                            RowLine(
-                                title: "Remaining balance",
-                                trailing: AppFormat.money(max(0, remainder))
+                            LabeledContent(
+                                i18n.t("payment.remainingBalance"),
+                                value: AppFormat.money(max(0, remainder))
                             )
                         }
                     }
@@ -272,7 +341,7 @@ struct PaymentSheetNativeView: View {
                 } else {
                     Section {
                         let totals = paymentTotals
-                        Button(recording ? "Recording..." : recordTitle(totals)) {
+                        Button(recording ? i18n.t("payment.recording") : recordTitle(totals)) {
                             requestRecording(totals)
                         }
                         .disabled(!canRecord(totals))
@@ -280,7 +349,7 @@ struct PaymentSheetNativeView: View {
                 }
             }
             .disabled(recording)
-            .navigationTitle("Take payment")
+            .navigationTitle(i18n.t("payment.takePayment"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") {
@@ -295,10 +364,20 @@ struct PaymentSheetNativeView: View {
             }
             .task {
                 if receiptSession == nil { receiptSession = AppSessionIdentity(auth) }
+                async let policy: Void = loadAdjustmentPolicy()
                 await load()
+                await policy
             }
+            .onChange(of: adjustmentDraft) { _, draft in updateAdjustedBalance(draft) }
+            .onChange(of: canAdjust) { _, allowed in
+                if !allowed {
+                    adjustmentDraft = .init()
+                    updateAdjustedBalance(adjustmentDraft)
+                }
+            }
+            .onChange(of: AppSessionIdentity(auth)) { _, _ in dismiss() }
             .sheet(isPresented: $showCardSheet) {
-                KeyedCardSplitSheet(
+                if !adjustmentHasInput { KeyedCardSplitSheet(
                     invoiceId: invoiceId,
                     balance: effectiveBalance,
                     onPaid: { paymentIntentId in
@@ -308,7 +387,7 @@ struct PaymentSheetNativeView: View {
                         showCardSheet = false
                         Task { await reconcileAndClose() }
                     }
-                )
+                ) }
             }
             .alert(i18n.t("payment.confirmOverpayment"), isPresented: $showOverpaymentConfirmation) {
                 Button(i18n.t("common.cancel"), role: .cancel) {}
@@ -343,7 +422,18 @@ struct PaymentSheetNativeView: View {
     }
 
     private var effectiveBalance: Double {
-        max(0, roundMoney(balance))
+        lastValidAdjustedBalance
+    }
+
+    private func updateAdjustedBalance(_ draft: CollectionAdjustmentDraft) {
+        guard let revised = try? draft.adjustedBalance(originalBalance: originalBalance) else { return }
+        if let amounts = CollectionTenderAutofill.followBalance(
+            amounts: rows.map(\.amount), from: lastValidAdjustedBalance, to: revised
+        ) {
+            for index in rows.indices { rows[index].amount = amounts[index] }
+        }
+        lastValidAdjustedBalance = revised
+        showOverpaymentConfirmation = false
     }
 
     /// The totals the sheet renders. Resolved in one pass over `rows` with a
@@ -419,14 +509,18 @@ struct PaymentSheetNativeView: View {
 
     private func canRecord(_ totals: PaymentTotals) -> Bool {
         !recording && totals.validRowCount > 0
+            && auth.has("payments.collect") && !receipt.needsReconciliation && !receipt.completed
+            && adjustmentError == nil && (!adjustmentHasInput || canAdjust)
+            && !rows.contains { !$0.amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && CollectionMoney.cents($0.amount) == nil }
             && overpaymentError(totals) == nil
             && !isOverCredit(totals)
     }
 
     private func recordTitle(_ totals: PaymentTotals) -> String {
         totals.validRowCount <= 1
-            ? "Record manual payment"
-            : "Record \(totals.validRowCount) manual payments"
+            ? i18n.t("payment.recordOne")
+            : i18n.t("payment.recordN", ["n": totals.validRowCount])
     }
 
     private func overpaymentConfirmationMessage(_ totals: PaymentTotals) -> String {
@@ -468,16 +562,18 @@ struct PaymentSheetNativeView: View {
         errorMessage = nil
 
         do {
-            let loadedMethods = try await CashAccountsAPI().methods()
+            let loadedMethods = try await methodsLoader()
+            guard let session = receiptSession, session.isCurrent(auth), !Task.isCancelled else { return }
             methods = loadedMethods.filter { $0.isActive && $0.processor == nil }
             if let customerId {
-                creditBalance = (try? await CustomersAPI().creditBalance(id: customerId))?.balance
+                creditBalance = await creditLoader(customerId)
+                guard session.isCurrent(auth), !Task.isCancelled else { return }
             }
             if let first = methods.first(where: { $0.account.code != storeCreditCode }) ?? methods.first {
                 rows = [
                     PaymentRow(
                         paymentMethodId: first.id,
-                        amount: String(format: "%.2f", effectiveBalance),
+                        amount: String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), effectiveBalance),
                         reference: ""
                     )
                 ]
@@ -490,13 +586,40 @@ struct PaymentSheetNativeView: View {
     }
 
     @MainActor
+    private func loadAdjustmentPolicy() async {
+        guard !policyLoading else { return }
+        let session = AppSessionIdentity(auth)
+        policyLoading = true
+        policyUnavailable = false
+        defer { if session.isCurrent(auth) { policyLoading = false } }
+        do {
+            let policy = try await pricingPolicyLoader()
+            guard session.isCurrent(auth), !Task.isCancelled else { return }
+            policyEnabled = policy.enabled
+        } catch {
+            guard session.isCurrent(auth), !Task.isCancelled else { return }
+            policyEnabled = nil
+            policyUnavailable = true
+        }
+    }
+
+    @MainActor
     private func record() async {
         guard !recording, !receipt.needsReconciliation else { return }
         guard let session = receiptSession, session.isCurrent(auth) else { dismiss(); return }
         errorMessage = nil
         do {
+            guard auth.has("payments.collect") else {
+                throw APIError(status: 403, message: "You do not have permission to collect payments.")
+            }
+            if let adjustmentError { throw APIError(status: 400, message: adjustmentError) }
+            guard !adjustmentHasInput || canAdjust else {
+                throw APIError(status: 403, message: "payment.adjustmentUnavailable")
+            }
+            let adjustments = try adjustmentDraft.adjustment(invoiceId: invoiceId, originalBalance: originalBalance)
+                .map { [$0] } ?? []
             let input = try ManualReceiptInput.make(invoiceId: invoiceId, customerId: customerId,
-                                                    rows: rows, methods: methods, balance: effectiveBalance)
+                rows: rows, methods: methods, balance: originalBalance, adjustments: adjustments)
             let totals = paymentTotals
             if let message = overpaymentError(totals) { throw APIError(status: 400, message: message) }
             if isOverCredit(totals) {
@@ -558,7 +681,7 @@ struct PaymentSheetNativeView: View {
         let remainingAmount = max(0, remaining(paymentTotals))
         rows.append(PaymentRow(
             paymentMethodId: methods.first?.id ?? "",
-            amount: remainingAmount > 0 ? String(format: "%.2f", remainingAmount) : "",
+            amount: remainingAmount > 0 ? String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), remainingAmount) : "",
             reference: ""
         ))
     }
@@ -885,6 +1008,7 @@ struct PaymentRow: Identifiable {
 
 private struct PaymentRowEditor: View {
     @Binding var row: PaymentRow
+    @EnvironmentObject private var i18n: I18nStore
 
     let methods: [PaymentMethod]
     let creditBalance: Double?
@@ -901,8 +1025,22 @@ private struct PaymentRowEditor: View {
                 row.plannedDepositDate = ""
             }
 
-            TextField("Amount", text: $row.amount)
-                .keyboardType(.decimalPad)
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(i18n.t("payment.amountToCollect"))
+                    .font(.caption).foregroundStyle(Theme.muted)
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                    Text("$").foregroundStyle(Theme.muted)
+                    TextField("0.00", text: $row.amount)
+                        .font(.title3.weight(.semibold)).monospacedDigit()
+                        .keyboardType(.decimalPad)
+                        .accessibilityLabel(i18n.t("payment.amountToCollect"))
+                }
+                if !row.amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   CollectionMoney.cents(row.amount) == nil {
+                    Text(i18n.t("payment.invalidAmount"))
+                        .font(.caption).foregroundStyle(Theme.danger)
+                }
+            }
 
             TextField("Reference", text: $row.reference)
 
