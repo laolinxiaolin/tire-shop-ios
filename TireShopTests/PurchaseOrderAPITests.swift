@@ -9,6 +9,36 @@ final class PurchaseOrderAPITests: XCTestCase {
         XCTAssertTrue(request.query.contains("q=LR%2BA%20%26%20B"), request.query)
         let components = try XCTUnwrap(URLComponents(string: "https://example.invalid/?" + request.query))
         XCTAssertEqual(components.queryItems?.first { $0.name == "q" }?.value, "LR+A & B")
+        XCTAssertEqual(components.queryItems?.first { $0.name == "view" }?.value, "pending")
+    }
+
+    func testListAndExportRetainEachSelectedViewAndSearchScope() async throws {
+        let api = makeAPI()
+        let supplierId = UUID().uuidString
+        for view in PurchaseOrderListView.allCases {
+            _ = try await api.list(q: "LR+A & B", supplierId: supplierId, view: view, page: 3, pageSize: 25)
+            let list = try XCTUnwrap(PurchaseOrderTestProtocol.lastRequest(path: "/api/purchase-orders"))
+            let url = try await api.export(q: "LR+A & B", supplierId: supplierId, view: view)
+            TemporaryDownloadStore.remove(url)
+            let export = try XCTUnwrap(PurchaseOrderTestProtocol.lastRequest(path: "/api/purchase-orders/export"))
+            let listQuery = try queryItems(list.query)
+            let exportQuery = try queryItems(export.query)
+            for key in ["q", "supplierId", "view"] {
+                XCTAssertEqual(listQuery[key], exportQuery[key], key)
+            }
+            XCTAssertEqual(listQuery["view"], view.rawValue)
+            XCTAssertEqual(listQuery["q"], "LR+A & B")
+            XCTAssertEqual(listQuery["supplierId"], supplierId)
+            XCTAssertEqual(listQuery["page"], "3")
+            XCTAssertNil(exportQuery["page"])
+            XCTAssertNil(exportQuery["pageSize"])
+        }
+    }
+
+    func testContainerCandidatesDoNotInheritPurchaseOrderViewParameter() async throws {
+        _ = try await makeAPI().candidates(supplierId: "supplier", excludingOrderId: "po")
+        let request = try XCTUnwrap(PurchaseOrderTestProtocol.lastRequest(path: "/api/containers"))
+        XCTAssertNil(try queryItems(request.query)["view"])
     }
 
     func testMoveSubmitsReviewedParentAndBothVersions() async throws {
@@ -80,6 +110,79 @@ final class PurchaseOrderAPITests: XCTestCase {
         configuration.protocolClasses = [PurchaseOrderTestProtocol.self]
         return PurchaseOrdersAPI(client: APIClient(session: URLSession(configuration: configuration)))
     }
+
+    private func queryItems(_ query: String) throws -> [String: String] {
+        let components = try XCTUnwrap(URLComponents(string: "https://example.invalid/?" + query))
+        return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+    }
+}
+
+@MainActor
+final class PurchaseOrderListStoreTests: XCTestCase {
+    func testChangingViewResetsPaginationAndDoesNotKeepPreviousRowsOnFailure() async throws {
+        var requests: [(PurchaseOrderListFilter, Int)] = []
+        let store = PurchaseOrderListStore { filter, page, size in
+            requests.append((filter, page))
+            if filter.view == .history { throw URLError(.notConnectedToInternet) }
+            return Paged(items: [try PurchaseOrderFixtures.order()], total: 100, page: page, pageSize: size)
+        }
+        let pending = PurchaseOrderListFilter(search: "Factory", supplierId: "supplier", view: .pending)
+        await store.load(filter: pending, page: 1)
+        await store.load(filter: pending, page: 3)
+        XCTAssertEqual(store.data?.page, 3)
+        let history = PurchaseOrderListFilter(search: "Factory", supplierId: "supplier", view: .history)
+        await store.load(filter: history, page: 3)
+        XCTAssertEqual(requests.map { $0.1 }, [1, 3, 1])
+        XCTAssertEqual(requests.last?.0, history)
+        XCTAssertNil(store.data)
+        XCTAssertNotNil(store.errorMessage)
+        XCTAssertFalse(store.loading)
+    }
+
+    func testLatePreviousViewPageCannotReplaceNewView() async throws {
+        let started = expectation(description: "Old pending page started")
+        var completion: CheckedContinuation<Paged<PurchaseOrder>, Error>?
+        let store = PurchaseOrderListStore { filter, page, size in
+            if filter.view == .pending && page == 2 {
+                return try await withCheckedThrowingContinuation { continuation in
+                    completion = continuation
+                    started.fulfill()
+                }
+            }
+            return Paged(items: [try PurchaseOrderFixtures.order(id: filter.view.rawValue)], total: 30, page: page, pageSize: size)
+        }
+        await store.load(filter: PurchaseOrderListFilter(view: .pending), page: 1)
+        let oldRequest = Task { await store.load(filter: PurchaseOrderListFilter(view: .pending), page: 2) }
+        await fulfillment(of: [started], timeout: 1)
+        await store.load(filter: PurchaseOrderListFilter(view: .all), page: 1)
+        completion?.resume(returning: Paged(items: [try PurchaseOrderFixtures.order(id: "stale")], total: 99, page: 2, pageSize: 25))
+        await oldRequest.value
+        XCTAssertEqual(store.data?.items.map(\.id), ["all"])
+        XCTAssertEqual(store.data?.page, 1)
+        XCTAssertEqual(store.data?.total, 30)
+        XCTAssertFalse(store.loading)
+    }
+
+    func testInvalidatedRequestCannotRestoreHiddenRowsOrErrors() async throws {
+        let started = expectation(description: "Request started")
+        var completion: CheckedContinuation<Paged<PurchaseOrder>, Error>?
+        let store = PurchaseOrderListStore { _, _, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                completion = continuation
+                started.fulfill()
+            }
+        }
+        let request = Task { await store.load(filter: PurchaseOrderListFilter(view: .history), page: 1) }
+        await fulfillment(of: [started], timeout: 1)
+        store.invalidate(clearData: true)
+        completion?.resume(throwing: URLError(.notConnectedToInternet))
+        await request.value
+        XCTAssertNil(store.data)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertFalse(store.loading)
+    }
 }
 
 private final class PurchaseOrderTestProtocol: URLProtocol {
@@ -136,6 +239,9 @@ private final class PurchaseOrderTestProtocol: URLProtocol {
         } else if url.path == "/api/purchase-orders", request.httpMethod == "GET" {
             status = 200
             json = "{\"items\":[\(PurchaseOrderFixtures.json)],\"total\":1,\"page\":1,\"pageSize\":25}"
+        } else if url.path == "/api/containers" {
+            status = 200
+            json = "{\"items\":[],\"total\":0,\"page\":1,\"pageSize\":100}"
         } else {
             status = 200
             json = PurchaseOrderFixtures.json

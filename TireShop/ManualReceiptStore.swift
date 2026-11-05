@@ -51,7 +51,9 @@ struct ManualReceiptInput: Encodable, Equatable {
         guard value.range(of: #"^[0-9]+(\.[0-9]{1,2})?$"#, options: .regularExpression) != nil,
               let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")),
               decimal >= 0, decimal <= Decimal(999_999_999_999) / 100 else { return nil }
-        return NSDecimalNumber(decimal: decimal).doubleValue
+        // NSDecimalNumber.doubleValue can add a fractional tail (288.58 becomes
+        // 288.58000000000004), which fails the server's decimal-place validation.
+        return Double(value)
     }
 }
 

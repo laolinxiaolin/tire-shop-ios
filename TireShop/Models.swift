@@ -2528,6 +2528,9 @@ struct ContainerLine: Codable, Identifiable, Equatable {
     let landedTotal: String?
     let prevPriceCost: String?
     let sku: Sku
+    var contractLineId: String? = nil
+    var contractPlanId: String? = nil
+    var actualReceivedQty: Int? = nil
 }
 
 struct ContainerAttachment: Codable, Identifiable, Equatable {

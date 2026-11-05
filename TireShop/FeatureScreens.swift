@@ -101,13 +101,18 @@ struct DashboardNativeView: View {
         .padding(.bottom, Theme.Space.xl)
     }
 
+    @ViewBuilder
     private func metricLink(_ destination: String, label: String, value: String, detail: String, tone: DashboardMetricTone = .normal) -> some View {
-        Button {
-            navigation.selectDestination(destination)
-        } label: {
+        if DestinationRegistry.isVisible(destination, auth: auth) {
+            Button {
+                navigation.selectDestination(destination)
+            } label: {
+                DashboardMetricCard(label: label, value: value, detail: detail, tone: tone)
+            }
+            .buttonStyle(.plain)
+        } else {
             DashboardMetricCard(label: label, value: value, detail: detail, tone: tone)
         }
-        .buttonStyle(.plain)
     }
 
     private func purchaseContractsSection(_ contracts: DashboardSummary.PurchaseContracts) -> some View {
@@ -169,9 +174,11 @@ struct DashboardNativeView: View {
             HStack(alignment: .firstTextBaseline) {
                 SectionHeader(i18n.t("dashboard.topSellers"))
                 Spacer()
-                NavigationLink(value: AppRoute.bestSellers(months: months, warehouse: "")) {
-                    Text(i18n.t("bestSellers.viewAll"))
-                        .font(.caption.weight(.semibold))
+                if auth.has("sales.view") {
+                    NavigationLink(value: AppRoute.bestSellers(months: months, warehouse: "")) {
+                        Text(i18n.t("bestSellers.viewAll"))
+                            .font(.caption.weight(.semibold))
+                    }
                 }
             }
 

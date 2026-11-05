@@ -1,6 +1,24 @@
 import Foundation
 import SwiftUI
 
+enum PaymentApplicationAmount {
+    static func parse(_ text: String, locale: Locale = .current) -> Double? {
+        guard let value = AppFormat.parseAmount(text, locale: locale), isValid(value) else { return nil }
+        return value
+    }
+
+    static func isValid(_ amount: Double) -> Bool {
+        guard amount.isFinite, amount >= 0.01,
+              var decimal = Decimal(string: String(amount), locale: Locale(identifier: "en_US_POSIX"))
+        else { return false }
+        var cents = Decimal()
+        NSDecimalRound(&cents, &decimal, 2, .plain)
+        // Both application lines and payment registrations require whole
+        // cents. Reject extra precision before the wire format can round it.
+        return decimal == cents
+    }
+}
+
 struct PaymentApplicationListFilter: Equatable {
     let view: String
     let query: String?

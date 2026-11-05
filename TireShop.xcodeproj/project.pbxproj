@@ -21,6 +21,8 @@
 		0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */; };
 		16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7712053F65DA51C8D430D86 /* ChecksScreens.swift */; };
 		05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */; };
+		B3681FAB9EE48EAA8371A36F /* ContractReceivingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1AFC964134074BA8E7C17E7 /* ContractReceivingScreens.swift */; };
+		88B5B69D134E12ED3F9403D1 /* ContractReceivingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28613FD67D4BC00DA6AE95AD /* ContractReceivingStore.swift */; };
 		C76BE52704EF2615C4C1BCF7 /* CustomerAnalyticsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */; };
 		D19C97EC38A9A290E65EE257 /* CustomerAnalyticsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371796B1B6F78C4181807205 /* CustomerAnalyticsModels.swift */; };
 		A0BC8EFFDD978DFF7D46D6EE /* CustomerAnalyticsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C7569CCEBAB332DEC66820 /* CustomerAnalyticsScreens.swift */; };
@@ -98,12 +100,15 @@
 		898F530EBC3540AE11ABE056 /* CheckReminderLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */; };
 		B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */; };
 		61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */; };
+		6BCDA576C7F73AB023DD3187 /* ContainerCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6E66B4D4FDED0A94883709 /* ContainerCompatibilityTests.swift */; };
+		20C2C2D04609DC4D7C6195EB /* ContractReceivingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A7D0836F056ED220A1C28F /* ContractReceivingTests.swift */; };
 		AB86C7D557B8CDF86CB93681 /* CustomerAnalyticsNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */; };
 		30DF235BC1BE65A12C537D96 /* CustomerAnalyticsSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */; };
 		BAD7EEF2D21DF905E40A34DF /* CustomerAnalyticsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */; };
 		A36542384337308C690AB0D2 /* CustomerAnalyticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */; };
 		B5BA4B4377F7D0C7960C3954 /* CustomerTaxAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB4C8D9AC52F2FD0DF9AB8D /* CustomerTaxAPITests.swift */; };
 		29516F6E87DF795C0F12BE9A /* CustomerTaxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B7D47F4A9DEABEB510CFD5 /* CustomerTaxTests.swift */; };
+		179738526B876C7EDDE97FEB /* EmployeeDetailStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C9B42379FA6B2532865659 /* EmployeeDetailStoreTests.swift */; };
 		51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */; };
 		18D25F4661B3C63891A237F8 /* FinanceAmountPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE169B96FFD21A634552BFB /* FinanceAmountPolicyTests.swift */; };
 		0C18F19712ACA1E623C76D1C /* FleetPricingContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499515A57685AE8E442623E9 /* FleetPricingContractTests.swift */; };
@@ -129,7 +134,9 @@
 		295B503DA7E0B280A335AFF3 /* SaleDetailSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A09ADC76728436DDF989776 /* SaleDetailSnapshotTests.swift */; };
 		93DB248F4CD582073AAD7531 /* SaleFulfillmentSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381A5342A44BA08C463778AF /* SaleFulfillmentSnapshotTests.swift */; };
 		0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */; };
+		ABDAA0F3CF2B03D78B7F3DA5 /* SaleSalespersonPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE73A31CF7033D47B251B37 /* SaleSalespersonPolicyTests.swift */; };
 		A7F9B1A0A2E7B5D2DD633F34 /* SalesReportingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56760E83945AF3A332DBAF6B /* SalesReportingTests.swift */; };
+		8E9145283E39B6E9DEC4B451 /* SalesVisibilityAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFFC12B06A9717E6C2A7A315 /* SalesVisibilityAccessTests.swift */; };
 		82AB75B15112E008D0AD4C1F /* SessionStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */; };
 		7A8A71655038A0BA39662110 /* SkuCreationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9032D253B3BA65B03B20C08D /* SkuCreationContractTests.swift */; };
 		30837622F26E42D258C2DB6E /* StockAdjustmentValueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19A96885CF55EF3C46BAD2D /* StockAdjustmentValueTests.swift */; };
@@ -159,6 +166,8 @@
 		0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckDepositDraft.swift"; sourceTree = "<group>"; };
 		D7712053F65DA51C8D430D86 /* ChecksScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksScreens.swift"; sourceTree = "<group>"; };
 		7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStore.swift"; sourceTree = "<group>"; };
+		C1AFC964134074BA8E7C17E7 /* ContractReceivingScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContractReceivingScreens.swift"; sourceTree = "<group>"; };
+		28613FD67D4BC00DA6AE95AD /* ContractReceivingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContractReceivingStore.swift"; sourceTree = "<group>"; };
 		95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsAPI.swift"; sourceTree = "<group>"; };
 		371796B1B6F78C4181807205 /* CustomerAnalyticsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsModels.swift"; sourceTree = "<group>"; };
 		A2C7569CCEBAB332DEC66820 /* CustomerAnalyticsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsScreens.swift"; sourceTree = "<group>"; };
@@ -236,12 +245,15 @@
 		1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckReminderLayoutTests.swift"; sourceTree = "<group>"; };
 		BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CheckScreensSnapshotTests.swift"; sourceTree = "<group>"; };
 		F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecksStoreTests.swift"; sourceTree = "<group>"; };
+		BD6E66B4D4FDED0A94883709 /* ContainerCompatibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContainerCompatibilityTests.swift"; sourceTree = "<group>"; };
+		10A7D0836F056ED220A1C28F /* ContractReceivingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContractReceivingTests.swift"; sourceTree = "<group>"; };
 		F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsNavigationTests.swift"; sourceTree = "<group>"; };
 		949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsSnapshotTests.swift"; sourceTree = "<group>"; };
 		B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsStoreTests.swift"; sourceTree = "<group>"; };
 		600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerAnalyticsTests.swift"; sourceTree = "<group>"; };
 		2CB4C8D9AC52F2FD0DF9AB8D /* CustomerTaxAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxAPITests.swift"; sourceTree = "<group>"; };
 		B3B7D47F4A9DEABEB510CFD5 /* CustomerTaxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomerTaxTests.swift"; sourceTree = "<group>"; };
+		95C9B42379FA6B2532865659 /* EmployeeDetailStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EmployeeDetailStoreTests.swift"; sourceTree = "<group>"; };
 		18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExpenseReceiptSubmissionTests.swift"; sourceTree = "<group>"; };
 		9EE169B96FFD21A634552BFB /* FinanceAmountPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FinanceAmountPolicyTests.swift"; sourceTree = "<group>"; };
 		499515A57685AE8E442623E9 /* FleetPricingContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FleetPricingContractTests.swift"; sourceTree = "<group>"; };
@@ -267,7 +279,9 @@
 		4A09ADC76728436DDF989776 /* SaleDetailSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleDetailSnapshotTests.swift"; sourceTree = "<group>"; };
 		381A5342A44BA08C463778AF /* SaleFulfillmentSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleFulfillmentSnapshotTests.swift"; sourceTree = "<group>"; };
 		0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalePricingTests.swift"; sourceTree = "<group>"; };
+		ECE73A31CF7033D47B251B37 /* SaleSalespersonPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SaleSalespersonPolicyTests.swift"; sourceTree = "<group>"; };
 		56760E83945AF3A332DBAF6B /* SalesReportingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalesReportingTests.swift"; sourceTree = "<group>"; };
+		FFFC12B06A9717E6C2A7A315 /* SalesVisibilityAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SalesVisibilityAccessTests.swift"; sourceTree = "<group>"; };
 		B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionStorageTests.swift"; sourceTree = "<group>"; };
 		9032D253B3BA65B03B20C08D /* SkuCreationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkuCreationContractTests.swift"; sourceTree = "<group>"; };
 		E19A96885CF55EF3C46BAD2D /* StockAdjustmentValueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StockAdjustmentValueTests.swift"; sourceTree = "<group>"; };
@@ -331,6 +345,8 @@
 				0523DE02635F62E5EAC37887 /* CheckDepositDraft.swift */,
 				D7712053F65DA51C8D430D86 /* ChecksScreens.swift */,
 				7BA402DB1C0F9567BDAFDA79 /* ChecksStore.swift */,
+				C1AFC964134074BA8E7C17E7 /* ContractReceivingScreens.swift */,
+				28613FD67D4BC00DA6AE95AD /* ContractReceivingStore.swift */,
 				95EA7CA8197CB4DCB2806DAD /* CustomerAnalyticsAPI.swift */,
 				371796B1B6F78C4181807205 /* CustomerAnalyticsModels.swift */,
 				A2C7569CCEBAB332DEC66820 /* CustomerAnalyticsScreens.swift */,
@@ -421,12 +437,15 @@
 				1C5DECCF11A19057484EAB73 /* CheckReminderLayoutTests.swift */,
 				BC45FA51A0AFA3C45717B476 /* CheckScreensSnapshotTests.swift */,
 				F60244157362F1AE7931A3B4 /* ChecksStoreTests.swift */,
+				BD6E66B4D4FDED0A94883709 /* ContainerCompatibilityTests.swift */,
+				10A7D0836F056ED220A1C28F /* ContractReceivingTests.swift */,
 				F098BF91A385848251D0B00D /* CustomerAnalyticsNavigationTests.swift */,
 				949C62C81269ED882C33CA88 /* CustomerAnalyticsSnapshotTests.swift */,
 				B7789DF5282DAF8C31F58012 /* CustomerAnalyticsStoreTests.swift */,
 				600E126BFC54377E08C8E1A1 /* CustomerAnalyticsTests.swift */,
 				2CB4C8D9AC52F2FD0DF9AB8D /* CustomerTaxAPITests.swift */,
 				B3B7D47F4A9DEABEB510CFD5 /* CustomerTaxTests.swift */,
+				95C9B42379FA6B2532865659 /* EmployeeDetailStoreTests.swift */,
 				18E5E0A7DFF0B6B598703FE5 /* ExpenseReceiptSubmissionTests.swift */,
 				9EE169B96FFD21A634552BFB /* FinanceAmountPolicyTests.swift */,
 				499515A57685AE8E442623E9 /* FleetPricingContractTests.swift */,
@@ -452,7 +471,9 @@
 				4A09ADC76728436DDF989776 /* SaleDetailSnapshotTests.swift */,
 				381A5342A44BA08C463778AF /* SaleFulfillmentSnapshotTests.swift */,
 				0AEA0DCC8DFA7A30174D7247 /* SalePricingTests.swift */,
+				ECE73A31CF7033D47B251B37 /* SaleSalespersonPolicyTests.swift */,
 				56760E83945AF3A332DBAF6B /* SalesReportingTests.swift */,
+				FFFC12B06A9717E6C2A7A315 /* SalesVisibilityAccessTests.swift */,
 				B6E9B27A95FDEDFE64B11368 /* SessionStorageTests.swift */,
 				9032D253B3BA65B03B20C08D /* SkuCreationContractTests.swift */,
 				E19A96885CF55EF3C46BAD2D /* StockAdjustmentValueTests.swift */,
@@ -599,6 +620,8 @@
 				0AC967B215294A8D05295D92 /* CheckDepositDraft.swift in Sources */,
 				16B0363991E301E74841A7C9 /* ChecksScreens.swift in Sources */,
 				05DB5FF9E1DCD7FF7D66B4BC /* ChecksStore.swift in Sources */,
+				B3681FAB9EE48EAA8371A36F /* ContractReceivingScreens.swift in Sources */,
+				88B5B69D134E12ED3F9403D1 /* ContractReceivingStore.swift in Sources */,
 				C76BE52704EF2615C4C1BCF7 /* CustomerAnalyticsAPI.swift in Sources */,
 				D19C97EC38A9A290E65EE257 /* CustomerAnalyticsModels.swift in Sources */,
 				A0BC8EFFDD978DFF7D46D6EE /* CustomerAnalyticsScreens.swift in Sources */,
@@ -683,12 +706,15 @@
 				898F530EBC3540AE11ABE056 /* CheckReminderLayoutTests.swift in Sources */,
 				B77DA43F2954C277602D1739 /* CheckScreensSnapshotTests.swift in Sources */,
 				61AC0406609CDB8B932737C0 /* ChecksStoreTests.swift in Sources */,
+				6BCDA576C7F73AB023DD3187 /* ContainerCompatibilityTests.swift in Sources */,
+				20C2C2D04609DC4D7C6195EB /* ContractReceivingTests.swift in Sources */,
 				AB86C7D557B8CDF86CB93681 /* CustomerAnalyticsNavigationTests.swift in Sources */,
 				30DF235BC1BE65A12C537D96 /* CustomerAnalyticsSnapshotTests.swift in Sources */,
 				BAD7EEF2D21DF905E40A34DF /* CustomerAnalyticsStoreTests.swift in Sources */,
 				A36542384337308C690AB0D2 /* CustomerAnalyticsTests.swift in Sources */,
 				B5BA4B4377F7D0C7960C3954 /* CustomerTaxAPITests.swift in Sources */,
 				29516F6E87DF795C0F12BE9A /* CustomerTaxTests.swift in Sources */,
+				179738526B876C7EDDE97FEB /* EmployeeDetailStoreTests.swift in Sources */,
 				51EA171EA89677100B130F3C /* ExpenseReceiptSubmissionTests.swift in Sources */,
 				18D25F4661B3C63891A237F8 /* FinanceAmountPolicyTests.swift in Sources */,
 				0C18F19712ACA1E623C76D1C /* FleetPricingContractTests.swift in Sources */,
@@ -714,7 +740,9 @@
 				295B503DA7E0B280A335AFF3 /* SaleDetailSnapshotTests.swift in Sources */,
 				93DB248F4CD582073AAD7531 /* SaleFulfillmentSnapshotTests.swift in Sources */,
 				0FF1D03D136ACB4F3CF880C5 /* SalePricingTests.swift in Sources */,
+				ABDAA0F3CF2B03D78B7F3DA5 /* SaleSalespersonPolicyTests.swift in Sources */,
 				A7F9B1A0A2E7B5D2DD633F34 /* SalesReportingTests.swift in Sources */,
+				8E9145283E39B6E9DEC4B451 /* SalesVisibilityAccessTests.swift in Sources */,
 				82AB75B15112E008D0AD4C1F /* SessionStorageTests.swift in Sources */,
 				7A8A71655038A0BA39662110 /* SkuCreationContractTests.swift in Sources */,
 				30837622F26E42D258C2DB6E /* StockAdjustmentValueTests.swift in Sources */,
@@ -854,7 +882,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026101101;
+				CURRENT_PROJECT_VERSION = 2026101102;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -883,7 +911,7 @@
 			buildSettings = {
 
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026101101;
+				CURRENT_PROJECT_VERSION = 2026101102;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -912,7 +940,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026101101;
+				CURRENT_PROJECT_VERSION = 2026101102;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -935,7 +963,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026101101;
+				CURRENT_PROJECT_VERSION = 2026101102;
 				DEVELOPMENT_TEAM = C8S3S8T2K2;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

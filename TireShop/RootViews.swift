@@ -216,6 +216,10 @@ struct RootNavigatorView: View {
         }
     }
 
+    private var canAccessChecks: Bool {
+        DestinationRegistry.isVisible("checks", auth: auth)
+    }
+
     private var compactSelection: Binding<String> {
         Binding(
             get: { navigation.compactTab(pinnedKeys: visiblePinned.map(\.key)) },
@@ -260,9 +264,13 @@ struct RootNavigatorView: View {
             .environmentObject(checkReminders)
             .task(id: auth.user?.id) {
                 checkReminders.reset(for: auth.user?.id)
-                if auth.has("payments.collect") || auth.has("accounting.view") {
+                if canAccessChecks {
                     await checkReminders.refresh()
                 }
+            }
+            .onChange(of: canAccessChecks) { _, _ in
+                checkReminders.reset(for: auth.user?.id)
+                refreshCheckReminders()
             }
             .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
                 refreshCheckReminders()
@@ -385,7 +393,7 @@ struct RootNavigatorView: View {
     }
 
     private func refreshCheckReminders() {
-        guard scenePhase == .active, auth.has("payments.collect") || auth.has("accounting.view") else { return }
+        guard scenePhase == .active, canAccessChecks else { return }
         Task { await checkReminders.refresh() }
     }
 
@@ -427,7 +435,7 @@ struct NavigationShell<Content: View>: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if auth.has("payments.collect") || auth.has("accounting.view") {
+                    if DestinationRegistry.isVisible("checks", auth: auth) {
                         CheckReminderBanner {
                             NotificationCenter.default.post(name: .showCurrentChecks, object: nil)
                             navigation.showChecks()

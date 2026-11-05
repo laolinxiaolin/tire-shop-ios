@@ -35,6 +35,7 @@ struct Destination: Identifiable, Hashable {
     let permission: String?
     let alternatePermission: String?
     let additionalPermissions: [String]
+    let requiredPermissions: [String]
     let isBuilt: Bool
     let blurb: String?
 
@@ -48,6 +49,7 @@ struct Destination: Identifiable, Hashable {
         permission: String?,
         alternatePermission: String? = nil,
         additionalPermissions: [String] = [],
+        requiredPermissions: [String] = [],
         isBuilt: Bool,
         blurb: String?
     ) {
@@ -58,6 +60,7 @@ struct Destination: Identifiable, Hashable {
         self.permission = permission
         self.alternatePermission = alternatePermission
         self.additionalPermissions = additionalPermissions
+        self.requiredPermissions = requiredPermissions
         self.isBuilt = isBuilt
         self.blurb = blurb
     }
@@ -74,7 +77,7 @@ enum DestinationRegistry {
         Destination(key: "notifications", title: "Notifications", systemImage: "bell", group: .main, permission: nil, isBuilt: true, blurb: nil),
         Destination(key: "newQuote", title: "New Sale", systemImage: "plus.circle", group: .operations, permission: "sales.manage", isBuilt: true, blurb: nil),
         Destination(key: "sales", title: "Sales", systemImage: "creditcard", group: .operations, permission: "sales.view", isBuilt: true, blurb: nil),
-        Destination(key: "orders", title: "Web Orders", systemImage: "cart", group: .operations, permission: "orders.manage", isBuilt: true, blurb: nil),
+        Destination(key: "orders", title: "Web Orders", systemImage: "cart", group: .operations, permission: "orders.manage", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
         Destination(key: "inventory", title: "Inventory", systemImage: "circle.grid.3x3", group: .operations, permission: "inventory.view", isBuilt: true, blurb: nil),
         Destination(key: "transfers", title: "Transfers", systemImage: "arrow.left.arrow.right", group: .operations, permission: "transfers.view", isBuilt: true, blurb: nil),
         Destination(key: "skuManagement", title: "SKU Management", systemImage: "tag", group: .operations, permission: "inventory.manage", isBuilt: true, blurb: nil),
@@ -91,17 +94,17 @@ enum DestinationRegistry {
         Destination(key: "workOrders", title: "Work Orders", systemImage: "wrench.adjustable", group: .operations, permission: "workorders.view", isBuilt: true, blurb: nil),
         Destination(key: "returns", title: "Returns", systemImage: "arrow.uturn.left", group: .operations, permission: "returns.view", isBuilt: true, blurb: nil),
         Destination(key: "money", title: "Payables & Receivables", systemImage: "dollarsign.circle", group: .finance, permission: "receivables.view", alternatePermission: "payables.view", additionalPermissions: ["paymentapps.view"], isBuilt: true, blurb: nil),
-        Destination(key: "accounting", title: "Accounting", systemImage: "book.closed", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
-        Destination(key: "cashAccounts", title: "Cash Accounts", systemImage: "building.columns", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
-        Destination(key: "checks", title: "Checks", systemImage: "banknote", group: .finance, permission: "accounting.view", alternatePermission: "payments.collect", isBuilt: true, blurb: nil),
-        Destination(key: "fet", title: "FET", systemImage: "doc.text", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
-        Destination(key: "eod", title: "End of Day", systemImage: "moon", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
-        Destination(key: "monthlySales", title: "Monthly Sales", systemImage: "square.grid.2x2", group: .finance, permission: "accounting.view", isBuilt: true, blurb: nil),
+        Destination(key: "accounting", title: "Accounting", systemImage: "book.closed", group: .finance, permission: "accounting.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
+        Destination(key: "cashAccounts", title: "Cash Accounts", systemImage: "building.columns", group: .finance, permission: "accounting.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
+        Destination(key: "checks", title: "Checks", systemImage: "banknote", group: .finance, permission: "accounting.view", alternatePermission: "payments.collect", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
+        Destination(key: "fet", title: "FET", systemImage: "doc.text", group: .finance, permission: "accounting.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
+        Destination(key: "eod", title: "End of Day", systemImage: "moon", group: .finance, permission: "accounting.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
+        Destination(key: "monthlySales", title: "Monthly Sales", systemImage: "square.grid.2x2", group: .finance, permission: "accounting.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
         Destination(key: "tapToPay", title: "Tap to Pay on iPhone", systemImage: "wave.3.right.circle", group: .finance, permission: "payments.collect", isBuilt: true, blurb: nil),
         Destination(key: "employees", title: "Employees", systemImage: "person.2", group: .team, permission: "employees.view", isBuilt: true, blurb: nil),
-        Destination(key: "commissions", title: "Commissions", systemImage: "percent", group: .team, permission: "employees.view", isBuilt: true, blurb: nil),
+        Destination(key: "commissions", title: "Commissions", systemImage: "percent", group: .team, permission: "employees.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
         Destination(key: "approvals", title: "Approvals", systemImage: "checkmark.seal", group: .admin, permission: nil, isBuilt: true, blurb: nil),
-        Destination(key: "activity", title: "Activity", systemImage: "waveform.path.ecg", group: .admin, permission: "activity.view", isBuilt: true, blurb: nil),
+        Destination(key: "activity", title: "Activity", systemImage: "waveform.path.ecg", group: .admin, permission: "activity.view", requiredPermissions: ["sales.viewAll"], isBuilt: true, blurb: nil),
         Destination(key: "users", title: "Users", systemImage: "person.crop.circle", group: .admin, permission: "users.manage", isBuilt: true, blurb: nil),
         Destination(key: "roles", title: "Roles", systemImage: "shield", group: .admin, permission: "users.manage", isBuilt: true, blurb: nil),
         Destination(key: "apiKeys", title: "API Keys", systemImage: "key", group: .admin, permission: "apikeys.manage", isBuilt: true, blurb: nil),
@@ -127,10 +130,16 @@ enum DestinationRegistry {
 
     @MainActor
     static func isVisible(_ destination: Destination, auth: AuthStore) -> Bool {
+        guard destination.requiredPermissions.allSatisfy(auth.has) else { return false }
         guard let permission = destination.permission else { return true }
         return auth.has(permission)
             || destination.alternatePermission.map(auth.has) == true
             || destination.additionalPermissions.contains(where: auth.has)
+    }
+
+    @MainActor
+    static func isVisible(_ key: String, auth: AuthStore) -> Bool {
+        destination(for: key).map { isVisible($0, auth: auth) } ?? false
     }
 }
 

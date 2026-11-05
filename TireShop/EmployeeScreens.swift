@@ -291,18 +291,89 @@ private struct EmployeeStatusBadge: View {
     }
 }
 
+/// HR profile access is independent of the permission to read identified sales
+/// and payout documents. A denied or failed evidence request must not hide it.
+@MainActor
+final class EmployeeDetailStore: ObservableObject {
+    typealias ProfileLoader = (String) async throws -> Employee
+    typealias CommissionsLoader = (String) async throws -> [CommissionEntry]
+    typealias PayoutsLoader = (String) async throws -> [CommissionPayout]
+
+    @Published private(set) var employee: Employee?
+    @Published private(set) var commissions: [CommissionEntry] = []
+    @Published private(set) var payouts: [CommissionPayout] = []
+    @Published private(set) var loading = false
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var evidenceErrorMessage: String?
+
+    private var generation = 0
+    private let profileLoader: ProfileLoader
+    private let commissionsLoader: CommissionsLoader
+    private let payoutsLoader: PayoutsLoader
+
+    init(
+        profileLoader: @escaping ProfileLoader = { try await EmployeesAPI().get(id: $0) },
+        commissionsLoader: @escaping CommissionsLoader = {
+            try await CommissionsAPI().list(employeeId: $0, pageSize: 50).items
+        },
+        payoutsLoader: @escaping PayoutsLoader = { try await EmployeesAPI().payouts(id: $0) }
+    ) {
+        self.profileLoader = profileLoader
+        self.commissionsLoader = commissionsLoader
+        self.payoutsLoader = payoutsLoader
+    }
+
+    func load(id: String, canReadSales: Bool, isCurrent: @escaping () -> Bool = { true }) async {
+        generation += 1
+        let request = generation
+        if employee?.id != id { employee = nil }
+        commissions = []
+        payouts = []
+        loading = true
+        errorMessage = nil
+        evidenceErrorMessage = nil
+        defer { if request == generation { loading = false } }
+
+        async let evidence: Void = loadEvidence(
+            id: id, allowed: canReadSales, request: request, isCurrent: isCurrent
+        )
+        do {
+            let result = try await profileLoader(id)
+            guard accepts(request, isCurrent: isCurrent) else { return }
+            employee = result
+        } catch {
+            if accepts(request, isCurrent: isCurrent) { errorMessage = error.localizedDescription }
+        }
+        await evidence
+    }
+
+    private func loadEvidence(id: String, allowed: Bool, request: Int, isCurrent: @escaping () -> Bool) async {
+        guard allowed else { return }
+        do {
+            async let commissionRows = commissionsLoader(id)
+            async let payoutRows = payoutsLoader(id)
+            let result = try await (commissionRows, payoutRows)
+            guard accepts(request, isCurrent: isCurrent) else { return }
+            commissions = result.0
+            payouts = result.1
+        } catch {
+            if accepts(request, isCurrent: isCurrent) { evidenceErrorMessage = error.localizedDescription }
+        }
+    }
+
+    private func accepts(_ request: Int, isCurrent: () -> Bool) -> Bool {
+        request == generation && !Task.isCancelled && isCurrent()
+    }
+}
+
 struct EmployeeDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
 
     let id: String
 
-    @State private var employee: Employee?
-    @State private var commissions: [CommissionEntry] = []
-    @State private var payouts: [CommissionPayout] = []
+    @StateObject private var store = EmployeeDetailStore()
     @State private var openPayout: CommissionPayout?
-    @State private var loading = false
-    @State private var errorMessage: String?
     @State private var actionError: String?
     @State private var editing: EmployeeEditorTarget?
     @State private var showPayoutSheet = false
@@ -312,8 +383,15 @@ struct EmployeeDetailNativeView: View {
     }
 
     private var canPay: Bool {
-        auth.has("employees.commissions.pay")
+        canReadSaleDetails && auth.has("employees.commissions.pay")
     }
+
+    private var canReadSaleDetails: Bool { auth.has("sales.viewAll") }
+    private var employee: Employee? { store.employee }
+    private var commissions: [CommissionEntry] { store.commissions }
+    private var payouts: [CommissionPayout] { store.payouts }
+    private var loading: Bool { store.loading }
+    private var errorMessage: String? { store.errorMessage }
 
     private var summary: EmployeeCommissionSummary {
         employee?.commissions ?? EmployeeCommissionSummary(accrued: 0, paid: 0, total: 0)
@@ -356,8 +434,10 @@ struct EmployeeDetailNativeView: View {
                 Task { await load() }
             }
         }
-        .task {
-            if employee == nil { await load() }
+        .task(id: canReadSaleDetails) {
+            openPayout = nil
+            showPayoutSheet = false
+            await load()
         }
     }
 
@@ -403,60 +483,69 @@ struct EmployeeDetailNativeView: View {
                     ("Notes", employee.notes ?? "-")
                 ])
 
-                SectionHeader("Recent commissions")
-                if commissions.isEmpty {
-                    EmptyInlineView(text: "No commissions yet.")
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(commissions) { entry in
-                            EmployeeCommissionRow(entry: entry)
-                            Divider()
-                        }
+                if canReadSaleDetails {
+                    if let error = store.evidenceErrorMessage {
+                        InlineErrorText(message: error)
+                        Button(i18n.t("common.retry")) { Task { await load() } }
+                    } else if loading {
+                        ProgressView(i18n.t("common.loading"))
                     }
-                    .background(Theme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-                }
 
-                SectionHeader("Payout history")
-                if payouts.isEmpty {
-                    EmptyInlineView(text: "No payouts yet.")
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(payouts) { payout in
-                            Button {
-                                openPayout = payout
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: Theme.Space.sm) {
-                                        Text(payout.ref)
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                            .foregroundStyle(Theme.text)
-                                        CommissionPayoutStatusBadge(status: payout.status)
-                                        Spacer()
-                                        Text(AppFormat.money(payout.amount))
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                            .foregroundStyle(Theme.text)
-                                    }
-                                    Text("\(payout.entryCount) entries · \(payout.paymentMethod?.name ?? "-") · \(AppFormat.shortDate(payout.createdAt))")
-                                        .font(.caption)
-                                        .foregroundStyle(Theme.muted)
-                                    if let reason = payout.voidReason?.nilIfBlank {
-                                        Text(reason).font(.caption).foregroundStyle(Theme.muted)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
+                    SectionHeader("Recent commissions")
+                    if commissions.isEmpty {
+                        EmptyInlineView(text: "No commissions yet.")
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(commissions) { entry in
+                                EmployeeCommissionRow(entry: entry)
+                                Divider()
                             }
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, Theme.Space.md)
-                            .padding(.vertical, Theme.Space.sm)
-                            Divider()
                         }
+                        .background(Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                     }
-                    .background(Theme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+
+                    SectionHeader("Payout history")
+                    if payouts.isEmpty {
+                        EmptyInlineView(text: "No payouts yet.")
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(payouts) { payout in
+                                Button {
+                                    openPayout = payout
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: Theme.Space.sm) {
+                                            Text(payout.ref)
+                                                .font(.subheadline)
+                                                .fontWeight(.semibold)
+                                                .foregroundStyle(Theme.text)
+                                            CommissionPayoutStatusBadge(status: payout.status)
+                                            Spacer()
+                                            Text(AppFormat.money(payout.amount))
+                                                .font(.subheadline)
+                                                .fontWeight(.semibold)
+                                                .foregroundStyle(Theme.text)
+                                        }
+                                        Text("\(payout.entryCount) entries · \(payout.paymentMethod?.name ?? "-") · \(AppFormat.shortDate(payout.createdAt))")
+                                            .font(.caption)
+                                            .foregroundStyle(Theme.muted)
+                                        if let reason = payout.voidReason?.nilIfBlank {
+                                            Text(reason).font(.caption).foregroundStyle(Theme.muted)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, Theme.Space.md)
+                                .padding(.vertical, Theme.Space.sm)
+                                Divider()
+                            }
+                        }
+                        .background(Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                    }
                 }
             }
             .padding(Theme.Space.lg)
@@ -473,21 +562,11 @@ struct EmployeeDetailNativeView: View {
 
     @MainActor
     private func load() async {
-        loading = true
-        errorMessage = nil
         actionError = nil
-        do {
-            async let employeeTask = EmployeesAPI().get(id: id)
-            async let commissionTask = CommissionsAPI().list(employeeId: id, pageSize: 50)
-            async let payoutTask = EmployeesAPI().payouts(id: id)
-            let (loadedEmployee, commissionPage, loadedPayouts) = try await (employeeTask, commissionTask, payoutTask)
-            employee = loadedEmployee
-            commissions = commissionPage.items
-            payouts = loadedPayouts
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not load employee."
+        let session = AppSessionIdentity(auth)
+        await store.load(id: id, canReadSales: canReadSaleDetails) {
+            session.isCurrent(auth)
         }
-        loading = false
     }
 }
 

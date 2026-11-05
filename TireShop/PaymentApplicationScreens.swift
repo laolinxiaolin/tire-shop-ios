@@ -406,7 +406,7 @@ struct PaymentApplicationEditorNativeView: View {
 
     private var total: Double {
         resources.selectedBillIDs.reduce(0) { result, billID in
-            result + (AppFormat.parseAmount(resources.amounts[billID] ?? "") ?? 0)
+            result + (PaymentApplicationAmount.parse(resources.amounts[billID] ?? "") ?? 0)
         }
     }
 
@@ -634,8 +634,8 @@ struct PaymentApplicationEditorNativeView: View {
 
         var lines: [PaymentApplicationLineInput] = []
         for billID in resources.selectedBillIDs.sorted() {
-            guard let amount = AppFormat.parseAmount(resources.amounts[billID] ?? ""), amount.isFinite, amount > 0 else {
-                errorMessage = "Every selected bill needs a positive amount."
+            guard let amount = PaymentApplicationAmount.parse(resources.amounts[billID] ?? "") else {
+                errorMessage = "Every selected bill needs a positive amount with at most two decimal places."
                 return
             }
             if let bill = resources.bills.first(where: { $0.id == billID }), amount > bill.applicable + 0.005, !isEditing {
@@ -1640,8 +1640,8 @@ private struct PaymentApplicationPaymentSheet: View {
     @MainActor
     private func submit() async {
         guard !saving, !preparingProof else { return }
-        guard let amount = AppFormat.parseAmount(amount), amount > 0 else {
-            errorMessage = "Enter a positive amount."
+        guard let amount = PaymentApplicationAmount.parse(amount) else {
+            errorMessage = "Enter a positive amount with at most two decimal places."
             return
         }
         guard amount <= application.remaining + 0.005 else {

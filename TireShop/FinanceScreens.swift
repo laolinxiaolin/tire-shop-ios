@@ -57,6 +57,25 @@ enum FinanceMoney {
     }
 }
 
+struct FinanceAllocationAmounts {
+    private(set) var amounts: [String: Double] = [:]
+    private(set) var invalidRows: Set<String> = []
+
+    var canSubmit: Bool { !amounts.isEmpty && invalidRows.isEmpty }
+
+    init(_ entries: [String: String]) {
+        for (id, entry) in entries {
+            let text = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { continue }
+            guard let amount = Double(text), amount.isFinite, amount >= 0 else {
+                invalidRows.insert(id)
+                continue
+            }
+            if amount > 0 { amounts[id] = amount }
+        }
+    }
+}
+
 enum ReceivableOverpaymentPolicy {
     static let storeCreditAccountCode = "2400"
 
@@ -529,40 +548,31 @@ private struct CollectReceivableSheet: View {
         return i18n.t("payment.storeCreditCannotCreateCredit")
     }
 
-    /// What the entered allocations add up to, and which rows are unusable.
-    /// Resolved in one pass: the invoice list re-read these per rendered row,
-    /// so drawing N invoices rebuilt both sets N times.
+    /// Parse once for the form so row validation and submissions use the
+    /// same amounts instead of rebuilding the allocation state for each row.
     private struct AllocationState {
         var applications: [ReceivableApplication] = []
-        var invalidRows: Set<String> = []
+        var parsedAmounts = FinanceAllocationAmounts([:])
         var overpaidRows: Set<String> = []
         var totalApplied = 0.0
+
+        var invalidRows: Set<String> { parsedAmounts.invalidRows }
     }
 
     private var allocationState: AllocationState {
         var state = AllocationState()
-        for invoice in detail?.openInvoices ?? [] {
-            let entry = allocations[invoice.id]
-            let amount = Double(entry ?? "") ?? 0
+        let invoices = detail?.openInvoices ?? []
+        state.parsedAmounts = FinanceAllocationAmounts(Dictionary(uniqueKeysWithValues:
+            invoices.map { ($0.id, allocations[$0.id] ?? "") }))
+        for invoice in invoices {
+            guard let amount = state.parsedAmounts.amounts[invoice.id] else { continue }
+            state.applications.append(
+                ReceivableApplication(invoiceId: invoice.id, amount: amount)
+            )
+            state.totalApplied += amount
 
-            if amount.isFinite, amount > 0 {
-                state.applications.append(
-                    ReceivableApplication(invoiceId: invoice.id, amount: amount)
-                )
-                state.totalApplied += amount
-            }
-
-            if amount.isFinite, FinanceMoney.excess(amount: amount, balance: invoice.balance) > 0 {
+            if FinanceMoney.excess(amount: amount, balance: invoice.balance) > 0 {
                 state.overpaidRows.insert(invoice.id)
-            }
-
-            // Validation reads the trimmed entry, so " 5 " is accepted here
-            // even though it does not parse into an application above.
-            if let raw = entry?.nilIfBlank {
-                guard let typed = Double(raw), typed.isFinite, typed >= 0 else {
-                    state.invalidRows.insert(invoice.id)
-                    continue
-                }
             }
         }
         return state
@@ -594,9 +604,8 @@ private struct CollectReceivableSheet: View {
                             .disabled(
                                 busy
                                     || postedRef != nil
-                                    || state.totalApplied <= 0
+                                    || !state.parsedAmounts.canSubmit
                                     || paymentMethodId.isEmpty
-                                    || !state.invalidRows.isEmpty
                                     || !state.overpaidRows.isEmpty
                                     || overpaymentError != nil
                             )
@@ -862,12 +871,12 @@ private struct CollectReceivableSheet: View {
             return
         }
         let state = allocationState
-        guard !state.applications.isEmpty else {
-            errorMessage = "Enter an amount for at least one invoice."
-            return
-        }
         guard state.invalidRows.isEmpty else {
             errorMessage = "One or more invoice amounts are invalid."
+            return
+        }
+        guard !state.applications.isEmpty else {
+            errorMessage = "Enter an amount for at least one invoice."
             return
         }
         guard state.overpaidRows.isEmpty else {
@@ -1111,26 +1120,28 @@ private struct PayVendorSheet: View {
         auth.canActOrRequest("payables.pay")
     }
 
-    /// What the entered amounts add up to, and which rows overpay. Resolved in
-    /// one pass: the payable list re-read `overpaidRows` per rendered row, so
-    /// drawing N items rebuilt the set N times.
+    /// Parse once for the form so row validation and submissions use the
+    /// same amounts instead of rebuilding the allocation state for each row.
     private struct PayableState {
         var applications: [PayableApplication] = []
+        var parsedAmounts = FinanceAllocationAmounts([:])
         var overpaidRows: Set<String> = []
         var totalSelected = 0.0
+
+        var invalidRows: Set<String> { parsedAmounts.invalidRows }
     }
 
     private var payableState: PayableState {
         var state = PayableState()
-        for item in detail?.items ?? [] {
-            let amount = Double(amounts[item.id] ?? "") ?? 0
-
-            if amount > 0 {
-                state.applications.append(
-                    PayableApplication(costId: item.id, amount: amount)
-                )
-                state.totalSelected += amount
-            }
+        let items = detail?.items ?? []
+        state.parsedAmounts = FinanceAllocationAmounts(Dictionary(uniqueKeysWithValues:
+            items.map { ($0.id, amounts[$0.id] ?? "") }))
+        for item in items {
+            guard let amount = state.parsedAmounts.amounts[item.id] else { continue }
+            state.applications.append(
+                PayableApplication(costId: item.id, amount: amount)
+            )
+            state.totalSelected += amount
 
             if FinanceMoney.excess(amount: amount, balance: item.remaining) > 0 {
                 state.overpaidRows.insert(item.id)
@@ -1165,7 +1176,7 @@ private struct PayVendorSheet: View {
                         }
                         .disabled(
                             busy
-                                || state.totalSelected <= 0
+                                || !state.parsedAmounts.canSubmit
                                 || accountId.isEmpty
                                 || !state.overpaidRows.isEmpty
                                 || pendingApproval
@@ -1251,7 +1262,7 @@ private struct PayVendorSheet: View {
                             ))
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
-                            if (Double(amounts[item.id] ?? "") ?? 0) == 0 {
+                            if state.parsedAmounts.amounts[item.id] == nil {
                                 Button("Full") { amounts[item.id] = String(format: "%.2f", item.remaining) }
                                     .font(.caption)
                                     .buttonStyle(.borderless)
@@ -1264,6 +1275,10 @@ private struct PayVendorSheet: View {
                         }
                         if state.overpaidRows.contains(item.id) {
                             Text("Amount exceeds the remaining balance.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        } else if state.invalidRows.contains(item.id) {
+                            Text("Enter zero or a positive dollar amount.")
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
@@ -1337,6 +1352,10 @@ private struct PayVendorSheet: View {
             return
         }
         let state = payableState
+        guard state.invalidRows.isEmpty else {
+            errorMessage = "One or more payable amounts are invalid."
+            return
+        }
         guard !state.applications.isEmpty else {
             errorMessage = "Enter an amount for at least one payable."
             return

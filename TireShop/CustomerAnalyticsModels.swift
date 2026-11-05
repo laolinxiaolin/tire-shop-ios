@@ -174,6 +174,8 @@ struct CustomerAnalyticsHistoryEvent: Decodable, Equatable, Identifiable {
     enum Kind: String, Decodable, CaseIterable {
         case sale = "SALE"
         case saleReversal = "SALE_REVERSAL"
+        case saleAdjustment = "SALE_ADJUSTMENT"
+        case saleAdjustmentReversal = "SALE_ADJUSTMENT_REVERSAL"
         case returnEvent = "RETURN"
         case returnReversal = "RETURN_REVERSAL"
     }

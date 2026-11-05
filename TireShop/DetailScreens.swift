@@ -3,6 +3,45 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+enum SaleSalespersonPolicy {
+    static func allowsAssignment(status: SaleStatus) -> Bool {
+        status == "INVOICED" || status == "PAID"
+    }
+
+    static func options(
+        staff: [CustomerSalesperson],
+        currentID: String?,
+        current: CustomerSalesperson?
+    ) -> [CustomerSalesperson] {
+        var people: [String: CustomerSalesperson] = [:]
+        for person in staff where person.status == "ACTIVE" {
+            people[person.id] = person
+        }
+        if let currentID {
+            // Keep an existing attribution visible even when its employee is
+            // inactive or absent from the active staff page. Prefer fresh staff
+            // status to the sale snapshot when both contain the employee.
+            people[currentID] = staff.first { $0.id == currentID }
+                ?? (current?.id == currentID ? current : nil)
+                ?? CustomerSalesperson(id: currentID, fullName: "Assigned salesperson", status: nil)
+        }
+        return people.values.sorted {
+            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+        }
+    }
+
+    static func canSave(
+        status: SaleStatus,
+        selectedID: String?,
+        currentID: String?,
+        options: [CustomerSalesperson]
+    ) -> Bool {
+        guard allowsAssignment(status: status), selectedID != currentID else { return false }
+        guard let selectedID else { return true }
+        return options.contains { $0.id == selectedID && $0.status == "ACTIVE" }
+    }
+}
+
 struct SaleDetailNativeView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var i18n: I18nStore
@@ -47,8 +86,9 @@ struct SaleDetailNativeView: View {
         auth.has("sales.manage")
     }
 
-    private var canAssignSalesperson: Bool {
-        auth.has("sales.salesperson.assign") && auth.has("employees.view")
+    private func canAssignSalesperson(for sale: Sale) -> Bool {
+        auth.has("sales.salesperson.assign") && auth.has("employees.view") && auth.has("sales.viewAll")
+            && SaleSalespersonPolicy.allowsAssignment(status: sale.status)
     }
 
     private func invoiceNumber(for sale: Sale, invoice: SaleInvoice?) -> String {
@@ -71,7 +111,7 @@ struct SaleDetailNativeView: View {
                             trailing: sale.priceLevelAtQuote.map { i18n.t($0.localizationKey) } ?? "—")
                     RowLine(title: "Warehouse", subtitle: sale.location)
                     RowLine(title: "Tax", subtitle: AppFormat.money(sale.taxAmount), trailing: sale.taxRate)
-                    if canAssignSalesperson || sale.salesperson != nil {
+                    if canAssignSalesperson(for: sale) || sale.salesperson != nil {
                         salespersonRows(sale)
                     }
                 }
@@ -344,7 +384,7 @@ struct SaleDetailNativeView: View {
     /// button can't be tapped against an empty picker mid-fetch.
     @MainActor
     private func loadSalespersonOptionsIfNeeded(sale: Sale) async {
-        guard canAssignSalesperson else { return }
+        guard canAssignSalesperson(for: sale) else { return }
         if !salespersonSeeded {
             salespersonSeeded = true
             selectedSalespersonId = sale.salespersonId ?? ""
@@ -353,9 +393,9 @@ struct SaleDetailNativeView: View {
         salespersonOptionsLoading = true
         defer { salespersonOptionsLoading = false }
         if let people = try? await salespersonLoader() {
-            salespersonOptions = people
-                .filter { $0.status != "TERMINATED" }
-                .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
+            salespersonOptions = SaleSalespersonPolicy.options(
+                staff: people, currentID: sale.salespersonId, current: sale.salesperson
+            )
             // Only mark loaded on success so a transient failure can be retried.
             salespersonOptionsLoaded = true
         }
@@ -363,11 +403,12 @@ struct SaleDetailNativeView: View {
 
     @ViewBuilder
     private func salespersonRows(_ sale: Sale) -> some View {
-        if canAssignSalesperson {
+        if canAssignSalesperson(for: sale) {
             Picker("Salesperson", selection: $selectedSalespersonId) {
                 Text("None").tag("")
                 ForEach(salespersonOptions) { person in
                     Text(person.fullName).tag(person.id)
+                        .disabled(person.status != "ACTIVE")
                 }
             }
             .disabled(savingSalesperson)
@@ -379,7 +420,11 @@ struct SaleDetailNativeView: View {
                 Label(savingSalesperson ? "Saving..." : "Save salesperson", systemImage: "person.crop.circle")
             }
             .buttonStyle(.borderless)
-            .disabled(savingSalesperson || salespersonOptionsLoading || !salespersonOptionsLoaded || selectedSalespersonId == (sale.salespersonId ?? ""))
+            .disabled(savingSalesperson || salespersonOptionsLoading || !salespersonOptionsLoaded
+                || !SaleSalespersonPolicy.canSave(
+                    status: sale.status, selectedID: selectedSalespersonId.nilIfBlank,
+                    currentID: sale.salespersonId, options: salespersonOptions
+                ))
         } else if let salesperson = sale.salesperson {
             RowLine(title: "Salesperson", subtitle: salesperson.fullName)
         }
@@ -391,6 +436,12 @@ struct SaleDetailNativeView: View {
 
     @MainActor
     private func saveSalesperson(for sale: Sale) async {
+        guard canAssignSalesperson(for: sale), !savingSalesperson,
+              salespersonOptionsLoaded, !salespersonOptionsLoading,
+              SaleSalespersonPolicy.canSave(
+                status: sale.status, selectedID: selectedSalespersonId.nilIfBlank,
+                currentID: sale.salespersonId, options: salespersonOptions
+              ) else { return }
         savingSalesperson = true
         actionError = nil
         do {
@@ -1324,6 +1375,7 @@ struct ContainerDetailNativeView: View {
     @State private var skuSearchLineId: String?
     @State private var showingCancelConfirm = false
     @State private var showingUnreceiveConfirm = false
+    @State private var showingContractReceipt = false
     @State private var showingSupplierCorrection = false
     @State private var unreceiveReason = ""
     @State private var attachmentPreview: PreviewFile?
@@ -1409,6 +1461,14 @@ struct ContainerDetailNativeView: View {
                     self.container = updated
                     actionMessage = i18n.t("purchasing.supplierChange.success", ["name": updated.supplier.name])
                     showingSupplierCorrection = false
+                }
+            }
+        }
+        .sheet(isPresented: $showingContractReceipt) {
+            if let container, container.hasContractLines {
+                ContractReceivingSheet(container: container) {
+                    showingContractReceipt = false
+                    Task { await load(preservingDraft: true) }
                 }
             }
         }
@@ -1589,7 +1649,7 @@ struct ContainerDetailNativeView: View {
                         Label("Cancel container", systemImage: "xmark.circle")
                     }
                     .disabled(busy)
-                } else if container.status == "RECEIVED", canReceive {
+                } else if container.status == "RECEIVED", canReceive, !container.hasContractLines {
                     Button(role: .destructive) {
                         showingUnreceiveConfirm = true
                     } label: {
@@ -1605,9 +1665,16 @@ struct ContainerDetailNativeView: View {
                     Button {
                         Task { await receiveContainer() }
                     } label: {
-                        Label("Receive into inventory", systemImage: "shippingbox.and.arrow.backward")
+                        Label(container.hasContractLines ? i18n.t("purchasing.receipt.title") : "Receive into inventory",
+                              systemImage: "shippingbox.and.arrow.backward")
                     }
-                    .disabled(busy || (canEditDraft ? (lines.isEmpty || !linesAreValid || !locationIsActive) : container.lines.isEmpty))
+                    .disabled(busy || (container.hasContractLines ? container.lines.isEmpty
+                        : (canEditDraft ? (lines.isEmpty || !linesAreValid || !locationIsActive) : container.lines.isEmpty)))
+                }
+                if container.hasContractLines, canReceive {
+                    Text(i18n.t(container.status == "RECEIVED" ? "purchasing.receipt.reversalHelp" : "purchasing.receipt.savedHelp"))
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
                 }
             }
 
@@ -2050,10 +2117,18 @@ struct ContainerDetailNativeView: View {
 
     @MainActor
     private func advance(to status: ContainerStatus) async {
+        guard canManage, !busy, let container else { return }
+        if container.hasContractLines && (container.updatedAt == nil || container.purchaseOrder?.version == nil) {
+            actionMessage = i18n.t("purchasing.receipt.refreshRequired")
+            return
+        }
         busy = true
         actionMessage = nil
         do {
-            let updated = try await ContainersAPI().setStatus(id: id, status: status)
+            let updated = try await ContainersAPI().setStatus(
+                id: id, status: status, expectedContractVersion: container.purchaseOrder?.version,
+                expectedContainerUpdatedAt: container.updatedAt
+            )
             seed(updated)
             actionMessage = "Moved to \(ContainerDetailLabels.status(status))"
         } catch {
@@ -2065,6 +2140,10 @@ struct ContainerDetailNativeView: View {
     @MainActor
     private func receiveContainer() async {
         guard canReceive, !busy, container?.status == "ARRIVED" else { return }
+        if container?.hasContractLines == true {
+            showingContractReceipt = true
+            return
+        }
         let body: ContainerPatchInput?
         if canEditDraft {
             guard let draft = draftBody(), !lines.isEmpty else { return }
@@ -2076,10 +2155,13 @@ struct ContainerDetailNativeView: View {
         actionMessage = nil
         defer { busy = false }
         do {
+            var reviewed = container
             if let body {
-                _ = try await ContainersAPI().update(id: id, body: body)
+                let updated = try await ContainersAPI().update(id: id, body: body)
+                reviewed = updated
+                self.container = updated
             }
-            let updated = try await ContainersAPI().receive(id: id)
+            let updated = try await ContainersAPI().receive(id: id, expectedContainerUpdatedAt: reviewed?.updatedAt)
             seed(updated)
             actionMessage = "Received into inventory"
         } catch {
@@ -2092,7 +2174,7 @@ struct ContainerDetailNativeView: View {
         busy = true
         actionMessage = nil
         do {
-            let updated = try await ContainersAPI().cancel(id: id)
+            let updated = try await ContainersAPI().cancel(id: id, expectedContainerUpdatedAt: container?.updatedAt)
             seed(updated)
             actionMessage = "Container cancelled"
         } catch {
@@ -2163,12 +2245,14 @@ struct ContainerDetailNativeView: View {
             arrivedAt: arrivedAt.nilIfBlank,
             balanceDueAt: balanceDueAt.nilIfBlank,
             notes: notes.nilIfBlank,
-            lines: inputLines
+            lines: inputLines,
+            expectedContainerUpdatedAt: container?.updatedAt
         )
     }
 
     private func actionMessageIsError(_ message: String) -> Bool {
-        message.hasPrefix("Could not")
+        message == i18n.t("purchasing.receipt.refreshRequired")
+            || message.hasPrefix("Could not")
             || message.hasPrefix("Choose")
             || message.hasPrefix("Fix")
             || message.contains("already")

@@ -22,4 +22,27 @@ final class FleetSkuPriceInputTests: XCTestCase {
             XCTAssertNil(StandardSkuPrice.parse(input), input)
         }
     }
+
+    func testStandardCatalogPricesKeepCentPrecisionInSkuPatches() throws {
+        let cases = [
+            (entered: "288.58", encoded: "288.58"),
+            (entered: "288.59", encoded: "288.59"),
+            (entered: "0.07", encoded: "0.07"),
+            (entered: "1.13", encoded: "1.13"),
+            (entered: "288.580", encoded: "288.58"),
+            (entered: "9999999999.99", encoded: "9999999999.99")
+        ]
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        for testCase in cases {
+            let amount = try XCTUnwrap(StandardSkuPrice.parse(testCase.entered))
+            let patch = TireSkuPatchInput(priceWholesale: amount, priceFleet: amount, priceRetail: amount)
+            let json = try XCTUnwrap(String(data: encoder.encode(patch), encoding: .utf8))
+            XCTAssertEqual(
+                json,
+                "{\"priceFleet\":\(testCase.encoded),\"priceRetail\":\(testCase.encoded),\"priceWholesale\":\(testCase.encoded)}",
+                testCase.entered
+            )
+        }
+    }
 }

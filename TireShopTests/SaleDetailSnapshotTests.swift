@@ -12,7 +12,7 @@ final class SaleDetailSnapshotTests: XCTestCase {
         let auth = AuthStore(api: APIClient(session: URLSession(configuration: config)), storage: SnapshotSessionStorage())
         auth.user = SessionUser(id: "visual-qa", email: "visual@example.invalid", fullName: "Visual QA",
             roleId: "staff", roleName: "Staff", homeWarehouse: "MAIN", isAdmin: false,
-            permissions: ["sales.view", "sales.salesperson.assign", "employees.view"],
+            permissions: ["sales.view", "sales.salesperson.assign", "employees.view", "sales.viewAll"],
             approvalPermissions: [], mfaMethod: nil)
         auth.ready = true
         for (name, size) in [("phone", CGSize(width: 393, height: 852)), ("tablet", CGSize(width: 1024, height: 1366))] {

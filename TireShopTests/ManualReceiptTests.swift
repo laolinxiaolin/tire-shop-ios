@@ -39,6 +39,34 @@ final class ManualReceiptTests: XCTestCase {
         XCTAssertEqual(ManualReceiptInput.money("9999999999.99"), 9999999999.99)
     }
 
+    func testReceiptAmountsEncodeAsNumbersWithoutExtraFractionalDigits() throws {
+        let cases = [
+            (entered: "288.58", encoded: "288.58"),
+            (entered: "288.59", encoded: "288.59"),
+            (entered: "0.07", encoded: "0.07"),
+            (entered: "0.11", encoded: "0.11"),
+            (entered: "1.13", encoded: "1.13"),
+            (entered: " 00288.58 ", encoded: "288.58"),
+            (entered: "9999999999.99", encoded: "9999999999.99"),
+            (entered: "100.00", encoded: "100")
+        ]
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        for testCase in cases {
+            let input = try ManualReceiptInput.make(
+                invoiceId: "invoice", customerId: "customer",
+                rows: [.init(paymentMethodId: "cash", amount: testCase.entered, reference: "")],
+                methods: methods()
+            )
+            let json = try XCTUnwrap(String(data: encoder.encode(input), encoding: .utf8))
+            XCTAssertEqual(
+                json,
+                "{\"customerId\":\"customer\",\"lines\":[{\"amount\":\(testCase.encoded),\"invoiceId\":\"invoice\",\"paymentMethodId\":\"cash\"}]}",
+                testCase.entered
+            )
+        }
+    }
+
     func testOneCentExcessIsDetectedWithoutDroppingTheTender() {
         XCTAssertTrue(ManualPaymentOverpaymentPolicy.isOverpayment(totalApplied: 100.01, balance: 100))
         XCTAssertEqual(ManualPaymentOverpaymentPolicy.amount(totalApplied: 100.01, balance: 100), 0.01)

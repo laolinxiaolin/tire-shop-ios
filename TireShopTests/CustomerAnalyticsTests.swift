@@ -165,6 +165,61 @@ final class CustomerAnalyticsTests: XCTestCase {
         XCTAssertEqual(products.page, 2)
         let history = try await api.history(customerId: "customer-1", filters: filters, page: 3, pageSize: 25)
         XCTAssertEqual(history.page, 3)
+        XCTAssertEqual(history.items.map(\.kind), [
+            .sale, .saleAdjustment, .saleAdjustmentReversal, .saleReversal, .returnEvent, .returnReversal
+        ])
+        XCTAssertEqual(history.total, 80)
+        XCTAssertEqual(history.pageSize, 25)
+        XCTAssertEqual(history.period.preset, .custom)
+        XCTAssertEqual(history.period.start, "2026-03-08")
+        XCTAssertEqual(history.period.end, "2026-11-01")
+        XCTAssertEqual(history.period.timezone, "America/New_York")
+        XCTAssertEqual(history.historyCoverage.status, .complete)
+
+        // Corrections change revenue without adding sold units or current
+        // costs, and retain the server's exact invoice-generation link policy.
+        let adjustment = try XCTUnwrap(history.items.first { $0.kind == .saleAdjustment })
+        XCTAssertEqual(adjustment.eventId, "adjustment-event")
+        XCTAssertEqual(adjustment.saleId, "sale-1")
+        XCTAssertEqual(adjustment.invoiceId, "invoice-1")
+        XCTAssertEqual(adjustment.ref, "INV-1")
+        XCTAssertEqual(adjustment.priceLevel, .unknown)
+        XCTAssertTrue(adjustment.sourceAvailable)
+        XCTAssertEqual(adjustment.sales, -0.29)
+        XCTAssertEqual(adjustment.tireRevenue, -0.27)
+        XCTAssertEqual(adjustment.serviceRevenue, -0.02)
+        XCTAssertEqual(adjustment.tiresSold, 0)
+        XCTAssertEqual(adjustment.deliveryRevenue, 0)
+        XCTAssertEqual(adjustment.restockingFees, 0)
+        XCTAssertEqual(adjustment.bookedCogs, 0)
+
+        let reversal = try XCTUnwrap(history.items.first { $0.kind == .saleAdjustmentReversal })
+        XCTAssertEqual(reversal.eventId, "adjustment-reversal-event")
+        XCTAssertEqual(reversal.invoiceId, "invoice-1")
+        XCTAssertFalse(reversal.sourceAvailable)
+        XCTAssertEqual(reversal.sales, 0.29)
+        XCTAssertEqual(reversal.tireRevenue, 0.27)
+        XCTAssertEqual(reversal.serviceRevenue, 0.02)
+        XCTAssertEqual(reversal.tiresSold, 0)
+        XCTAssertNil(reversal.bookedCogs)
+    }
+
+    @MainActor
+    func testCollectionPriceAdjustmentsHaveDistinctEnglishAndChineseLabels() {
+        let savedLanguage = UserDefaults.standard.object(forKey: "ts_lang")
+        defer {
+            if let savedLanguage { UserDefaults.standard.set(savedLanguage, forKey: "ts_lang") }
+            else { UserDefaults.standard.removeObject(forKey: "ts_lang") }
+        }
+        let i18n = I18nStore()
+        for (language, adjustment, reversal) in [
+            (AppLanguage.en, "Invoice price adjustment", "Invoice price adjustment reversal"),
+            (.zh, "发票价格调整", "发票价格调整冲销")
+        ] {
+            i18n.setLanguage(language)
+            XCTAssertEqual(i18n.t("analytics.event.\(CustomerAnalyticsHistoryEvent.Kind.saleAdjustment.rawValue)"), adjustment)
+            XCTAssertEqual(i18n.t("analytics.event.\(CustomerAnalyticsHistoryEvent.Kind.saleAdjustmentReversal.rawValue)"), reversal)
+        }
     }
 
     func testAPIRejectsInvalidCustomerPathComponents() async throws {
@@ -244,6 +299,37 @@ private enum CustomerAnalyticsFixtures {
          "historyCoverage":{"status":"COMPLETE"}}
         """
     }
+
+    // Match the complete history envelope, including the additive event kinds
+    // emitted after collection-time repricing and a later sale reversal.
+    static let history = """
+    {"items":[
+      {"sourceAvailable":true,"eventId":"sale-event","saleId":"sale-1","invoiceId":"invoice-1",
+       "ref":"INV-1","kind":"SALE","date":"2026-10-02T02:00:00.000Z",
+       "priceLevel":"UNKNOWN","fulfillment":"DELIVERY","sales":227.37,"tireRevenue":202.37,
+       "serviceRevenue":5,"deliveryRevenue":20,"restockingFees":0,"tiresSold":2,"bookedCogs":150},
+      {"sourceAvailable":true,"eventId":"adjustment-event","saleId":"sale-1","invoiceId":"invoice-1",
+       "ref":"INV-1","kind":"SALE_ADJUSTMENT","date":"2026-10-02T02:00:00.000Z",
+       "priceLevel":"UNKNOWN","fulfillment":"DELIVERY","sales":-0.29,"tireRevenue":-0.27,
+       "serviceRevenue":-0.02,"deliveryRevenue":0,"restockingFees":0,"tiresSold":0,"bookedCogs":0},
+      {"sourceAvailable":false,"eventId":"adjustment-reversal-event","saleId":"sale-1","invoiceId":"invoice-1",
+       "ref":"INV-1","kind":"SALE_ADJUSTMENT_REVERSAL","date":"2026-10-03T02:00:00.000Z",
+       "priceLevel":"UNKNOWN","fulfillment":"DELIVERY","sales":0.29,"tireRevenue":0.27,
+       "serviceRevenue":0.02,"deliveryRevenue":0,"restockingFees":0,"tiresSold":0,"bookedCogs":null},
+      {"sourceAvailable":false,"eventId":"sale-reversal-event","saleId":"sale-1","invoiceId":"invoice-1",
+       "ref":"INV-1","kind":"SALE_REVERSAL","date":"2026-10-03T02:00:00.000Z",
+       "priceLevel":"UNKNOWN","fulfillment":"DELIVERY","sales":-227.37,"tireRevenue":-202.37,
+       "serviceRevenue":-5,"deliveryRevenue":-20,"restockingFees":0,"tiresSold":-2},
+      {"sourceAvailable":false,"eventId":"return-event","saleId":"sale-2","invoiceId":"invoice-2",
+       "ref":"INV-2","kind":"RETURN","date":"2026-10-04T02:00:00.000Z",
+       "priceLevel":null,"fulfillment":"PICKUP","sales":-125.5,"tireRevenue":-125.5,
+       "serviceRevenue":0,"deliveryRevenue":0,"restockingFees":0,"tiresSold":-1},
+      {"sourceAvailable":false,"eventId":"return-reversal-event","saleId":"sale-2","invoiceId":"invoice-2",
+       "ref":"INV-2","kind":"RETURN_REVERSAL","date":"2026-10-05T02:00:00.000Z",
+       "priceLevel":null,"fulfillment":"PICKUP","sales":125.5,"tireRevenue":125.5,
+       "serviceRevenue":0,"deliveryRevenue":0,"restockingFees":0,"tiresSold":1}
+    ],"total":80,"page":3,"pageSize":25,"period":\(period),"historyCoverage":{"status":"COMPLETE"}}
+    """
 }
 
 private final class CustomerAnalyticsProtocol: URLProtocol {
@@ -290,7 +376,7 @@ private final class CustomerAnalyticsProtocol: URLProtocol {
                     guard query == filters.merging(["page": "3", "pageSize": "25"], uniquingKeysWith: { _, new in new }) else {
                         throw URLError(.badURL)
                     }
-                    body = CustomerAnalyticsFixtures.page(3, pageSize: 25)
+                    body = CustomerAnalyticsFixtures.history
                 default:
                     throw URLError(.unsupportedURL)
                 }

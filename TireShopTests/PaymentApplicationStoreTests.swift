@@ -5,6 +5,49 @@ import XCTest
 final class PaymentApplicationStoreTests: XCTestCase {
     private let filter = PaymentApplicationListFilter(view: "mine", query: nil, status: nil)
 
+    func testPaymentApplicationAmountsPreserveCentsWithoutFractionalTails() throws {
+        let locale = Locale(identifier: "en_US")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        for (text, encoded) in [("288.58", "288.58"), ("0.07", "0.07"), ("12.34", "12.34"),
+                                ("0.01", "0.01"), ("100", "100"), (".25", "0.25"),
+                                ("12.340", "12.34"), (" 288.5800 ", "288.58")] {
+            let amount = try XCTUnwrap(PaymentApplicationAmount.parse(text, locale: locale), text)
+            XCTAssertEqual(amount, Double(encoded))
+            let data = try encoder.encode(PaymentApplicationLineInput(
+                containerCostId: "bill", amount: amount, note: nil))
+            XCTAssertEqual(String(data: data, encoding: .utf8),
+                "{\"amount\":\(encoded),\"containerCostId\":\"bill\"}", text)
+        }
+    }
+
+    func testPaymentApplicationAmountsAcceptLocalizedCents() {
+        let locale = Locale(identifier: "de_DE")
+        XCTAssertEqual(PaymentApplicationAmount.parse("288,58", locale: locale), 288.58)
+        XCTAssertEqual(PaymentApplicationAmount.parse("1.234,56", locale: locale), 1234.56)
+        XCTAssertEqual(PaymentApplicationAmount.parse("0,07", locale: locale), 0.07)
+        XCTAssertEqual(PaymentApplicationAmount.parse("288.58", locale: locale), 288.58)
+        XCTAssertNil(PaymentApplicationAmount.parse("12,345", locale: locale))
+    }
+
+    func testPaymentApplicationAmountsRejectExtraPrecisionAndInvalidInput() {
+        let locale = Locale(identifier: "en_US")
+        for text in ["12.345", "0.001", "0", "-1", "", " ", "bad", "12.34.56", "12.34 USD", "NaN", "inf", "1e309"] {
+            XCTAssertNil(PaymentApplicationAmount.parse(text, locale: locale), text)
+        }
+        XCTAssertEqual(AppFormat.parseAmount("12.345", locale: locale), 12.345,
+            "Non-money inputs such as rates retain their existing precision")
+    }
+
+    func testPaymentApplicationNumericAmountsRequireWholeCents() {
+        for amount in [288.58, 0.07, 0.01, 100, 12.340] {
+            XCTAssertTrue(PaymentApplicationAmount.isValid(amount), String(amount))
+        }
+        for amount in [12.345, 0.001, 0, -1, Double.nan, .infinity, -.infinity, 0.1 + 0.2] {
+            XCTAssertFalse(PaymentApplicationAmount.isValid(amount), String(amount))
+        }
+    }
+
     func testFailedNextPageKeepsDisplayedPageAndRetriesIt() async {
         var pages: [Int] = []
         var fail = true

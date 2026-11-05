@@ -250,6 +250,7 @@ struct ContainerPatchInput: Encodable {
     var balanceDueAt: String?
     var notes: String?
     var lines: [ContainerDraftLineInput]?
+    var expectedContainerUpdatedAt: String? = nil
 
     private enum CodingKeys: String, CodingKey {
         case reference
@@ -262,6 +263,7 @@ struct ContainerPatchInput: Encodable {
         case balanceDueAt
         case notes
         case lines
+        case expectedContainerUpdatedAt
     }
 
     func encode(to encoder: Encoder) throws {
@@ -276,6 +278,7 @@ struct ContainerPatchInput: Encodable {
         try encode(balanceDueAt, forKey: .balanceDueAt, into: &container)
         try encode(notes, forKey: .notes, into: &container)
         try container.encodeIfPresent(lines, forKey: .lines)
+        try container.encodeIfPresent(expectedContainerUpdatedAt, forKey: .expectedContainerUpdatedAt)
     }
 
     private func encode<T: Encodable>(
@@ -314,6 +317,12 @@ struct ContainerCostDueDateInput: Encodable {
 
 struct ContainerStatusInput: Codable {
     let status: ContainerStatus
+    var expectedContractVersion: Int? = nil
+    var expectedContainerUpdatedAt: String? = nil
+}
+
+struct ContainerVersionInput: Encodable {
+    let expectedContainerUpdatedAt: String?
 }
 
 struct ContainerCostSaveInput: Encodable {
@@ -1362,7 +1371,7 @@ struct SalesAPI {
 
     /// Reassign (or clear, via explicit `null`) a confirmed sale's salesperson.
     func assignSalesperson(id: String, body: SaleSalespersonPatch) async throws -> Sale {
-        try await client.request("/sales/\(id)/salesperson", method: "PATCH", body: body)
+        try await client.request("/sales/\(id)/salesperson", method: "POST", body: body)
     }
 
     func promoteToQuote(id: String) async throws -> Sale {
@@ -1969,20 +1978,26 @@ struct ContainersAPI {
         try await client.request("/containers/\(id)", method: "PATCH", body: body)
     }
 
-    func setStatus(id: String, status: ContainerStatus) async throws -> Container {
-        try await client.request("/containers/\(id)/status", method: "POST", body: ContainerStatusInput(status: status))
+    func setStatus(id: String, status: ContainerStatus, expectedContractVersion: Int? = nil,
+                   expectedContainerUpdatedAt: String? = nil) async throws -> Container {
+        try await client.request("/containers/\(id)/status", method: "POST", body: ContainerStatusInput(
+            status: status, expectedContractVersion: expectedContractVersion,
+            expectedContainerUpdatedAt: expectedContainerUpdatedAt
+        ))
     }
 
-    func receive(id: String) async throws -> Container {
-        try await client.request("/containers/\(id)/receive", method: "POST", body: EmptyBody())
+    func receive(id: String, expectedContainerUpdatedAt: String? = nil) async throws -> Container {
+        try await client.request("/containers/\(id)/receive", method: "POST",
+                                 body: ContainerVersionInput(expectedContainerUpdatedAt: expectedContainerUpdatedAt))
     }
 
     func unreceive(id: String, reason: String? = nil) async throws -> Container {
         try await client.request("/containers/\(id)/unreceive", method: "POST", body: ReasonInput(reason: reason))
     }
 
-    func cancel(id: String) async throws -> Container {
-        try await client.request("/containers/\(id)/cancel", method: "POST", body: EmptyBody())
+    func cancel(id: String, expectedContainerUpdatedAt: String? = nil) async throws -> Container {
+        try await client.request("/containers/\(id)/cancel", method: "POST",
+                                 body: ContainerVersionInput(expectedContainerUpdatedAt: expectedContainerUpdatedAt))
     }
 
     func addCost(id: String, body: ContainerCostSaveInput) async throws -> ContainerCost {
@@ -2526,9 +2541,12 @@ struct PaymentApplicationsAPI {
         reference: String?,
         note: String?
     ) async throws -> PaymentApplicationDetail {
+        guard PaymentApplicationAmount.isValid(amount) else {
+            throw APIError(status: 400, message: "Enter a positive amount with no more than two decimal places.")
+        }
         var fields = [
             "idempotencyKey": idempotencyKey,
-            "amount": String(format: "%.2f", amount),
+            "amount": String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), amount),
             "paidAt": paidAt,
             "accountId": accountId
         ]

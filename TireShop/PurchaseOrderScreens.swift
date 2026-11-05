@@ -1,6 +1,58 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
+final class PurchaseOrderListStore: ObservableObject {
+    @Published private(set) var data: Paged<PurchaseOrder>?
+    @Published private(set) var loading = false
+    @Published private(set) var errorMessage: String?
+
+    private(set) var filter: PurchaseOrderListFilter?
+    let pageSize: Int
+    private var requestID = 0
+    private let loader: (PurchaseOrderListFilter, Int, Int) async throws -> Paged<PurchaseOrder>
+
+    init(
+        pageSize: Int = 25,
+        loader: @escaping (PurchaseOrderListFilter, Int, Int) async throws -> Paged<PurchaseOrder> = { filter, page, size in
+            try await PurchaseOrdersAPI().list(q: filter.search, supplierId: filter.supplierId, view: filter.view, page: page, pageSize: size)
+        }
+    ) {
+        self.pageSize = pageSize
+        self.loader = loader
+    }
+
+    func invalidate(clearData: Bool = false) {
+        requestID += 1
+        loading = false
+        if clearData {
+            data = nil
+            errorMessage = nil
+        }
+    }
+
+    func load(filter: PurchaseOrderListFilter, page: Int, canApply: () -> Bool = { true }) async {
+        let changedFilter = self.filter != filter
+        let requestedPage = changedFilter ? 1 : max(1, page)
+        if changedFilter { data = nil }
+        self.filter = filter
+        requestID += 1
+        let request = requestID
+        loading = true
+        errorMessage = nil
+        defer { if request == requestID { loading = false } }
+        do {
+            let result = try await loader(filter, requestedPage, pageSize)
+            try Task.checkCancellation()
+            guard request == requestID, canApply() else { return }
+            data = result
+        } catch {
+            guard request == requestID, !Task.isCancelled, canApply() else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 /// Supplier agreements own shared terms and documents. Inventory, freight,
 /// receipts and bills continue to be managed on each individual container.
 struct PurchaseOrdersListNativeView: View {
@@ -10,17 +62,18 @@ struct PurchaseOrdersListNativeView: View {
     var supplierId: String? = nil
 
     @State private var search = ""
-    @State private var data: Paged<PurchaseOrder>?
-    @State private var loading = false
+    @State private var selectedView: PurchaseOrderListView = .pending
+    @StateObject private var store = PurchaseOrderListStore()
     @State private var errorMessage: String?
-    @State private var requestID = 0
     @State private var showingNew = false
     @State private var downloading = false
     @State private var exportPreview: PreviewFile?
     @State private var createdOrderId: String?
     @State private var visible = true
 
-    private let pageSize = 25
+    private var listFilter: PurchaseOrderListFilter {
+        PurchaseOrderListFilter(search: search.nilIfBlank, supplierId: supplierId, view: selectedView)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,38 +94,47 @@ struct PurchaseOrdersListNativeView: View {
             .padding(.horizontal, Theme.Space.lg)
             .padding(.bottom, Theme.Space.sm)
 
-            if let errorMessage {
+            Picker(i18n.t("purchasing.po.view.label"), selection: $selectedView) {
+                ForEach(PurchaseOrderListView.allCases) { view in
+                    Text(i18n.t(view.localizationKey)).tag(view)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.bottom, Theme.Space.sm)
+
+            if let errorMessage = errorMessage ?? store.errorMessage {
                 InlineErrorText(message: errorMessage)
-                Button(i18n.t("common.retry")) { Task { await load(page: data?.page ?? 1) } }
-                    .disabled(loading)
+                Button(i18n.t("common.retry")) { Task { await load(page: store.data?.page ?? 1) } }
+                    .disabled(store.loading)
             }
 
-            if loading && data == nil {
+            if store.loading && store.data == nil {
                 LoadingView(label: i18n.t("common.loading"))
             } else {
                 List {
-                    if let data, data.items.isEmpty {
+                    if let data = store.data, data.items.isEmpty {
                         Text(i18n.t(search.nilIfBlank == nil && supplierId == nil ? "purchasing.po.empty" : "purchasing.po.noMatch"))
                             .foregroundStyle(Theme.muted)
                     }
-                    ForEach(data?.items ?? []) { order in
+                    ForEach(store.data?.items ?? []) { order in
                         NavigationLink(value: AppRoute.purchaseOrderDetail(order.id)) {
                             PurchaseOrderRegisterRow(order: order)
                         }
                     }
                 }
                 .listStyle(.plain)
-                .refreshable { await load(page: data?.page ?? 1) }
+                .refreshable { await load(page: store.data?.page ?? 1) }
             }
 
-            if let data, data.total > 0 {
+            if let data = store.data, data.total > 0 {
                 PagedFooter(
                     page: data.page,
-                    totalPages: max(1, (data.total + pageSize - 1) / pageSize),
+                    totalPages: max(1, (data.total + store.pageSize - 1) / store.pageSize),
                     total: data.total,
                     label: i18n.t("purchasing.purchaseOrders"),
                     singularLabel: i18n.t("purchasing.purchaseOrder"),
-                    loading: loading
+                    loading: store.loading
                 ) {
                     Task { await load(page: max(1, data.page - 1)) }
                 } onNext: {
@@ -81,10 +143,14 @@ struct PurchaseOrdersListNativeView: View {
             }
         }
         .background(Theme.background)
-        .task(id: search) {
-            if data != nil { try? await Task.sleep(nanoseconds: 250_000_000) }
+        .task(id: listFilter) {
+            if store.filter != nil { try? await Task.sleep(nanoseconds: 250_000_000) }
             guard !Task.isCancelled else { return }
             await load(page: 1)
+        }
+        .onChange(of: listFilter) { _, _ in
+            store.invalidate(clearData: true)
+            errorMessage = nil
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -115,43 +181,35 @@ struct PurchaseOrdersListNativeView: View {
             if let createdOrderId { PurchaseOrderDetailNativeView(id: createdOrderId) }
         }
         .onAppear { visible = true }
-        .onDisappear { visible = false; requestID += 1 }
+        .onDisappear { visible = false; store.invalidate() }
     }
 
     @MainActor
     private func load(page: Int) async {
         let session = AppSessionIdentity(auth)
-        requestID += 1
-        let request = requestID
-        loading = true
+        let filter = listFilter
         errorMessage = nil
-        do {
-            let result = try await PurchaseOrdersAPI().list(q: search.nilIfBlank, supplierId: supplierId, page: page, pageSize: pageSize)
-            try Task.checkCancellation()
-            guard request == requestID, visible, session.isCurrent(auth), auth.has("purchasing.view") else { return }
-            data = result
-        } catch {
-            guard request == requestID, visible, session.isCurrent(auth), !Task.isCancelled else { return }
-            errorMessage = error.localizedDescription
+        await store.load(filter: filter, page: page) {
+            visible && filter == listFilter && session.isCurrent(auth) && auth.has("purchasing.view")
         }
-        if request == requestID { loading = false }
     }
 
     @MainActor
     private func export() async {
         guard !downloading else { return }
         let session = AppSessionIdentity(auth)
+        let filter = listFilter
         downloading = true
         defer { downloading = false }
         do {
-            let url = try await PurchaseOrdersAPI().export(q: search.nilIfBlank, supplierId: supplierId)
-            guard visible, session.isCurrent(auth), !Task.isCancelled, auth.has("purchasing.view") else {
+            let url = try await PurchaseOrdersAPI().export(q: filter.search, supplierId: filter.supplierId, view: filter.view)
+            guard visible, filter == listFilter, session.isCurrent(auth), !Task.isCancelled, auth.has("purchasing.view") else {
                 TemporaryDownloadStore.remove(url)
                 return
             }
             exportPreview = PreviewFile(url: url)
         } catch {
-            guard visible, session.isCurrent(auth), !Task.isCancelled else { return }
+            guard visible, filter == listFilter, session.isCurrent(auth), !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }

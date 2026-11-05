@@ -1,17 +1,33 @@
 import Foundation
 
+enum PurchaseOrderListView: String, CaseIterable, Identifiable, Hashable {
+    case pending
+    case history
+    case all
+
+    var id: String { rawValue }
+    var localizationKey: String { "purchasing.po.view.\(rawValue)" }
+}
+
+struct PurchaseOrderListFilter: Hashable {
+    var search: String? = nil
+    var supplierId: String? = nil
+    var view: PurchaseOrderListView = .pending
+}
+
 struct PurchaseOrdersAPI {
     var client = APIClient.shared
 
     func list(
         q: String? = nil,
         supplierId: String? = nil,
+        view: PurchaseOrderListView = .pending,
         sortBy: String? = nil,
         sortOrder: String? = nil,
         page: Int? = nil,
         pageSize: Int? = nil
     ) async throws -> Paged<PurchaseOrder> {
-        try await client.request("/purchase-orders\(Self.query(q: q, supplierId: supplierId, sortBy: sortBy, sortOrder: sortOrder, page: page, pageSize: pageSize))")
+        try await client.request("/purchase-orders\(Self.query(q: q, supplierId: supplierId, view: view, sortBy: sortBy, sortOrder: sortOrder, page: page, pageSize: pageSize))")
     }
 
     func get(id: String) async throws -> PurchaseOrder {
@@ -90,13 +106,14 @@ struct PurchaseOrdersAPI {
         try await client.request("/purchase-orders/\(id)/attachments/\(attachmentId)", method: "DELETE")
     }
 
-    func export(q: String? = nil, supplierId: String? = nil, ids: [String]? = nil) async throws -> URL {
-        try await client.download("/purchase-orders/export\(Self.query(q: q, supplierId: supplierId, ids: ids))", fileName: "purchase-orders.xlsx")
+    func export(q: String? = nil, supplierId: String? = nil, view: PurchaseOrderListView = .pending, ids: [String]? = nil) async throws -> URL {
+        try await client.download("/purchase-orders/export\(Self.query(q: q, supplierId: supplierId, view: view, ids: ids))", fileName: "purchase-orders.xlsx")
     }
 
     private static func query(
         q: String? = nil,
         supplierId: String? = nil,
+        view: PurchaseOrderListView? = nil,
         sortBy: String? = nil,
         sortOrder: String? = nil,
         page: Int? = nil,
@@ -104,7 +121,7 @@ struct PurchaseOrdersAPI {
         ids: [String]? = nil
     ) -> String {
         let parameters: [(String, String?)] = [
-            ("q", q), ("supplierId", supplierId), ("sortBy", sortBy), ("sortOrder", sortOrder),
+            ("q", q), ("supplierId", supplierId), ("view", view?.rawValue), ("sortBy", sortBy), ("sortOrder", sortOrder),
             ("page", page.map(String.init)), ("pageSize", pageSize.map(String.init)),
             ("ids", ids.map { $0.joined(separator: ",") })
         ]

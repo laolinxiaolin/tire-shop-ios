@@ -12,7 +12,8 @@ enum StandardSkuPrice {
         var rounded = Decimal()
         NSDecimalRound(&rounded, &amount, 2, .plain)
         guard rounded == amount else { return nil }
-        return NSDecimalNumber(decimal: amount).doubleValue
+        // Parse the validated text directly so JSON preserves the entered cents.
+        return Double(trimmed)
     }
 }
 

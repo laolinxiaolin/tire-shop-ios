@@ -2,6 +2,46 @@ import XCTest
 @testable import TireShop
 
 final class FinanceAmountPolicyTests: XCTestCase {
+    func testAllocationAmountsTrimEntriesBeforeBuildingApplications() {
+        let parsed = FinanceAllocationAmounts([
+            "first": " 5 ", "second": "\n10.25\t", "fraction": "12.345"
+        ])
+        XCTAssertEqual(parsed.amounts, ["first": 5, "second": 10.25, "fraction": 12.345])
+        XCTAssertTrue(parsed.invalidRows.isEmpty)
+        XCTAssertTrue(parsed.canSubmit)
+    }
+
+    func testBlankAndZeroAllocationsCanBeSkipped() {
+        let empty = FinanceAllocationAmounts(["blank": "", "space": " \n", "zero": "0.00"])
+        XCTAssertTrue(empty.amounts.isEmpty)
+        XCTAssertTrue(empty.invalidRows.isEmpty)
+        XCTAssertFalse(empty.canSubmit)
+
+        let mixed = FinanceAllocationAmounts(["blank": " ", "zero": "0", "payment": " 5 "])
+        XCTAssertEqual(mixed.amounts, ["payment": 5])
+        XCTAssertTrue(mixed.invalidRows.isEmpty)
+        XCTAssertTrue(mixed.canSubmit)
+    }
+
+    func testInvalidAllocationBlocksSubmissionAlongsideValidPayments() {
+        for invalid in ["bad", "-1", " -0.01 ", "NaN", "inf", "-inf", "1e309", "12.34.56"] {
+            let parsed = FinanceAllocationAmounts(["valid": "10.25", "invalid": invalid])
+            XCTAssertEqual(parsed.amounts, ["valid": 10.25], invalid)
+            XCTAssertEqual(parsed.invalidRows, ["invalid"], invalid)
+            XCTAssertFalse(parsed.canSubmit, invalid)
+        }
+    }
+
+    func testCorrectingInvalidAllocationRestoresTheWholeSubmission() {
+        var entries = ["first": " 5 ", "second": "bad", "skipped": "0"]
+        XCTAssertFalse(FinanceAllocationAmounts(entries).canSubmit)
+        entries["second"] = " 10 "
+        let corrected = FinanceAllocationAmounts(entries)
+        XCTAssertEqual(corrected.amounts, ["first": 5, "second": 10])
+        XCTAssertTrue(corrected.invalidRows.isEmpty)
+        XCTAssertTrue(corrected.canSubmit)
+    }
+
     func testOneCentOverpaymentIsDetectedAtDifferentBalances() {
         for balance in [1.0, 100, 1000, 10_000] {
             XCTAssertEqual(FinanceMoney.excess(amount: balance + 0.01, balance: balance), 0.01,

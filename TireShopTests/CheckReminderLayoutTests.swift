@@ -87,7 +87,7 @@ final class CheckReminderLayoutTests: XCTestCase {
         auth.user = SessionUser(
             id: "reminder-layout-fixture", email: "fixture@example.invalid", fullName: "Layout Fixture",
             roleId: "accountant", roleName: "Accountant", homeWarehouse: nil, isAdmin: false,
-            permissions: ["accounting.view"], approvalPermissions: [], mfaMethod: nil
+            permissions: ["accounting.view", "sales.viewAll"], approvalPermissions: [], mfaMethod: nil
         )
         auth.ready = true
         let savedLanguage = UserDefaults.standard.object(forKey: "ts_lang")

@@ -245,7 +245,7 @@ struct AppRouteDestinationView: View {
                 .navigationTitle(i18n.t("nav.sales"))
             }
         case .orderDetail(let id):
-            authorized(auth.has("orders.manage")) {
+            authorized(DestinationRegistry.isVisible("orders", auth: auth)) {
                 OrderDetailNativeView(id: id)
             }
         case .editSale(let id):

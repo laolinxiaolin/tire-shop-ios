@@ -225,20 +225,22 @@ private struct AnalyticsScreenFixtures {
             ],
             "total": 2, "page": 1, "pageSize": 10, "period": period, "historyCoverage": coverage
         ])
-        let kinds = ["SALE", "RETURN", "SALE_REVERSAL", "RETURN_REVERSAL"]
+        let kinds = ["SALE", "RETURN", "SALE_REVERSAL", "RETURN_REVERSAL", "SALE_ADJUSTMENT", "SALE_ADJUSTMENT_REVERSAL"]
         let events: [[String: Any]] = kinds.enumerated().map { index, kind in
-            let sales = [12_345.6, -245.25, -680.50, 245.25][index]
+            let sales = [12_345.6, -245.25, -680.50, 245.25, -0.29, 0.29][index]
+            let adjustment = kind == "SALE_ADJUSTMENT" || kind == "SALE_ADJUSTMENT_REVERSAL"
             return [
                 "eventId": "visual-event-\(index)", "saleId": "visual-sale-\(index)", "invoiceId": NSNull(),
                 "ref": "INV-2026-REGIONAL-FLEET-00\(840 + index)", "kind": kind,
-                "sourceAvailable": index == 0, "date": "2026-09-\(28 - index)T02:00:00.000Z",
+                "sourceAvailable": index == 0 || kind == "SALE_ADJUSTMENT", "date": "2026-09-\(28 - index)T02:00:00.000Z",
                 "priceLevel": index == 0 ? "WHOLESALE" : NSNull(), "fulfillment": index == 0 ? "FREIGHT" : "PICKUP",
                 "sales": sales, "tireRevenue": sales, "serviceRevenue": 0, "deliveryRevenue": 0,
-                "restockingFees": 0, "tiresSold": index == 0 ? 40 : (sales < 0 ? -2 : 2), "bookedCogs": sales * 0.7
+                "restockingFees": 0, "tiresSold": adjustment ? 0 : (index == 0 ? 40 : (sales < 0 ? -2 : 2)),
+                "bookedCogs": adjustment ? 0 : sales * 0.7
             ]
         }
         history = try Self.decode([
-            "items": events, "total": 4, "page": 1, "pageSize": 25,
+            "items": events, "total": events.count, "page": 1, "pageSize": 25,
             "period": period, "historyCoverage": coverage
         ])
     }

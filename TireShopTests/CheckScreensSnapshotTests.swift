@@ -83,7 +83,7 @@ final class CheckScreensSnapshotTests: XCTestCase {
         auth.user = SessionUser(
             id: "visual-qa", email: "visual-qa@example.invalid", fullName: "Visual QA",
             roleId: "accountant", roleName: "Accountant", homeWarehouse: nil, isAdmin: false,
-            permissions: ["accounting.view", "accounting.manage", "payments.collect"],
+            permissions: ["accounting.view", "accounting.manage", "payments.collect", "sales.viewAll"],
             approvalPermissions: [], mfaMethod: nil
         )
         auth.ready = true
